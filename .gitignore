@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+adk/backend/.env
+adk/backend/node_modules/
+adk/frontend/node_modules/
+.DS_Store

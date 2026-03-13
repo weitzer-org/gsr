@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSR - Code Review ADK</title>
+    <!-- Use Inter font for a modern look -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Gemini Subagent Reviewer</h1>
+            <p>Paste a GitHub Pull Request URL to launch 10 concurrent AI agents to review your code.</p>
+            <div id="connection-status" class="status-badge checking">
+                <span class="status-dot"></span>
+                <span class="status-text">Checking API Connection...</span>
+            </div>
+        </header>
+
+        <div class="card form-card">
+            <form id="review-form">
+                <div class="input-group">
+                    <label for="pr-url">GitHub PR URL</label>
+                    <input type="url" id="pr-url" placeholder="https://github.com/owner/repo/pull/123" required>
+                </div>
+                
+                <div class="input-group">
+                    <label for="pat">Personal Access Token (PAT)</label>
+                    <input type="password" id="pat" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" required>
+                    <small>Required to fetch the private diff. Token is NOT stored.</small>
+                </div>
+
+                <button type="submit" id="submit-btn">
+                    <span class="btn-text">Start Concurrent Review</span>
+                    <span class="spinner hidden"></span>
+                </button>
+            </form>
+        </div>
+
+        <div id="progress-container" class="hidden">
+            <h2>Agent Progress</h2>
+            <div id="progress-grid" class="progress-grid"></div>
+        </div>
+
+        <div id="results-container" class="hidden">
+            <h2>Review Findings</h2>
+            <div id="findings-list"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

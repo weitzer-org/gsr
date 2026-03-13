@@ -4,10 +4,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as toml from 'toml';
 
-export class LogicAgent implements Subagent {
-  name = 'Logic';
-  // Note: users must have GEMINI_API_KEY set in their environment
-  private ai = new GoogleGenAI(); 
+export class SecurityAgent implements Subagent {
+  name = 'Security';
+  private ai = new GoogleGenAI({}); 
 
   async analyze(chunk: DiffChunk): Promise<CandidateFinding[]> {
     const prompt = this.buildPrompt(chunk);
@@ -18,10 +17,9 @@ export class LogicAgent implements Subagent {
          contents: prompt,
          config: {
            responseMimeType: 'application/json',
-           // Force the LLM to output exactly our CandidateFinding array schema
            responseSchema: {
              type: Type.ARRAY,
-             description: "A list of potential bugs, logic errors, performance bottlenecks, and clarity issues found in the code diff.",
+             description: "A list of security vulnerabilities found in the code diff.",
              items: {
                type: Type.OBJECT,
                properties: {
@@ -40,16 +38,16 @@ export class LogicAgent implements Subagent {
                  },
                  summary: {
                    type: Type.STRING,
-                   description: "A single sentence summary of the issue"
+                   description: "A single sentence summary of the vulnerability"
                  },
                  description: {
                    type: Type.STRING,
-                   description: "More details about the issue, including why it is an issue"
+                   description: "Detailed explanation of the vulnerability and attack vector"
                  },
                  suggestion: {
                    type: Type.STRING,
                    nullable: true,
-                   description: "An optional code snippet demonstrating how to fix the issue. Only include the modified code."
+                   description: "Code snippet demonstrating how to fix the vulnerability."
                  }
                },
                required: ["file", "line", "severity", "summary", "description"]
@@ -60,19 +58,18 @@ export class LogicAgent implements Subagent {
 
       if (response.text) {
           const findings = JSON.parse(response.text) as CandidateFinding[];
-          // Ensure file paths are consistent with the chunk we fed it
           return findings.map(f => ({ ...f, file: chunk.file }));
       }
       return [];
 
     } catch (e) {
-      console.error(`⚠️ Note: The Logic Agent failed to complete its review for ${chunk.file}`, e);
+      console.error(`⚠️ Note: The Security Agent failed to complete its review for ${chunk.file}`, e);
       return [];
     }
   }
 
   private buildPrompt(chunk: DiffChunk): string {
-    const promptPath = path.join(process.cwd(), 'prompts', 'logic.toml');
+    const promptPath = path.join(process.cwd(), 'prompts', 'security.toml');
     const tomlContent = fs.readFileSync(promptPath, 'utf8');
     const parsed = toml.parse(tomlContent);
     let promptTemplate = parsed.prompt || "";

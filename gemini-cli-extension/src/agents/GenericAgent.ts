@@ -7,7 +7,7 @@ import * as toml from 'toml';
 export class GenericAgent implements Subagent {
   name: string;
   private tomlFileName: string;
-  private ai = new GoogleGenAI(); 
+  private ai = new GoogleGenAI({}); 
 
   constructor(name: string, tomlFileName: string) {
     this.name = name;

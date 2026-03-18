@@ -13,7 +13,28 @@ export interface CandidateFinding {
   agent?: string; // Appended by the orchestrator
 }
 
+export interface UsageMetadata {
+  promptTokenCount: number;
+  candidatesTokenCount: number;
+  totalTokenCount: number;
+}
+
+export interface AnalyzeResult {
+  findings: CandidateFinding[];
+  usage?: UsageMetadata;
+}
+
 export interface Subagent {
   name: string;
-  analyze(chunk: DiffChunk): Promise<CandidateFinding[]>;
+  analyze(chunk: DiffChunk): Promise<AnalyzeResult>;
 }
+
+export interface ReviewResult {
+  findings: CandidateFinding[];
+  metrics: {
+    inputTokens: number;
+    outputTokens: number;
+    calls: number;
+  }
+}
+

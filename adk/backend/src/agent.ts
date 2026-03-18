@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { CandidateFinding, DiffChunk, Subagent } from './types';
+import { CandidateFinding, DiffChunk, Subagent, AnalyzeResult } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -16,7 +16,7 @@ export class GeminiAgent implements Subagent {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
   }
 
-  async analyze(chunk: DiffChunk): Promise<CandidateFinding[]> {
+  async analyze(chunk: DiffChunk): Promise<AnalyzeResult> {
     const prompt = this.buildPrompt(chunk);
     
     try {
@@ -51,21 +51,27 @@ export class GeminiAgent implements Subagent {
 
       if (response.text) {
           const findings = JSON.parse(response.text) as CandidateFinding[];
-          return findings.map(f => ({ ...f, file: chunk.file, agent: this.name }));
+          return {
+            findings: findings.map(f => ({ ...f, file: chunk.file, agent: this.name })),
+            usage: response.usageMetadata ? {
+                promptTokenCount: response.usageMetadata.promptTokenCount || 0,
+                candidatesTokenCount: response.usageMetadata.candidatesTokenCount || 0,
+                totalTokenCount: response.usageMetadata.totalTokenCount || 0
+            } : undefined
+          };
       }
-      return [];
+      return { findings: [] };
 
     } catch (e) {
       console.error(`⚠️ Note: The ${this.name} Agent failed to complete its review for ${chunk.file}`, e);
-      return [];
+      return { findings: [] };
     }
   }
 
   private buildPrompt(chunk: DiffChunk): string {
     // Assuming backend is run from /adk/backend or /adk/backend/dist
-    const projectRoot = typeof __dirname !== 'undefined' 
-        ? path.resolve(__dirname, '../../../')
-        : path.resolve(process.cwd(), '../../');
+    const projectRoot = path.resolve(process.cwd(), '../../');
+
     const promptPath = path.join(projectRoot, 'gemini-cli-extension', 'system_prompts', this.markdownFileName);
     
     let instructions = "";

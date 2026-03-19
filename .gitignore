@@ -5,3 +5,8 @@ adk/backend/.env
 adk/backend/node_modules/
 adk/frontend/node_modules/
 .DS_Store
+
+# Coverage & Reports
+coverage/
+test-results/
+*results*

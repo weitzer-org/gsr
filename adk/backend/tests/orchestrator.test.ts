@@ -33,6 +33,8 @@ describe('Orchestrator', () => {
 
 
         const orchestrator = new Orchestrator(1);
+        // @ts-ignore - force single agent for test isolation
+        orchestrator.subagents = [new GeminiAgent('Logic', 'logic.md')];
         
         let progressCalls: any[] = [];
         orchestrator.onProgress = (name, file, status) => {
@@ -57,6 +59,9 @@ describe('Orchestrator', () => {
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockRejectedValue(new Error('Agent Failed'));
 
         const orchestrator = new Orchestrator(1);
+        // @ts-ignore - force single agent for test isolation
+        orchestrator.subagents = [new GeminiAgent('Logic', 'logic.md')];
+        
         let progressCalls: any[] = [];
         orchestrator.onProgress = (name, file, status) => {
             progressCalls.push({status});

@@ -1,15 +1,17 @@
 import request from 'supertest';
 import { jest } from '@jest/globals';
-import { app } from '../src/app';
 import { GitHubClient } from '../src/github';
 import { Orchestrator } from '../src/orchestrator';
 
 describe('GET /api/status', () => {
   const originalEnv = process.env;
+  let app: any;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.resetModules();
     process.env = { ...originalEnv };
+    const mod = await import('../src/app');
+    app = mod.app;
   });
 
   afterAll(() => {
@@ -32,8 +34,14 @@ describe('GET /api/status', () => {
 });
 
 describe('POST /api/review', () => {
-  beforeEach(() => {
+  let app: any;
+
+  beforeEach(async () => {
+    jest.resetModules();
     jest.restoreAllMocks();
+    process.env.GEMINI_API_KEY = 'fake-key';
+    const mod = await import('../src/app');
+    app = mod.app;
   });
 
   it('should return 400 if url is missing', async () => {
@@ -58,14 +66,16 @@ describe('POST /api/review', () => {
     const mockChunks = [{ file: 'test.js', content: 'diff' }];
     const mockFindings = [{ file: 'test.js', line: 1, severity: 'HIGH' as const, summary: 'Issue', description: 'Desc', agent: 'Logic' }];
 
-    const getPRDiffSpy = jest.spyOn(GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
-    const runReviewSpy = jest.spyOn(Orchestrator.prototype, 'runReview').mockImplementation(async function (this: any, chunks) {
+    const githubModule = await import('../src/github');
+    const orchestratorModule = await import('../src/orchestrator');
+
+    const getPRDiffSpy = jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
+    const runReviewSpy = jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockImplementation(async function (this: any, chunks) {
       if (this.onProgress) {
         this.onProgress('Logic', 'test.js', 'start');
         this.onProgress('Logic', 'test.js', 'complete');
       }
       return { findings: mockFindings, metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
-
     });
 
     const response = await request(app)
@@ -91,7 +101,8 @@ describe('POST /api/review', () => {
   });
 
   it('should return 500 if GitHubClient throws an error', async () => {
-    jest.spyOn(GitHubClient.prototype, 'getPRDiff').mockRejectedValue(new Error('GitHub Error'));
+    const githubModule = await import('../src/github');
+    jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockRejectedValue(new Error('GitHub Error'));
 
     const response = await request(app)
       .post('/api/review')
@@ -102,9 +113,12 @@ describe('POST /api/review', () => {
   });
 
   it('should stream error if Orchestrator throws after headers sent', async () => {
+    const githubModule = await import('../src/github');
+    const orchestratorModule = await import('../src/orchestrator');
     const mockChunks = [{ file: 'test.js', content: 'diff' }];
-    jest.spyOn(GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
-    jest.spyOn(Orchestrator.prototype, 'runReview').mockRejectedValue(new Error('Orchestrator Error'));
+    
+    jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
+    jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockRejectedValue(new Error('Orchestrator Error'));
 
     const response = await request(app)
       .post('/api/review')

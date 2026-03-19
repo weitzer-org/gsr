@@ -69,8 +69,18 @@ export class GeminiAgent implements Subagent {
   }
 
   private buildPrompt(chunk: DiffChunk): string {
-    // Assuming backend is run from /adk/backend or /adk/backend/dist
-    const projectRoot = path.resolve(process.cwd(), '../../');
+    const currentDir = typeof __dirname !== 'undefined' ? __dirname : undefined;
+    let projectRoot: string;
+
+    if (currentDir) {
+        const isCompiled = currentDir.includes(path.join('dist', 'src'));
+        projectRoot = isCompiled 
+            ? path.resolve(currentDir, '../../../../') 
+            : path.resolve(currentDir, '../../../');
+    } else {
+        // Fallback for test environments (e.g. Jest ESM mode)
+        projectRoot = path.resolve(process.cwd(), '../../');
+    }
 
     const promptPath = path.join(projectRoot, 'gemini-cli-extension', 'system_prompts', this.markdownFileName);
     

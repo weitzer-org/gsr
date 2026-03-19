@@ -10,7 +10,7 @@ describe('GET /api/status', () => {
   beforeEach(async () => {
     jest.resetModules();
     process.env = { ...originalEnv };
-    const mod = await import('../src/app');
+    const mod = await import('../src/app.js');
     app = mod.app;
   });
 
@@ -40,7 +40,7 @@ describe('POST /api/review', () => {
     jest.resetModules();
     jest.restoreAllMocks();
     process.env.GEMINI_API_KEY = 'fake-key';
-    const mod = await import('../src/app');
+    const mod = await import('../src/app.js');
     app = mod.app;
   });
 
@@ -66,8 +66,8 @@ describe('POST /api/review', () => {
     const mockChunks = [{ file: 'test.js', content: 'diff' }];
     const mockFindings = [{ file: 'test.js', line: 1, severity: 'HIGH' as const, summary: 'Issue', description: 'Desc', agent: 'Logic' }];
 
-    const githubModule = await import('../src/github');
-    const orchestratorModule = await import('../src/orchestrator');
+    const githubModule = await import('../src/github.js');
+    const orchestratorModule = await import('../src/orchestrator.js');
 
     const getPRDiffSpy = jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
     const runReviewSpy = jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockImplementation(async function (this: any, chunks) {
@@ -101,7 +101,7 @@ describe('POST /api/review', () => {
   });
 
   it('should return 500 if GitHubClient throws an error', async () => {
-    const githubModule = await import('../src/github');
+    const githubModule = await import('../src/github.js');
     jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockRejectedValue(new Error('GitHub Error'));
 
     const response = await request(app)
@@ -113,8 +113,8 @@ describe('POST /api/review', () => {
   });
 
   it('should stream error if Orchestrator throws after headers sent', async () => {
-    const githubModule = await import('../src/github');
-    const orchestratorModule = await import('../src/orchestrator');
+    const githubModule = await import('../src/github.js');
+    const orchestratorModule = await import('../src/orchestrator.js');
     const mockChunks = [{ file: 'test.js', content: 'diff' }];
     
     jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);

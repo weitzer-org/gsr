@@ -1,5 +1,16 @@
 import * as dotenv from 'dotenv';
-dotenv.config();
+import * as path from 'path';
+
+const currentDir = typeof __dirname !== 'undefined' ? __dirname : undefined;
+if (currentDir) {
+    const isCompiled = currentDir.includes(path.join('dist', 'src'));
+    const envPath = isCompiled 
+        ? path.resolve(currentDir, '../../.env') 
+        : path.resolve(currentDir, '../.env');
+    dotenv.config({ path: envPath });
+} else {
+    dotenv.config();
+}
 
 import { app } from './app';
 

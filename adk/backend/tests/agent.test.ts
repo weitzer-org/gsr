@@ -30,8 +30,9 @@ describe('GeminiAgent', () => {
         } as any;
 
         const result = await agent.analyze({ file: 'test.ts', content: '+ test' });
-        expect(result).toEqual([]);
+        expect(result.findings).toEqual([]);
     });
+
 
     it('should return parsed findings if response has valid JSON text', async () => {
         const agent = new GeminiAgent('Logic', 'logic.md');
@@ -49,13 +50,14 @@ describe('GeminiAgent', () => {
         } as any;
 
         const result = await agent.analyze({ file: 'app.ts', content: 'test' });
-        expect(result).toHaveLength(1);
-        expect(result[0]).toMatchObject({
+        expect(result.findings).toHaveLength(1);
+        expect(result.findings[0]).toMatchObject({
             file: 'app.ts',
             agent: 'Logic',
             severity: 'MEDIUM'
         });
     });
+
 
     it('should return empty if response text is empty', async () => {
         const agent = new GeminiAgent('Logic', 'logic.md');
@@ -63,6 +65,7 @@ describe('GeminiAgent', () => {
         agent.ai = { models: { generateContent: jest.fn().mockImplementation(() => Promise.resolve({ text: null })) } } as any;
 
         const result = await agent.analyze({ file: 'a.ts', content: 'a' });
-        expect(result).toEqual([]);
+        expect(result.findings).toEqual([]);
     });
+
 });

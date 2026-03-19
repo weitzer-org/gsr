@@ -1,4 +1,6 @@
 import { GitHubClient } from '../src/github';
+import { jest } from '@jest/globals';
+
 
 describe('GitHubClient', () => {
     let client: GitHubClient;
@@ -52,4 +54,56 @@ index e69de29..c12bb1a 100644
         expect(diffChunks[1].file).toBe('test/test.ts');
         expect(diffChunks[1].content).toContain('import { test }');
     });
+
+    it('should fetch and parse PR diff successfully', async () => {
+        const mockDiff = `
+diff --git a/src/example.ts b/src/example.ts
+index e69de29..d95f3ad 100644
+--- a/src/example.ts
++++ b/src/example.ts
+@@ -0,0 +1,3 @@
++export function test() {
++  console.log("hello");
++}
+        `.trim();
+
+        (client as any).octokit = {
+            rest: {
+                pulls: {
+                    get: (jest.fn() as any).mockResolvedValue({ data: mockDiff })
+                }
+            }
+        };
+
+        const chunks = await client.getPRDiff('https://github.com/GoogleCloudPlatform/scion/pull/123');
+        
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].file).toBe('src/example.ts');
+        expect((client as any).octokit.rest.pulls.get).toHaveBeenCalledWith({
+            owner: 'GoogleCloudPlatform',
+            repo: 'scion',
+            pull_number: 123,
+            mediaType: { format: 'diff' }
+        });
+    });
+
+    it('should throw an error if fetching PR diff fails', async () => {
+        const originalConsoleError = console.error;
+        console.error = jest.fn(); 
+
+        (client as any).octokit = {
+            rest: {
+                pulls: {
+                    get: (jest.fn() as any).mockRejectedValue(new Error('Network error'))
+                }
+            }
+        };
+
+        await expect(client.getPRDiff('https://github.com/GoogleCloudPlatform/scion/pull/123'))
+            .rejects.toThrow('Failed to fetch PR diff: Network error');
+
+        console.error = originalConsoleError;
+    });
+
 });
+

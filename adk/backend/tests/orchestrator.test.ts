@@ -16,19 +16,25 @@ describe('Orchestrator', () => {
     it('should return empty array if no chunks provided', async () => {
         const orchestrator = new Orchestrator();
         const results = await orchestrator.runReview([]);
-        expect(results).toEqual([]);
+        expect(results.findings).toEqual([]);
     });
+
 
     it('should aggregate findings and filter low severity', async () => {
         // Setup mock return for GeminiAgent
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze')
-            .mockResolvedValue([
-                { file: 'test.ts', line: 1, severity: 'HIGH', summary: 'High issue', description: 'Desc', agent: 'Logic' },
-                // @ts-ignore - TRIVIAL is intentionally invalid to test filtering
-                { file: 'test.ts', line: 2, severity: 'TRIVIAL', summary: 'Low issue', description: 'Desc', agent: 'Logic' }
-            ]);
+            .mockResolvedValue({
+                findings: [
+                    { file: 'test.ts', line: 1, severity: 'HIGH', summary: 'High issue', description: 'Desc', agent: 'Logic' },
+                    // @ts-ignore - TRIVIAL is intentionally invalid to test filtering
+                    { file: 'test.ts', line: 2, severity: 'TRIVIAL', summary: 'Low issue', description: 'Desc', agent: 'Logic' }
+                ]
+            });
+
 
         const orchestrator = new Orchestrator(1);
+        // @ts-ignore - force single agent for test isolation
+        orchestrator.subagents = [new GeminiAgent('Logic', 'logic.md')];
         
         let progressCalls: any[] = [];
         orchestrator.onProgress = (name, file, status) => {
@@ -40,8 +46,9 @@ describe('Orchestrator', () => {
 
         expect(mockAnalyze).toHaveBeenCalledWith(chunks[0]);
         // Only high severity should remain
-        expect(results).toHaveLength(1);
-        expect(results[0].severity).toBe('HIGH');
+        expect(results.findings).toHaveLength(1);
+        expect(results.findings[0].severity).toBe('HIGH');
+
         
         expect(progressCalls).toHaveLength(2);
         expect(progressCalls[0].status).toBe('start');
@@ -52,6 +59,9 @@ describe('Orchestrator', () => {
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockRejectedValue(new Error('Agent Failed'));
 
         const orchestrator = new Orchestrator(1);
+        // @ts-ignore - force single agent for test isolation
+        orchestrator.subagents = [new GeminiAgent('Logic', 'logic.md')];
+        
         let progressCalls: any[] = [];
         orchestrator.onProgress = (name, file, status) => {
             progressCalls.push({status});

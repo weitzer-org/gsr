@@ -46,10 +46,27 @@
 
         <div id="results-container" class="hidden">
             <h2>Review Findings</h2>
+            
+            <div id="metrics-panel" class="metrics-panel">
+                <div class="metric-box">
+                    <span class="metric-label">Input Tokens</span>
+                    <span id="metric-input-tokens" class="metric-value">0</span>
+                </div>
+                <div class="metric-box">
+                    <span class="metric-label">Output Tokens</span>
+                    <span id="metric-output-tokens" class="metric-value">0</span>
+                </div>
+                <div class="metric-box">
+                    <span class="metric-label">Model Calls</span>
+                    <span id="metric-calls" class="metric-value">0</span>
+                </div>
+            </div>
+
             <div id="findings-list"></div>
         </div>
+
     </div>
 
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>

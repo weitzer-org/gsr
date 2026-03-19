@@ -1,4 +1,7 @@
+import { escapeHTML, parseStreamChunk } from './utils.js';
+
 document.addEventListener('DOMContentLoaded', () => {
+
   const form = document.getElementById('review-form');
   const submitBtn = document.getElementById('submit-btn');
   const btnText = document.querySelector('.btn-text');
@@ -82,15 +85,10 @@ document.addEventListener('DOMContentLoaded', () => {
               const { value, done } = await reader.read();
               if (done) break;
               
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              
-              // Keep the last partial line in the buffer
-              buffer = lines.pop();
+              const result = parseStreamChunk(value, decoder, buffer);
+              buffer = result.buffer;
 
-              for (const line of lines) {
-                  if (!line.trim()) continue;
-                  
+              for (const line of result.lines) {
                   try {
                       const data = JSON.parse(line);
                       
@@ -98,6 +96,10 @@ document.addEventListener('DOMContentLoaded', () => {
                           renderProgress(data, agentTasks, progressGrid);
                       } else if (data.type === 'done') {
                           renderFindings(data.findings);
+                          if (data.metrics) {
+                              renderMetrics(data.metrics);
+                          }
+
                       } else if (data.type === 'error') {
                           throw new Error(data.error);
                       }
@@ -124,7 +126,28 @@ document.addEventListener('DOMContentLoaded', () => {
       const { agent, file, status } = data;
       const taskId = `${agent}-${file}`;
       
+      if (status === 'skipped') {
+          const card = document.createElement('div');
+          card.className = 'progress-card skipped';
+          const safeTaskId = taskId.replace(/[^a-zA-Z0-9]/g, '-');
+          card.id = `task-${safeTaskId}`;
+          
+          card.innerHTML = `
+              <div class="agent-name">🤖 ${agent} Agent</div>
+              <div class="file-name" title="${file}">${file}</div>
+              <div class="status-indicator">
+                  <span class="skip-icon">⊘</span>
+                  <span>Not Applicable</span>
+              </div>
+          `;
+          
+          progressGrid.prepend(card);
+          agentTasks.set(taskId, card);
+          return;
+      }
+
       if (status === 'start') {
+
           // Add to UI
           const card = document.createElement('div');
           card.className = 'progress-card active';
@@ -182,17 +205,18 @@ document.addEventListener('DOMContentLoaded', () => {
       findingsList.innerHTML = html;
   }
 
-  // Basic HTML escaping to prevent XSS
-  function escapeHTML(str) {
-      if (!str) return '';
-      return str.replace(/[&<>'"]/g, 
-          tag => ({
-              '&': '&amp;',
-              '<': '&lt;',
-              '>': '&gt;',
-              "'": '&#39;',
-              '"': '&quot;'
-          }[tag])
-      );
+  function renderMetrics(metrics) {
+      if (!metrics) return;
+      
+      const input = document.getElementById('metric-input-tokens');
+      const output = document.getElementById('metric-output-tokens');
+      const calls = document.getElementById('metric-calls');
+
+      if (input) input.textContent = metrics.inputTokens || 0;
+      if (output) output.textContent = metrics.outputTokens || 0;
+      if (calls) calls.textContent = metrics.calls || 0;
   }
+
+
+  // escapeHTML is now imported from utils.js
 });

@@ -55,10 +55,10 @@ app.post('/api/review', async (req, res) => {
       res.write(JSON.stringify({ type: 'progress', agent: agentName, file, status }) + '\n');
     };
 
-    const findings = await orchestrator.runReview(chunks);
-    console.log(`Review complete. Found ${findings.length} total issues.`);
+    const result = await orchestrator.runReview(chunks);
+    console.log(`Review complete. Found ${result.findings.length} total issues.`);
     
-    res.write(JSON.stringify({ type: 'done', findings: findings }) + '\n');
+    res.write(JSON.stringify({ type: 'done', findings: result.findings, metrics: result.metrics }) + '\n');
     res.end();
   } catch (error: any) {
     console.error('Error during review:', error);

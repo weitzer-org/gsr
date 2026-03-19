@@ -43,7 +43,7 @@ export class Orchestrator {
         });
       console.log(`Loaded ${this.subagents.length} agents from ${promptsDir}`);
     } catch (e) {
-      console.error("Failed to load subagents from prompts directory:", e);
+      console.error("Failed to load subagents from prompts directory: " + promptsDir, e);
       this.subagents = [new GeminiAgent('Logic', 'logic.md')];
     }
   }

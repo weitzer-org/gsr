@@ -9,9 +9,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const resultsContainer = document.getElementById('results-container');
   const findingsList = document.getElementById('findings-list');
 
-  // Hardcoded for local prototype. In production, this would be relative.
-  const API_URL = 'http://localhost:8080/api/review';
-  const STATUS_URL = 'http://localhost:8080/api/status';
+  // Using relative URLs for production deployment
+  const API_URL = '/api/review';
+  const STATUS_URL = '/api/status';
 
   const statusBadge = document.getElementById('connection-status');
   const statusText = statusBadge.querySelector('.status-text');

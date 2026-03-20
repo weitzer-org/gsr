@@ -32,7 +32,6 @@ document.addEventListener('DOMContentLoaded', () => {
           document.getElementById(tab.dataset.tab).classList.add('active');
       });
   });
-
   // Using relative URLs for production deployment
   const API_URL = '/api/review';
   const STATUS_URL = '/api/status';

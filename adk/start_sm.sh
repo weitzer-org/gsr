@@ -74,8 +74,7 @@ fi
 
 echo "Using GCP Project: $PROJECT_ID"
 
-SECRET_VALUE=$(gcloud secrets versions access latest --secret="$SECRET_NAME" 2>/dev/null || true)
-if [ -n "$SECRET_VALUE" ]; then
+if SECRET_VALUE=$(gcloud secrets versions access latest --secret="$SECRET_NAME" 2>/dev/null); then
   echo "✅ Successfully fetched GEMINI_API_KEY from Secret Manager."
   export GEMINI_API_KEY="$SECRET_VALUE"
 else

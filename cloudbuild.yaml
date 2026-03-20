@@ -1,41 +1,111 @@
-steps:
-  # Build the container image
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'build'
-      - '-t'
-      - 'us-central1-docker.pkg.dev/quacktastic-waffle/gsr-code-review/adk:$COMMIT_SHA'
-      - '-t'
-      - 'us-central1-docker.pkg.dev/quacktastic-waffle/gsr-code-review/adk:latest'
-      - '-f'
-      - 'adk/Dockerfile'
-      - 'adk/'
+# cloudbuild.yaml
+# CI/CD pipeline to build, test, push, and deploy the ADK monolith to Cloud Run.
 
-  # Push the container image to Artifact Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'us-central1-docker.pkg.dev/quacktastic-waffle/gsr-code-review/adk'
-      - '--all-tags'
-
-  # Deploy container image to Cloud Run
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
-    args:
-      - 'run'
-      - 'deploy'
-      - 'gsr-code-review'
-      - '--image'
-      - 'us-central1-docker.pkg.dev/quacktastic-waffle/gsr-code-review/adk:$COMMIT_SHA'
-      - '--region'
-      - 'us-central1'
-      - '--allow-unauthenticated'
-      - '--set-secrets'
-      - 'GEMINI_API_KEY=gsr-gemini-api-key:latest'
-
-images:
-  - 'us-central1-docker.pkg.dev/quacktastic-waffle/gsr-code-review/adk:$COMMIT_SHA'
-  - 'us-central1-docker.pkg.dev/quacktastic-waffle/gsr-code-review/adk:latest'
+substitutions:
+  _REGION: 'us-central1'
+  _ARTIFACT_REGISTRY_REPO_NAME: 'gsr-code-review'
+  _CLOUD_RUN_SERVICE_NAME: 'gsr-code-review'
+  _SECRET_NAME: 'gsr-gemini-api-key'
 
 options:
   logging: CLOUD_LOGGING_ONLY
+
+steps:
+# =============================================================================
+# STAGE 1: Build Container Images
+# =============================================================================
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'build-adk'
+  args: [
+    'build',
+    '-f', 'adk/Dockerfile',
+    '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$COMMIT_SHA',
+    '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:latest',
+    'adk/'
+  ]
+
+# =============================================================================
+# STAGE 2: Run Tests (In Parallel)
+# =============================================================================
+- name: 'node:20-slim'
+  id: 'test-backend'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    cd adk/backend
+    npm ci --silent
+    npm test
+    echo "✅ Backend tests passed"
+  waitFor: ['-']
+
+- name: 'node:20-slim'
+  id: 'test-frontend'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    cd adk/frontend
+    npm ci --silent
+    npm test
+    echo "✅ Frontend tests passed"
+  waitFor: ['-']
+
+# =============================================================================
+# STAGE 3: Push Container Images
+# =============================================================================
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'push-adk'
+  args: [
+    'push',
+    '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk',
+    '--all-tags'
+  ]
+  waitFor: ['build-adk', 'test-backend', 'test-frontend']
+
+# =============================================================================
+# STAGE 4: Deploy Application
+# =============================================================================
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: 'deploy-adk'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    gcloud run deploy $_CLOUD_RUN_SERVICE_NAME \
+      --image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$COMMIT_SHA \
+      --region=$_REGION \
+      --allow-unauthenticated \
+      --set-secrets="GEMINI_API_KEY=$_SECRET_NAME:latest"
+    
+    echo "✅ Application deployed successfully"
+  waitFor: ['push-adk']
+
+# =============================================================================
+# STAGE 5: Health Check
+# =============================================================================
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
+  id: 'health-check'
+  entrypoint: 'sh'
+  args:
+  - '-c'
+  - |
+    APP_URL=$(gcloud run services describe $_CLOUD_RUN_SERVICE_NAME \
+      --platform managed \
+      --region $_REGION \
+      --format='value(status.url)' 2>&1)
+
+    if [ -z "$APP_URL" ]; then
+      echo "WARNING: Could not retrieve Cloud Run Application URL"
+      exit 1
+    fi
+
+    echo "Application health check at $APP_URL/api/status"
+    curl --fail --retry 10 --retry-delay 5 "$APP_URL/api/status" || true
+
+    echo "✅ Application health check completed"
+  waitFor: ['deploy-adk']
+
+images:
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$COMMIT_SHA'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:latest'

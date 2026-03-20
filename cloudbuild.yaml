@@ -33,6 +33,7 @@ steps:
   args:
   - '-c'
   - |
+    set -e
     cd adk/backend
     npm ci --silent
     npm test
@@ -45,6 +46,7 @@ steps:
   args:
   - '-c'
   - |
+    set -e
     cd adk/frontend
     npm ci --silent
     npm test

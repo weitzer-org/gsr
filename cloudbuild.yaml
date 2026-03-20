@@ -36,3 +36,6 @@ steps:
 images:
   - 'us-central1-docker.pkg.dev/quacktastic-waffle/gsr-code-review/adk:$COMMIT_SHA'
   - 'us-central1-docker.pkg.dev/quacktastic-waffle/gsr-code-review/adk:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

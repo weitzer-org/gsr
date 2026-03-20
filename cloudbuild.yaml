@@ -21,7 +21,7 @@ steps:
     '-f', 'adk/Dockerfile',
     '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$COMMIT_SHA',
     '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:latest',
-    'adk/'
+    '.'
   ]
 
 # =============================================================================

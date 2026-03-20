@@ -95,13 +95,13 @@ steps:
       --region $_REGION \
       --format='value(status.url)' 2>&1)
 
-    if [ -z "$APP_URL" ]; then
+    if [ -z "$$APP_URL" ]; then
       echo "WARNING: Could not retrieve Cloud Run Application URL"
       exit 1
     fi
 
-    echo "Application health check at $APP_URL/api/status"
-    curl --fail --retry 10 --retry-delay 5 "$APP_URL/api/status"
+    echo "Application health check at $$APP_URL/api/status"
+    curl --fail --retry 10 --retry-delay 5 "$$APP_URL/api/status"
 
     echo "✅ Application health check completed"
   waitFor: ['deploy-adk']

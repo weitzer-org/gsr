@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Startup script for the GSR ADK using Google Cloud Secret Manager
 
@@ -6,7 +7,7 @@ echo "🚀 Starting GSR ADK with Google Cloud Secret Manager..."
 
 # Load config from .env if it exists
 if [ -f backend/.env ]; then
-    SECRET_CONFIG=$(grep SECRET_MANAGER_SECRET_NAME backend/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    SECRET_CONFIG=$(grep '^SECRET_MANAGER_SECRET_NAME=' backend/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" || true)
 fi
 
 SECRET_NAME=${SECRET_CONFIG:-${1:-"gsr-gemini-api-key"}}
@@ -24,6 +25,8 @@ if ! command -v gcloud &> /dev/null; then
         brew install --cask google-cloud-sdk
     else
         echo "📦 Installing Google Cloud SDK via official script..."
+        # Security Note: Piping curl to bash executes remote code without verification.
+        # This is a known risk, but is the official installation method provided by Google.
         curl https://sdk.cloud.google.com | bash -s -- --disable-prompts
         # Load it into current PATH for this script execution
         if [ -f "$HOME/google-cloud-sdk/path.bash.inc" ]; then
@@ -44,7 +47,7 @@ fi
 
 # Check if authenticated
 echo "Checking Google Cloud authentication..."
-ACTIVE_ACCOUNT=$(gcloud auth list --filter=status=ACTIVE --format="value(account)" 2>/dev/null)
+ACTIVE_ACCOUNT=$(gcloud auth list --filter=status=ACTIVE --format="value(account)" 2>/dev/null || true)
 if [ -z "$ACTIVE_ACCOUNT" ]; then
     echo "❌ Error: No active Google Cloud account found."
     echo ""
@@ -62,7 +65,7 @@ if [ -z "$ACTIVE_ACCOUNT" ]; then
 fi
 
 # Get active project
-PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
+PROJECT_ID=$(gcloud config get-value project 2>/dev/null || true)
 if [ -z "$PROJECT_ID" ]; then
   echo "❌ Error: No active Google Cloud project configured."
   echo "Please run: gcloud config set project YOUR_PROJECT_ID"
@@ -71,9 +74,7 @@ fi
 
 echo "Using GCP Project: $PROJECT_ID"
 
-SECRET_VALUE=$(gcloud secrets versions access latest --secret="$SECRET_NAME" 2>/dev/null)
-
-if [ $? -eq 0 ] && [ ! -z "$SECRET_VALUE" ]; then
+if SECRET_VALUE=$(gcloud secrets versions access latest --secret="$SECRET_NAME" 2>/dev/null); then
   echo "✅ Successfully fetched GEMINI_API_KEY from Secret Manager."
   export GEMINI_API_KEY="$SECRET_VALUE"
 else
@@ -100,12 +101,10 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "📦 Ensuring backend dependencies are installed..."
-cd backend && npm install > /dev/null 2>&1
-cd ..
+(cd backend && npm install)
 
 echo "📦 Ensuring frontend dependencies are installed..."
-cd frontend && npm install > /dev/null 2>&1
-cd ..
+(cd frontend && npm install)
 
 echo "🟢 Starting Backend API (Port 8080)..."
 cd backend

@@ -10,3 +10,8 @@ adk/frontend/node_modules/
 coverage/
 test-results/
 *results*
+
+# Secrets & Keys
+jetski-sa-key.json
+*-key.json
+*.key

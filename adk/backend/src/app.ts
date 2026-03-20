@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 
 import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
@@ -70,3 +71,13 @@ app.post('/api/review', async (req, res) => {
     }
   }
 });
+
+// Serve frontend static files
+const frontendPath = path.join(process.cwd(), '../frontend');
+app.use(express.static(frontendPath));
+
+// Fallback to index.html for SPA routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+

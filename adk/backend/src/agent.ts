@@ -16,25 +16,26 @@ export class GeminiAgent implements Subagent {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
   }
 
-  async analyze(chunk: DiffChunk): Promise<AnalyzeResult> {
-    const prompt = this.buildPrompt(chunk);
+  async analyze(chunks: DiffChunk[]): Promise<AnalyzeResult> {
+    const prompt = this.buildPrompt(chunks);
+    const aggregatedFiles = `Aggregated PR (${chunks.length} files)`;
+    let timeoutId: NodeJS.Timeout | undefined;
     
     try {
-      console.log(`[${this.name}] Starting Gemini API call for ${chunk.file}...`);
+      console.log(`[${this.name}] Starting Gemini API call for ${aggregatedFiles}...`);
       
-      const response = await this.ai.models.generateContent({
+      const genAiRequest = this.ai.models.generateContent({
          model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
          contents: prompt,
          config: {
            responseMimeType: 'application/json',
            responseSchema: {
              type: Type.ARRAY,
-             description: "A list of potential findings or issues found in the code diff based on the system instructions.",
+             description: "A list of potential findings or issues found in the code diffs based on the system instructions.",
              items: {
-               // ... maintaining schema ...
                type: Type.OBJECT,
                properties: {
-                 file: { type: Type.STRING, description: "The path of the file being reviewed" },
+                 file: { type: Type.STRING, description: "The path of the file where the issue was found" },
                  line: { type: Type.INTEGER, description: "The starting line number of the issue in the diff" },
                  severity: { type: Type.STRING, enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"], description: "The severity of the issue" },
                  summary: { type: Type.STRING, description: "A single sentence summary of the issue" },
@@ -47,12 +48,20 @@ export class GeminiAgent implements Subagent {
          }
       });
       
-      console.log(`[${this.name}] Received Gemini API response for ${chunk.file}`);
+      // Enforce a strict network timeout to accommodate large monolithic reviews.
+      const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '180000', 10);
+      const timeoutPromise = new Promise<any>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
+      });
+
+      const response = await Promise.race([genAiRequest, timeoutPromise]);
+      
+      console.log(`[${this.name}] Received Gemini API response for ${aggregatedFiles}`);
 
       if (response.text) {
           const findings = JSON.parse(response.text) as CandidateFinding[];
           return {
-            findings: findings.map(f => ({ ...f, file: chunk.file, agent: this.name })),
+            findings: findings.map(f => ({ ...f, agent: this.name })), // Trust Gemini's generated 'file' field
             usage: response.usageMetadata ? {
                 promptTokenCount: response.usageMetadata.promptTokenCount || 0,
                 candidatesTokenCount: response.usageMetadata.candidatesTokenCount || 0,
@@ -63,24 +72,23 @@ export class GeminiAgent implements Subagent {
       return { findings: [] };
 
     } catch (e) {
-      console.error(`⚠️ Note: The ${this.name} Agent failed to complete its review for ${chunk.file}`, e);
+      console.error(`⚠️ Note: The ${this.name} Agent failed to complete its review for ${aggregatedFiles}`, e);
       return { findings: [] };
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
-  private buildPrompt(chunk: DiffChunk): string {
+  private buildPrompt(chunks: DiffChunk[]): string {
+    const diffsText = chunks.map(c => `File: ${c.file}\n\`\`\`diff\n${c.content}\n\`\`\``).join('\n\n');
     return `
 <SYSTEM_INSTRUCTIONS>
 ${this.promptContent || `You are the ${this.name} agent. Review the following code diff.`}
 </SYSTEM_INSTRUCTIONS>
 
-<FILE_PATH>
-${chunk.file}
-</FILE_PATH>
-
-<DIFF_CONTENT>
-${chunk.content}
-</DIFF_CONTENT>
+<DIFF_CONTENTS>
+${diffsText}
+</DIFF_CONTENTS>
 `;
   }
 }

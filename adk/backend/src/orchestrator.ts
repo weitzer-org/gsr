@@ -87,33 +87,39 @@ export class Orchestrator {
     // Map Tasks based on routing rules
     const tasks: (() => Promise<AnalyzeResult>)[] = [];
 
-    for (const chunk of chunks) {
-      for (const agent of this.subagents) {
+    for (const agent of this.subagents) {
+      const activeChunks = chunks.filter(chunk => {
         if (!this.shouldRun(agent.name, chunk.file)) {
-            if (this.onProgress) {
-                this.onProgress(agent.name, chunk.file, 'skipped');
-            }
-            continue;
+          if (this.onProgress) {
+             this.onProgress(agent.name, chunk.file, 'skipped');
+          }
+          return false;
         }
+        return true;
+      });
 
-        tasks.push(async () => {
-            if (this.onProgress) {
-                this.onProgress(agent.name, chunk.file, 'start');
-            }
-            try {
-                const res = await agent.analyze(chunk);
-                if (this.onProgress) {
-                    this.onProgress(agent.name, chunk.file, 'complete');
-                }
-                return res;
-            } catch (err) {
-                if (this.onProgress) {
-                    this.onProgress(agent.name, chunk.file, 'complete');
-                }
-                throw err;
-            }
-        });
+      if (activeChunks.length === 0) {
+        continue;
       }
+
+      tasks.push(async () => {
+          const progressFileName = `Aggregated PR (${activeChunks.length} files)`;
+          if (this.onProgress) {
+              this.onProgress(agent.name, progressFileName, 'start');
+          }
+          try {
+              const res = await agent.analyze(activeChunks);
+              if (this.onProgress) {
+                  this.onProgress(agent.name, progressFileName, 'complete');
+              }
+              return res;
+          } catch (err) {
+              if (this.onProgress) {
+                  this.onProgress(agent.name, progressFileName, 'complete');
+              }
+              throw err;
+          }
+      });
     }
 
     console.log(`Orchestrator routing ${chunks.length} files to ${tasks.length} subagent analysis tasks...`);

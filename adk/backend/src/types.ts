@@ -32,7 +32,7 @@ export interface AnalyzeResult {
 
 export interface Subagent {
   name: string;
-  analyze(chunk: DiffChunk): Promise<AnalyzeResult>;
+  analyze(chunks: DiffChunk[]): Promise<AnalyzeResult>;
 }
 
 export interface ReviewResult {

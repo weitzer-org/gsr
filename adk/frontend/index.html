@@ -45,24 +45,49 @@
         </div>
 
         <div id="results-container" class="hidden">
-            <h2>Review Findings</h2>
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="subagent-tab">Subagent Review</button>
+                <button class="tab-btn" data-tab="basic-tab">Basic Review</button>
+                <button class="tab-btn" data-tab="comparison-tab">Comparison</button>
+            </div>
             
-            <div id="metrics-panel" class="metrics-panel">
-                <div class="metric-box">
-                    <span class="metric-label">Input Tokens</span>
-                    <span id="metric-input-tokens" class="metric-value">0</span>
+            <div id="subagent-tab" class="tab-content active">
+                <div class="metrics-panel">
+                    <div class="metric-box"><span class="metric-label">Input Tokens</span><span id="metric-subagent-input" class="metric-value">0</span></div>
+                    <div class="metric-box"><span class="metric-label">Output Tokens</span><span id="metric-subagent-output" class="metric-value">0</span></div>
+                    <div class="metric-box"><span class="metric-label">Model Calls</span><span id="metric-subagent-calls" class="metric-value">0</span></div>
                 </div>
-                <div class="metric-box">
-                    <span class="metric-label">Output Tokens</span>
-                    <span id="metric-output-tokens" class="metric-value">0</span>
-                </div>
-                <div class="metric-box">
-                    <span class="metric-label">Model Calls</span>
-                    <span id="metric-calls" class="metric-value">0</span>
-                </div>
+                <div id="subagent-findings-list"></div>
             </div>
 
-            <div id="findings-list"></div>
+            <div id="basic-tab" class="tab-content">
+                <div class="metrics-panel">
+                    <div class="metric-box"><span class="metric-label">Input Tokens</span><span id="metric-basic-input" class="metric-value">0</span></div>
+                    <div class="metric-box"><span class="metric-label">Output Tokens</span><span id="metric-basic-output" class="metric-value">0</span></div>
+                    <div class="metric-box"><span class="metric-label">Model Calls</span><span id="metric-basic-calls" class="metric-value">0</span></div>
+                </div>
+                <div id="basic-findings-list"></div>
+            </div>
+
+            <div id="comparison-tab" class="tab-content">
+                <div id="comparison-evaluation" class="evaluation-panel hidden">
+                    <h3>Review Approach Comparison</h3>
+                    <div id="evaluation-text" class="markdown-body"></div>
+                </div>
+                
+                <table id="comparison-table" class="comparison-table hidden">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Subagent Approach</th>
+                            <th>Basic Approach</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comparison-table-body">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
         </div>
 
     </div>

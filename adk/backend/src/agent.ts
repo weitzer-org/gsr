@@ -6,11 +6,13 @@ import * as path from 'path';
 export class GeminiAgent implements Subagent {
   name: string;
   private markdownFileName: string;
+  private dirName: string;
   private ai: GoogleGenAI;
 
-  constructor(name: string, markdownFileName: string) {
+  constructor(name: string, markdownFileName: string, dirName: string = 'system_prompts') {
     this.name = name;
     this.markdownFileName = markdownFileName;
+    this.dirName = dirName;
     // The SDK automatically picks up GOOGLE_APPLICATION_CREDENTIALS for ADC,
     // or GEMINI_API_KEY from the environment.
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
@@ -82,7 +84,7 @@ export class GeminiAgent implements Subagent {
         projectRoot = path.resolve(process.cwd(), '../../');
     }
 
-    const promptPath = path.join(projectRoot, 'gemini-cli-extension', 'system_prompts', this.markdownFileName);
+    const promptPath = path.join(projectRoot, 'gemini-cli-extension', this.dirName, this.markdownFileName);
     
     let instructions = "";
     try {

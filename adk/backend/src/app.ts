@@ -3,6 +3,7 @@ import cors from 'cors';
 
 import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
+import { Evaluator } from './evaluator';
 
 export const app = express();
 app.use(cors());
@@ -36,7 +37,8 @@ app.post('/api/review', async (req, res) => {
 
   try {
     const ghClient = new GitHubClient(pat);
-    const orchestrator = new Orchestrator(5); // Run 5 LLM requests concurrently
+    const subagentOrchestrator = new Orchestrator(5, 'system_prompts'); // Run 5 LLM requests concurrently
+    const basicOrchestrator = new Orchestrator(5, 'basic_prompt');
 
     console.log(`Fetching diff for ${url}...`);
     const chunks = await ghClient.getPRDiff(url);
@@ -50,15 +52,49 @@ app.post('/api/review', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    orchestrator.onProgress = (agentName, file, status) => {
-      console.log(`[Agent: ${agentName}] - ${file} - Status: ${status}`);
-      res.write(JSON.stringify({ type: 'progress', agent: agentName, file, status }) + '\n');
+    subagentOrchestrator.onProgress = (agentName, file, status) => {
+      console.log(`[Subagent: ${agentName}] - ${file} - Status: ${status}`);
+      res.write(JSON.stringify({ type: 'progress', source: 'subagent', agent: agentName, file, status }) + '\n');
     };
 
-    const result = await orchestrator.runReview(chunks);
-    console.log(`Review complete. Found ${result.findings.length} total issues.`);
+    basicOrchestrator.onProgress = (agentName, file, status) => {
+      console.log(`[Basic: ${agentName}] - ${file} - Status: ${status}`);
+      res.write(JSON.stringify({ type: 'progress', source: 'basic', agent: agentName, file, status }) + '\n');
+    };
+
+    // Run both orchestrators concurrently
+    const [subagentResult, basicResult] = await Promise.all([
+      subagentOrchestrator.runReview(chunks),
+      basicOrchestrator.runReview(chunks)
+    ]);
+
+    // Tag findings with source
+    subagentResult.findings.forEach(f => f.source = 'subagent');
+    basicResult.findings.forEach(f => f.source = 'basic');
+
+    console.log(`Review complete. Subagents found ${subagentResult.findings.length} issues, Basic found ${basicResult.findings.length} issues.`);
     
-    res.write(JSON.stringify({ type: 'done', findings: result.findings, metrics: result.metrics }) + '\n');
+    // Evaluate comparison
+    console.log(`Evaluating comparison...`);
+    const evaluator = new Evaluator();
+    const evaluationText = await evaluator.evaluateComparison(subagentResult.findings, basicResult.findings);
+
+    // Merge findings and metrics
+    const allFindings = [...subagentResult.findings, ...basicResult.findings];
+    const combinedMetrics = {
+       inputTokens: subagentResult.metrics.inputTokens + basicResult.metrics.inputTokens,
+       outputTokens: subagentResult.metrics.outputTokens + basicResult.metrics.outputTokens,
+       calls: subagentResult.metrics.calls + basicResult.metrics.calls,
+       subagentMetrics: subagentResult.metrics,
+       basicMetrics: basicResult.metrics
+    };
+
+    res.write(JSON.stringify({ 
+      type: 'done', 
+      findings: allFindings, 
+      metrics: combinedMetrics,
+      evaluation: evaluationText
+    }) + '\n');
     res.end();
   } catch (error: any) {
     console.error('Error during review:', error);

@@ -11,6 +11,7 @@ export interface CandidateFinding {
   description: string;
   suggestion?: string;
   agent?: string; // Appended by the orchestrator
+  source?: 'subagent' | 'basic'; // Identifies which review process found it
 }
 
 export interface UsageMetadata {

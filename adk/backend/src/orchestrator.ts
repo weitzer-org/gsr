@@ -10,8 +10,11 @@ export class Orchestrator {
   private maxConcurrency: number;
   public onProgress?: (agentName: string, file: string, status: 'start' | 'complete' | 'skipped') => void;
 
-  constructor(maxConcurrency: number = 5) {
+  private promptsDirName: string;
+
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts') {
     this.maxConcurrency = maxConcurrency;
+    this.promptsDirName = promptsDirName;
     this.initializeAgents();
   }
 
@@ -28,7 +31,7 @@ export class Orchestrator {
         // Fallback for test environments (e.g. Jest ESM mode)
         projectRoot = path.resolve(process.cwd(), '../../');
     }
-    const promptsDir = path.join(projectRoot, 'gemini-cli-extension', 'system_prompts');
+    const promptsDir = path.join(projectRoot, 'gemini-cli-extension', this.promptsDirName);
 
     try {
       const files = fs.readdirSync(promptsDir);
@@ -39,7 +42,7 @@ export class Orchestrator {
             const name = f.replace('.md', '');
             // Capitalize for user display
             const displayName = name.charAt(0).toUpperCase() + name.slice(1);
-            return new GeminiAgent(displayName, f);
+            return new GeminiAgent(displayName, f, this.promptsDirName);
         });
       console.log(`Loaded ${this.subagents.length} agents from ${promptsDir}`);
     } catch (e) {

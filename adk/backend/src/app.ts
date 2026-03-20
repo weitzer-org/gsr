@@ -77,7 +77,7 @@ const frontendPath = path.join(process.cwd(), '../frontend');
 app.use(express.static(frontendPath));
 
 // Fallback to index.html for SPA routing
-app.get('*', (req, res) => {
+app.get(/(.*)/, (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

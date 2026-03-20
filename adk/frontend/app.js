@@ -141,7 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
                           
                           if (data.evaluation) {
                               comparisonEvaluationPanel.classList.remove('hidden');
-                              evaluationText.innerHTML = escapeHTML(data.evaluation).replace(/\n/g, '<br/>');
+                              evaluationText.innerHTML = window.marked ? window.marked.parse(data.evaluation) : escapeHTML(data.evaluation).replace(/\n/g, '<br/>');
                           }
 
                       } else if (data.type === 'error') {
@@ -156,7 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (error) {
           console.error(error);
           resultsContainer.classList.remove('hidden');
-          const errorHtml = `<div class="error-message" style="margin-bottom: 2rem;"><strong>Error:</strong> ${error.message}</div>`;
+          const errorHtml = `<div class="error-message main-error-message"><strong>Error:</strong> ${error.message}</div>`;
           document.querySelector('.tabs').insertAdjacentHTML('beforebegin', errorHtml);
       } finally {
           // Reset UI

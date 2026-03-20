@@ -363,6 +363,10 @@ button:disabled {
   margin-bottom: 20px;
 }
 
+.main-error-message {
+  margin-bottom: 2rem;
+}
+
 /* Status Indicator */
 .status-badge {
   display: inline-flex;

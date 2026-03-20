@@ -133,7 +133,7 @@ describe('POST /api/review', () => {
     expect(response.body.error).toBe('GitHub Error');
   });
 
-  it('should stream error if Orchestrator throws after headers sent', async () => {
+  it('should stream resilient empty results if Orchestrators throw', async () => {
     const githubModule = await import('../src/github.js');
     const orchestratorModule = await import('../src/orchestrator.js');
     const evaluatorModule = await import('../src/evaluator.js');
@@ -150,10 +150,10 @@ describe('POST /api/review', () => {
     expect(response.status).toBe(200);
     const text = response.text;
     const lines = text.trim().split('\n');
-    console.log('DUMP LINES:', lines);
 
     const lastLine = JSON.parse(lines[lines.length - 1]);
-    expect(lastLine).toEqual({ type: 'error', error: 'Orchestrator Error' });
+    expect(lastLine.type).toBe('done');
+    expect(lastLine.findings).toEqual([]);
   });
 });
 

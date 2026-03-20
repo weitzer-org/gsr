@@ -101,7 +101,7 @@ steps:
     fi
 
     echo "Application health check at $APP_URL/api/status"
-    curl --fail --retry 10 --retry-delay 5 "$APP_URL/api/status" || true
+    curl --fail --retry 10 --retry-delay 5 "$APP_URL/api/status"
 
     echo "✅ Application health check completed"
   waitFor: ['deploy-adk']

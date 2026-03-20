@@ -23,11 +23,11 @@ Address the following:
 - Which method appeared generally more effective for this pull request?
 
 <SUBAGENT_FINDINGS>
-${JSON.stringify(subagentFindings)}
+${JSON.stringify(subagentFindings.map(f => ({ file: f.file, line: f.line, agent: f.agent, severity: f.severity, summary: f.summary })))}
 </SUBAGENT_FINDINGS>
 
 <BASIC_FINDINGS>
-${JSON.stringify(basicFindings)}
+${JSON.stringify(basicFindings.map(f => ({ file: f.file, line: f.line, agent: f.agent, severity: f.severity, summary: f.summary })))}
 </BASIC_FINDINGS>
 
 Format your output in professional Markdown. Keep it under 250 words and be highly analytical.

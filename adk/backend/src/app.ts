@@ -67,11 +67,14 @@ app.post('/api/review', async (req, res) => {
       res.write(JSON.stringify({ type: 'progress', source: ReviewSource.BASIC, agent: agentName, file, status }) + '\n');
     };
 
-    // Run both orchestrators concurrently
-    const [subagentResult, basicResult] = await Promise.all([
+    // Run both orchestrators concurrently using Promise.allSettled to ensure independence
+    const results = await Promise.allSettled([
       subagentOrchestrator.runReview(chunks),
       basicOrchestrator.runReview(chunks)
     ]);
+
+    const subagentResult = results[0].status === 'fulfilled' ? results[0].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
+    const basicResult = results[1].status === 'fulfilled' ? results[1].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
 
     // Tag findings with source cleanly to avoid mutating the original arrays
     const subagentFindingsWithSource = subagentResult.findings.map(f => ({ ...f, source: ReviewSource.SUBAGENT }));
@@ -117,8 +120,8 @@ app.post('/api/review', async (req, res) => {
 const frontendPath = path.join(process.cwd(), '../frontend');
 app.use(express.static(frontendPath));
 
-// Fallback to index.html for SPA routing
-app.get(/(.*)/, (req, res) => {
+// Fallback to index.html for SPA routing (ignore static asset extensions to allow 404s)
+app.get(/^(?!\/.*\.[a-zA-Z0-9]+$).*$/, (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

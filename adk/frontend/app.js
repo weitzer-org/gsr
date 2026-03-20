@@ -7,8 +7,31 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnText = document.querySelector('.btn-text');
   const spinner = document.querySelector('.spinner');
   const resultsContainer = document.getElementById('results-container');
-  const findingsList = document.getElementById('findings-list');
+  
+  // Tab Elements
+  const tabs = document.querySelectorAll('.tab-btn');
+  const tabContents = document.querySelectorAll('.tab-content');
+  
+  // Findings Lists
+  const subagentFindingsList = document.getElementById('subagent-findings-list');
+  const basicFindingsList = document.getElementById('basic-findings-list');
 
+  // Comparison
+  const comparisonTableBody = document.getElementById('comparison-table-body');
+  const comparisonTable = document.getElementById('comparison-table');
+  const comparisonEvaluationPanel = document.getElementById('comparison-evaluation');
+  const evaluationText = document.getElementById('evaluation-text');
+
+  // Tab Setup
+  tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+          tabs.forEach(t => t.classList.remove('active'));
+          tabContents.forEach(c => c.classList.remove('active'));
+          
+          tab.classList.add('active');
+          document.getElementById(tab.dataset.tab).classList.add('active');
+      });
+  });
   // Using relative URLs for production deployment
   const API_URL = '/api/review';
   const STATUS_URL = '/api/status';
@@ -57,7 +80,12 @@ document.addEventListener('DOMContentLoaded', () => {
       spinner.classList.remove('hidden');
       resultsContainer.classList.add('hidden');
       progressContainer.classList.remove('hidden');
-      findingsList.innerHTML = '';
+      
+      subagentFindingsList.innerHTML = '';
+      basicFindingsList.innerHTML = '';
+      comparisonTableBody.innerHTML = '';
+      comparisonTable.classList.add('hidden');
+      comparisonEvaluationPanel.classList.add('hidden');
       progressGrid.innerHTML = '';
 
       // Keep track of active agent tasks to update the UI
@@ -95,9 +123,24 @@ document.addEventListener('DOMContentLoaded', () => {
                       if (data.type === 'progress') {
                           renderProgress(data, agentTasks, progressGrid);
                       } else if (data.type === 'done') {
-                          renderFindings(data.findings);
+                          resultsContainer.classList.remove('hidden');
+                          
+                          // Split findings by source
+                          const subagentFindings = data.findings.filter(f => f.source === 'subagent');
+                          const basicFindings = data.findings.filter(f => f.source === 'basic');
+                          
+                          renderFindings(subagentFindings, subagentFindingsList, 'Subagent Review');
+                          renderFindings(basicFindings, basicFindingsList, 'Basic Review');
+                          
                           if (data.metrics) {
-                              renderMetrics(data.metrics);
+                              renderMetrics(data.metrics.subagentMetrics, 'subagent');
+                              renderMetrics(data.metrics.basicMetrics, 'basic');
+                              renderComparisonTable(data.metrics.subagentMetrics, data.metrics.basicMetrics, subagentFindings, basicFindings);
+                          }
+                          
+                          if (data.evaluation) {
+                              comparisonEvaluationPanel.classList.remove('hidden');
+                              evaluationText.innerHTML = window.marked ? window.marked.parse(data.evaluation) : escapeHTML(data.evaluation).replace(/\n/g, '<br/>');
                           }
 
                       } else if (data.type === 'error') {
@@ -112,7 +155,8 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (error) {
           console.error(error);
           resultsContainer.classList.remove('hidden');
-          findingsList.innerHTML = `<div class="error-message"><strong>Error:</strong> ${error.message}</div>`;
+          const errorHtml = `<div class="error-message main-error-message"><strong>Error:</strong> ${error.message}</div>`;
+          document.querySelector('.tabs').insertAdjacentHTML('beforebegin', errorHtml);
       } finally {
           // Reset UI
           submitBtn.disabled = false;
@@ -180,13 +224,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
   }
 
-  function renderFindings(findings) {
-      resultsContainer.classList.remove('hidden');
+  function renderFindings(findings, container, reviewType) {
       if (!findings || findings.length === 0) {
-          findingsList.innerHTML = `
+          container.innerHTML = `
               <div class="finding" style="text-align: center;">
                   <h3 style="color: var(--success)">✅ No issues found!</h3>
-                  <p style="color: var(--text-secondary); margin-top: 10px;">The 10 subagents reviewed the code and did not identify any candidate findings.</p>
+                  <p style="color: var(--text-secondary); margin-top: 10px;">The ${reviewType} approach reviewed the code and did not identify any candidate findings.</p>
               </div>`;
           return;
       }
@@ -195,26 +238,89 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="finding">
               <div class="finding-header">
                   <span class="agent-badge">🤖 ${f.agent} Agent</span>
-                  <span class="severity-badge severity-${f.severity}">${f.severity}</span>
+                  <span class="severity-badge severity-${f.severity ? escapeHTML(f.severity.toLowerCase()) : 'unknown'}">${f.severity ? escapeHTML(f.severity) : 'UNKNOWN'}</span>
               </div>
               <div class="location">📄 ${f.file}${f.line ? ` : L${f.line}` : ''}</div>
               <div class="description">${escapeHTML(f.description)}</div>
           </div>
       `).join('');
 
-      findingsList.innerHTML = html;
+      container.innerHTML = html;
   }
 
-  function renderMetrics(metrics) {
+  function renderMetrics(metrics, prefix) {
       if (!metrics) return;
       
-      const input = document.getElementById('metric-input-tokens');
-      const output = document.getElementById('metric-output-tokens');
-      const calls = document.getElementById('metric-calls');
+      const input = document.getElementById(`metric-${prefix}-input`);
+      const output = document.getElementById(`metric-${prefix}-output`);
+      const calls = document.getElementById(`metric-${prefix}-calls`);
 
       if (input) input.textContent = metrics.inputTokens || 0;
       if (output) output.textContent = metrics.outputTokens || 0;
       if (calls) calls.textContent = metrics.calls || 0;
+  }
+
+  function calculateSeverities(findings) {
+      const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+      findings.forEach(f => {
+          if (f && f.severity) {
+              const sev = f.severity.toUpperCase();
+              if (counts[sev] !== undefined) counts[sev]++;
+          }
+      });
+      return counts;
+  }
+
+  function renderComparisonTable(subagentMetrics, basicMetrics, subagentFindings, basicFindings) {
+      comparisonTable.classList.remove('hidden');
+      
+      const subCounts = calculateSeverities(subagentFindings);
+      const basicCounts = calculateSeverities(basicFindings);
+
+      const formatMetric = (val) => val != null ? val.toLocaleString() : '0';
+      
+      comparisonTableBody.innerHTML = `
+          <tr>
+              <td>Input Tokens</td>
+              <td>${formatMetric(subagentMetrics?.inputTokens)}</td>
+              <td>${formatMetric(basicMetrics?.inputTokens)}</td>
+          </tr>
+          <tr>
+              <td>Output Tokens</td>
+              <td>${formatMetric(subagentMetrics?.outputTokens)}</td>
+              <td>${formatMetric(basicMetrics?.outputTokens)}</td>
+          </tr>
+          <tr>
+              <td>LLM API Calls</td>
+              <td>${formatMetric(subagentMetrics?.calls)}</td>
+              <td>${formatMetric(basicMetrics?.calls)}</td>
+          </tr>
+          <tr>
+              <td>Total Findings</td>
+              <td>${subagentFindings.length}</td>
+              <td>${basicFindings.length}</td>
+          </tr>
+          <tr>
+              <td>Critical Issues</td>
+              <td>${subCounts.CRITICAL}</td>
+              <td>${basicCounts.CRITICAL}</td>
+          </tr>
+          <tr>
+              <td>High Issues</td>
+              <td>${subCounts.HIGH}</td>
+              <td>${basicCounts.HIGH}</td>
+          </tr>
+          <tr>
+              <td>Medium Issues</td>
+              <td>${subCounts.MEDIUM}</td>
+              <td>${basicCounts.MEDIUM}</td>
+          </tr>
+          <tr>
+              <td>Low Issues</td>
+              <td>${subCounts.LOW}</td>
+              <td>${basicCounts.LOW}</td>
+          </tr>
+      `;
   }
 
 

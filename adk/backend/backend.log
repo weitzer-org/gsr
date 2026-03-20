@@ -1,0 +1,17 @@
+[dotenv@17.3.1] injecting env (3) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+/Users/benweitzer/projects/GSR/adk/backend/node_modules/path-to-regexp/src/index.ts:225
+      throw new PathError(`Missing parameter name at index ${index}`, str);
+            ^
+PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+    at name (/Users/benweitzer/projects/GSR/adk/backend/node_modules/path-to-regexp/src/index.ts:225:13)
+    at parse (/Users/benweitzer/projects/GSR/adk/backend/node_modules/path-to-regexp/src/index.ts:242:62)
+    at pathToRegexp (/Users/benweitzer/projects/GSR/adk/backend/node_modules/path-to-regexp/src/index.ts:480:54)
+    at Object.match (/Users/benweitzer/projects/GSR/adk/backend/node_modules/path-to-regexp/src/index.ts:438:28)
+    at matcher (/Users/benweitzer/projects/GSR/adk/backend/node_modules/router/lib/layer.js:86:23)
+    at new Layer (/Users/benweitzer/projects/GSR/adk/backend/node_modules/router/lib/layer.js:93:62)
+    at router.route (/Users/benweitzer/projects/GSR/adk/backend/node_modules/router/index.js:428:17)
+    at app.route (/Users/benweitzer/projects/GSR/adk/backend/node_modules/express/lib/application.js:257:22)
+    at app.<computed> [as get] (/Users/benweitzer/projects/GSR/adk/backend/node_modules/express/lib/application.js:478:22)
+    at Object.<anonymous> (/Users/benweitzer/projects/GSR/adk/backend/src/app.ts:121:5) {
+  originalPath: '*'
+}

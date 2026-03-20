@@ -3,6 +3,11 @@ export interface DiffChunk {
   content: string;
 }
 
+export enum ReviewSource {
+  SUBAGENT = 'subagent',
+  BASIC = 'basic'
+}
+
 export interface CandidateFinding {
   file: string;
   line: number;
@@ -11,6 +16,7 @@ export interface CandidateFinding {
   description: string;
   suggestion?: string;
   agent?: string; // Appended by the orchestrator
+  source?: ReviewSource; // Identifies which review process found it
 }
 
 export interface UsageMetadata {
@@ -26,7 +32,7 @@ export interface AnalyzeResult {
 
 export interface Subagent {
   name: string;
-  analyze(chunk: DiffChunk): Promise<AnalyzeResult>;
+  analyze(chunks: DiffChunk[]): Promise<AnalyzeResult>;
 }
 
 export interface ReviewResult {

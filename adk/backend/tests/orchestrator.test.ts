@@ -44,7 +44,7 @@ describe('Orchestrator', () => {
         const chunks = [{ file: 'test.ts', content: '+ new code' }];
         const results = await orchestrator.runReview(chunks);
 
-        expect(mockAnalyze).toHaveBeenCalledWith(chunks[0]);
+        expect(mockAnalyze).toHaveBeenCalledWith(chunks);
         // Only high severity should remain
         expect(results.findings).toHaveLength(1);
         expect(results.findings[0].severity).toBe('HIGH');

@@ -2,6 +2,7 @@ import request from 'supertest';
 import { jest } from '@jest/globals';
 import { GitHubClient } from '../src/github';
 import { Orchestrator } from '../src/orchestrator';
+import { Evaluator } from '../src/evaluator';
 
 describe('GET /api/status', () => {
   const originalEnv = process.env;
@@ -68,6 +69,7 @@ describe('POST /api/review', () => {
 
     const githubModule = await import('../src/github.js');
     const orchestratorModule = await import('../src/orchestrator.js');
+    const evaluatorModule = await import('../src/evaluator.js');
 
     const getPRDiffSpy = jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
     const runReviewSpy = jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockImplementation(async function (this: any, chunks) {
@@ -75,8 +77,10 @@ describe('POST /api/review', () => {
         this.onProgress('Logic', 'test.js', 'start');
         this.onProgress('Logic', 'test.js', 'complete');
       }
-      return { findings: mockFindings, metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
+      return { findings: JSON.parse(JSON.stringify(mockFindings)), metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
     });
+    
+    const evaluateComparisonSpy = jest.spyOn(evaluatorModule.Evaluator.prototype, 'evaluateComparison').mockResolvedValue('Mock evaluation string');
 
     const response = await request(app)
       .post('/api/review')
@@ -85,17 +89,34 @@ describe('POST /api/review', () => {
     expect(response.status).toBe(200);
     expect(getPRDiffSpy).toHaveBeenCalledWith('https://github.com/owner/repo/pull/1');
     expect(runReviewSpy).toHaveBeenCalledWith(mockChunks);
+    expect(evaluateComparisonSpy).toHaveBeenCalled();
 
     const text = response.text;
     const lines = text.trim().split('\n');
-    expect(lines).toHaveLength(3);
+    expect(lines).toHaveLength(5);
 
-    expect(JSON.parse(lines[0])).toEqual({ type: 'progress', agent: 'Logic', file: 'test.js', status: 'start' });
-    expect(JSON.parse(lines[1])).toEqual({ type: 'progress', agent: 'Logic', file: 'test.js', status: 'complete' });
-    expect(JSON.parse(lines[2])).toEqual({
+    expect(JSON.parse(lines[0])).toEqual({ type: 'progress', source: 'subagent', agent: 'Logic', file: 'test.js', status: 'start' });
+    expect(JSON.parse(lines[1])).toEqual({ type: 'progress', source: 'subagent', agent: 'Logic', file: 'test.js', status: 'complete' });
+    expect(JSON.parse(lines[2])).toEqual({ type: 'progress', source: 'basic', agent: 'Logic', file: 'test.js', status: 'start' });
+    expect(JSON.parse(lines[3])).toEqual({ type: 'progress', source: 'basic', agent: 'Logic', file: 'test.js', status: 'complete' });
+    
+    // Create expectations for findings knowing source was mutated
+    const expectedSubagentFindings = JSON.parse(JSON.stringify(mockFindings));
+    expectedSubagentFindings[0].source = 'subagent';
+    const expectedBasicFindings = JSON.parse(JSON.stringify(mockFindings));
+    expectedBasicFindings[0].source = 'basic';
+
+    expect(JSON.parse(lines[4])).toEqual({
       type: 'done',
-      findings: mockFindings,
-      metrics: { inputTokens: 0, outputTokens: 0, calls: 0 }
+      findings: [...expectedSubagentFindings, ...expectedBasicFindings],
+      metrics: {
+        inputTokens: 0,
+        outputTokens: 0,
+        calls: 0,
+        subagentMetrics: { inputTokens: 0, outputTokens: 0, calls: 0 },
+        basicMetrics: { inputTokens: 0, outputTokens: 0, calls: 0 }
+      },
+      evaluation: 'Mock evaluation string'
     });
 
   });
@@ -112,13 +133,15 @@ describe('POST /api/review', () => {
     expect(response.body.error).toBe('GitHub Error');
   });
 
-  it('should stream error if Orchestrator throws after headers sent', async () => {
+  it('should stream resilient empty results if Orchestrators throw', async () => {
     const githubModule = await import('../src/github.js');
     const orchestratorModule = await import('../src/orchestrator.js');
+    const evaluatorModule = await import('../src/evaluator.js');
     const mockChunks = [{ file: 'test.js', content: 'diff' }];
     
     jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
     jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockRejectedValue(new Error('Orchestrator Error'));
+    jest.spyOn(evaluatorModule.Evaluator.prototype, 'evaluateComparison').mockResolvedValue('Mock evaluation');
 
     const response = await request(app)
       .post('/api/review')
@@ -127,10 +150,10 @@ describe('POST /api/review', () => {
     expect(response.status).toBe(200);
     const text = response.text;
     const lines = text.trim().split('\n');
-    console.log('DUMP LINES:', lines);
 
     const lastLine = JSON.parse(lines[lines.length - 1]);
-    expect(lastLine).toEqual({ type: 'error', error: 'Orchestrator Error' });
+    expect(lastLine.type).toBe('done');
+    expect(lastLine.findings).toEqual([]);
   });
 });
 

@@ -101,12 +101,20 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "📦 Ensuring backend dependencies are installed..."
-(cd backend && npm install)
+if [ ! -d "backend/node_modules" ]; then
+  (cd backend && npm install)
+else
+  echo "✅ Backend dependencies already installed."
+fi
 
 echo "📦 Ensuring frontend dependencies are installed..."
-(cd frontend && npm install)
+if [ ! -d "frontend/node_modules" ]; then
+  (cd frontend && npm install)
+else
+  echo "✅ Frontend dependencies already installed."
+fi
 
-echo "🟢 Starting Backend API (Port 8080)..."
+echo "🟢 Starting Unified ADK Server (Port 8080)..."
 cd backend
 npm run dev &
 BACKEND_PID=$!
@@ -115,17 +123,11 @@ cd ..
 # Give the backend a second to initialize
 sleep 2
 
-echo "🟢 Starting Frontend UI (Port 3000)..."
-cd frontend
-npm start &
-FRONTEND_PID=$!
-cd ..
-
 echo "======================================================="
 echo "✅ ADK is successfully running!"
-echo "👉 Open your browser to: http://localhost:3000"
-echo "🖥️  To stop both servers, press Ctrl+C in this terminal"
+echo "👉 Open your browser to: http://localhost:8080"
+echo "🖥️  To stop the server, press Ctrl+C in this terminal"
 echo "======================================================="
 
-# Wait indefinitely for processes to finish (or Ctrl+C to stop)
-wait $BACKEND_PID $FRONTEND_PID
+# Wait indefinitely for process to finish
+wait $BACKEND_PID

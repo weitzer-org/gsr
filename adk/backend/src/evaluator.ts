@@ -23,11 +23,11 @@ Address the following:
 - Which method appeared generally more effective for this pull request?
 
 <SUBAGENT_FINDINGS>
-${JSON.stringify(subagentFindings, null, 2)}
+${JSON.stringify(subagentFindings)}
 </SUBAGENT_FINDINGS>
 
 <BASIC_FINDINGS>
-${JSON.stringify(basicFindings, null, 2)}
+${JSON.stringify(basicFindings)}
 </BASIC_FINDINGS>
 
 Format your output in professional Markdown. Keep it under 250 words and be highly analytical.

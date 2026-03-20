@@ -74,7 +74,8 @@ fi
 
 echo "Using GCP Project: $PROJECT_ID"
 
-if SECRET_VALUE=$(gcloud secrets versions access latest --secret="$SECRET_NAME" 2>/dev/null); then
+SECRET_VALUE=$(gcloud secrets versions access latest --secret="$SECRET_NAME" 2>/dev/null || true)
+if [ -n "$SECRET_VALUE" ]; then
   echo "✅ Successfully fetched GEMINI_API_KEY from Secret Manager."
   export GEMINI_API_KEY="$SECRET_VALUE"
 else
@@ -101,10 +102,18 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "📦 Ensuring backend dependencies are installed..."
-(cd backend && npm install)
+if [ ! -d "backend/node_modules" ]; then
+  (cd backend && npm install)
+else
+  echo "✅ Backend dependencies already installed."
+fi
 
 echo "📦 Ensuring frontend dependencies are installed..."
-(cd frontend && npm install)
+if [ ! -d "frontend/node_modules" ]; then
+  (cd frontend && npm install)
+else
+  echo "✅ Frontend dependencies already installed."
+fi
 
 echo "🟢 Starting Backend API (Port 8080)..."
 cd backend

@@ -5,14 +5,12 @@ import * as path from 'path';
 
 export class GeminiAgent implements Subagent {
   name: string;
-  private markdownFileName: string;
-  private dirName: string;
+  private promptContent: string;
   private ai: GoogleGenAI;
 
-  constructor(name: string, markdownFileName: string, dirName: string = 'system_prompts') {
+  constructor(name: string, promptContent: string) {
     this.name = name;
-    this.markdownFileName = markdownFileName;
-    this.dirName = dirName;
+    this.promptContent = promptContent;
     // The SDK automatically picks up GOOGLE_APPLICATION_CREDENTIALS for ADC,
     // or GEMINI_API_KEY from the environment.
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
@@ -71,32 +69,9 @@ export class GeminiAgent implements Subagent {
   }
 
   private buildPrompt(chunk: DiffChunk): string {
-    const currentDir = typeof __dirname !== 'undefined' ? __dirname : undefined;
-    let projectRoot: string;
-
-    if (currentDir) {
-        const isCompiled = currentDir.includes(path.join('dist', 'src'));
-        projectRoot = isCompiled 
-            ? path.resolve(currentDir, '../../../../') 
-            : path.resolve(currentDir, '../../../');
-    } else {
-        // Fallback for test environments (e.g. Jest ESM mode)
-        projectRoot = path.resolve(process.cwd(), '../../');
-    }
-
-    const promptPath = path.join(projectRoot, 'gemini-cli-extension', this.dirName, this.markdownFileName);
-    
-    let instructions = "";
-    try {
-      instructions = fs.readFileSync(promptPath, 'utf8');
-    } catch (e) {
-      console.error(`Could not read prompt file for ${this.name}: ${promptPath}`);
-      instructions = `You are the ${this.name} agent. Review the following code diff.`;
-    }
-    
     return `
 <SYSTEM_INSTRUCTIONS>
-${instructions}
+${this.promptContent || `You are the ${this.name} agent. Review the following code diff.`}
 </SYSTEM_INSTRUCTIONS>
 
 <FILE_PATH>

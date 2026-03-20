@@ -14,7 +14,7 @@ export class Orchestrator {
 
   constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts') {
     this.maxConcurrency = maxConcurrency;
-    this.promptsDirName = promptsDirName;
+    this.promptsDirName = path.basename(promptsDirName);
     this.initializeAgents();
   }
 
@@ -42,12 +42,19 @@ export class Orchestrator {
             const name = f.replace('.md', '');
             // Capitalize for user display
             const displayName = name.charAt(0).toUpperCase() + name.slice(1);
-            return new GeminiAgent(displayName, f, this.promptsDirName);
+            const promptPath = path.join(promptsDir, f);
+            let promptContent = '';
+            try {
+              promptContent = fs.readFileSync(promptPath, 'utf8');
+            } catch (e) {
+              console.error(`Could not read prompt file for ${displayName}: ${promptPath}`);
+            }
+            return new GeminiAgent(displayName, promptContent);
         });
       console.log(`Loaded ${this.subagents.length} agents from ${promptsDir}`);
     } catch (e) {
       console.error("Failed to load subagents from prompts directory:", e);
-      this.subagents = [new GeminiAgent('Logic', 'logic.md')];
+      this.subagents = [new GeminiAgent('Logic', 'You are the Logic agent. Review the following code diff.')];
     }
   }
 

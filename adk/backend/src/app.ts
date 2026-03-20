@@ -1,9 +1,14 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 
 import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
 import { Evaluator } from './evaluator';
+import { ReviewSource } from './types';
+
+const SYSTEM_PROMPTS_DIR = 'system_prompts';
+const BASIC_PROMPT_DIR = 'basic_prompt';
 
 export const app = express();
 app.use(cors());
@@ -37,8 +42,8 @@ app.post('/api/review', async (req, res) => {
 
   try {
     const ghClient = new GitHubClient(pat);
-    const subagentOrchestrator = new Orchestrator(5, 'system_prompts'); // Run 5 LLM requests concurrently
-    const basicOrchestrator = new Orchestrator(5, 'basic_prompt');
+    const subagentOrchestrator = new Orchestrator(5, SYSTEM_PROMPTS_DIR); // Run 5 LLM requests concurrently
+    const basicOrchestrator = new Orchestrator(5, BASIC_PROMPT_DIR);
 
     console.log(`Fetching diff for ${url}...`);
     const chunks = await ghClient.getPRDiff(url);
@@ -54,12 +59,12 @@ app.post('/api/review', async (req, res) => {
 
     subagentOrchestrator.onProgress = (agentName, file, status) => {
       console.log(`[Subagent: ${agentName}] - ${file} - Status: ${status}`);
-      res.write(JSON.stringify({ type: 'progress', source: 'subagent', agent: agentName, file, status }) + '\n');
+      res.write(JSON.stringify({ type: 'progress', source: ReviewSource.SUBAGENT, agent: agentName, file, status }) + '\n');
     };
 
     basicOrchestrator.onProgress = (agentName, file, status) => {
       console.log(`[Basic: ${agentName}] - ${file} - Status: ${status}`);
-      res.write(JSON.stringify({ type: 'progress', source: 'basic', agent: agentName, file, status }) + '\n');
+      res.write(JSON.stringify({ type: 'progress', source: ReviewSource.BASIC, agent: agentName, file, status }) + '\n');
     };
 
     // Run both orchestrators concurrently
@@ -68,19 +73,20 @@ app.post('/api/review', async (req, res) => {
       basicOrchestrator.runReview(chunks)
     ]);
 
-    // Tag findings with source
-    subagentResult.findings.forEach(f => f.source = 'subagent');
-    basicResult.findings.forEach(f => f.source = 'basic');
+    // Tag findings with source cleanly to avoid mutating the original arrays
+    const subagentFindingsWithSource = subagentResult.findings.map(f => ({ ...f, source: ReviewSource.SUBAGENT }));
+    const basicFindingsWithSource = basicResult.findings.map(f => ({ ...f, source: ReviewSource.BASIC }));
 
     console.log(`Review complete. Subagents found ${subagentResult.findings.length} issues, Basic found ${basicResult.findings.length} issues.`);
     
     // Evaluate comparison
     console.log(`Evaluating comparison...`);
     const evaluator = new Evaluator();
+    // Pass original unmutated findings to evaluator
     const evaluationText = await evaluator.evaluateComparison(subagentResult.findings, basicResult.findings);
 
-    // Merge findings and metrics
-    const allFindings = [...subagentResult.findings, ...basicResult.findings];
+    // Merge findings and metrics efficiently
+    const allFindings = subagentFindingsWithSource.concat(basicFindingsWithSource);
     const combinedMetrics = {
        inputTokens: subagentResult.metrics.inputTokens + basicResult.metrics.inputTokens,
        outputTokens: subagentResult.metrics.outputTokens + basicResult.metrics.outputTokens,
@@ -106,3 +112,13 @@ app.post('/api/review', async (req, res) => {
     }
   }
 });
+
+// Serve frontend static files
+const frontendPath = path.join(process.cwd(), '../frontend');
+app.use(express.static(frontendPath));
+
+// Fallback to index.html for SPA routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+

@@ -45,13 +45,13 @@
         </div>
 
         <div id="results-container" class="hidden">
-            <div class="tabs">
-                <button class="tab-btn active" data-tab="subagent-tab">Subagent Review</button>
-                <button class="tab-btn" data-tab="basic-tab">Basic Review</button>
-                <button class="tab-btn" data-tab="comparison-tab">Comparison</button>
+            <div class="tabs" role="tablist">
+                <button class="tab-btn active" data-tab="subagent-tab" role="tab" aria-selected="true" aria-controls="subagent-tab" id="subagent-tab-btn">Subagent Review</button>
+                <button class="tab-btn" data-tab="basic-tab" role="tab" aria-selected="false" aria-controls="basic-tab" id="basic-tab-btn">Basic Review</button>
+                <button class="tab-btn" data-tab="comparison-tab" role="tab" aria-selected="false" aria-controls="comparison-tab" id="comparison-tab-btn">Comparison</button>
             </div>
             
-            <div id="subagent-tab" class="tab-content active">
+            <div id="subagent-tab" class="tab-content active" role="tabpanel" aria-labelledby="subagent-tab-btn">
                 <div class="metrics-panel">
                     <div class="metric-box"><span class="metric-label">Input Tokens</span><span id="metric-subagent-input" class="metric-value">0</span></div>
                     <div class="metric-box"><span class="metric-label">Output Tokens</span><span id="metric-subagent-output" class="metric-value">0</span></div>
@@ -60,7 +60,7 @@
                 <div id="subagent-findings-list"></div>
             </div>
 
-            <div id="basic-tab" class="tab-content">
+            <div id="basic-tab" class="tab-content" role="tabpanel" aria-labelledby="basic-tab-btn">
                 <div class="metrics-panel">
                     <div class="metric-box"><span class="metric-label">Input Tokens</span><span id="metric-basic-input" class="metric-value">0</span></div>
                     <div class="metric-box"><span class="metric-label">Output Tokens</span><span id="metric-basic-output" class="metric-value">0</span></div>
@@ -69,7 +69,7 @@
                 <div id="basic-findings-list"></div>
             </div>
 
-            <div id="comparison-tab" class="tab-content">
+            <div id="comparison-tab" class="tab-content" role="tabpanel" aria-labelledby="comparison-tab-btn">
                 <div id="comparison-evaluation" class="evaluation-panel hidden">
                     <h3>Review Approach Comparison</h3>
                     <div id="evaluation-text" class="markdown-body"></div>

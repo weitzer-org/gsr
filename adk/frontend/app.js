@@ -33,9 +33,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
   });
 
-  // Hardcoded for local prototype. In production, this would be relative.
-  const API_URL = 'http://localhost:8080/api/review';
-  const STATUS_URL = 'http://localhost:8080/api/status';
+  // Using relative URLs for production deployment
+  const API_URL = '/api/review';
+  const STATUS_URL = '/api/status';
 
   const statusBadge = document.getElementById('connection-status');
   const statusText = statusBadge.querySelector('.status-text');
@@ -156,7 +156,8 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (error) {
           console.error(error);
           resultsContainer.classList.remove('hidden');
-          subagentFindingsList.innerHTML = `<div class="error-message"><strong>Error:</strong> ${error.message}</div>`;
+          const errorHtml = `<div class="error-message" style="margin-bottom: 2rem;"><strong>Error:</strong> ${error.message}</div>`;
+          document.querySelector('.tabs').insertAdjacentHTML('beforebegin', errorHtml);
       } finally {
           // Reset UI
           submitBtn.disabled = false;
@@ -238,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="finding">
               <div class="finding-header">
                   <span class="agent-badge">🤖 ${f.agent} Agent</span>
-                  <span class="severity-badge severity-${f.severity}">${f.severity}</span>
+                  <span class="severity-badge severity-${f.severity ? escapeHTML(f.severity.toLowerCase()) : 'unknown'}">${f.severity ? escapeHTML(f.severity) : 'UNKNOWN'}</span>
               </div>
               <div class="location">📄 ${f.file}${f.line ? ` : L${f.line}` : ''}</div>
               <div class="description">${escapeHTML(f.description)}</div>
@@ -260,28 +261,40 @@ document.addEventListener('DOMContentLoaded', () => {
       if (calls) calls.textContent = metrics.calls || 0;
   }
 
-  function countSeverity(findings, level) {
-      return findings.filter(f => f.severity.toUpperCase() === level.toUpperCase()).length;
+  function calculateSeverities(findings) {
+      const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+      findings.forEach(f => {
+          if (f && f.severity) {
+              const sev = f.severity.toUpperCase();
+              if (counts[sev] !== undefined) counts[sev]++;
+          }
+      });
+      return counts;
   }
 
   function renderComparisonTable(subagentMetrics, basicMetrics, subagentFindings, basicFindings) {
       comparisonTable.classList.remove('hidden');
       
+      const subCounts = calculateSeverities(subagentFindings);
+      const basicCounts = calculateSeverities(basicFindings);
+
+      const formatMetric = (val) => val != null ? val.toLocaleString() : '0';
+      
       comparisonTableBody.innerHTML = `
           <tr>
               <td>Input Tokens</td>
-              <td>${subagentMetrics.inputTokens.toLocaleString()}</td>
-              <td>${basicMetrics.inputTokens.toLocaleString()}</td>
+              <td>${formatMetric(subagentMetrics?.inputTokens)}</td>
+              <td>${formatMetric(basicMetrics?.inputTokens)}</td>
           </tr>
           <tr>
               <td>Output Tokens</td>
-              <td>${subagentMetrics.outputTokens.toLocaleString()}</td>
-              <td>${basicMetrics.outputTokens.toLocaleString()}</td>
+              <td>${formatMetric(subagentMetrics?.outputTokens)}</td>
+              <td>${formatMetric(basicMetrics?.outputTokens)}</td>
           </tr>
           <tr>
               <td>LLM API Calls</td>
-              <td>${subagentMetrics.calls}</td>
-              <td>${basicMetrics.calls}</td>
+              <td>${formatMetric(subagentMetrics?.calls)}</td>
+              <td>${formatMetric(basicMetrics?.calls)}</td>
           </tr>
           <tr>
               <td>Total Findings</td>
@@ -290,23 +303,23 @@ document.addEventListener('DOMContentLoaded', () => {
           </tr>
           <tr>
               <td>Critical Issues</td>
-              <td>${countSeverity(subagentFindings, 'CRITICAL')}</td>
-              <td>${countSeverity(basicFindings, 'CRITICAL')}</td>
+              <td>${subCounts.CRITICAL}</td>
+              <td>${basicCounts.CRITICAL}</td>
           </tr>
           <tr>
               <td>High Issues</td>
-              <td>${countSeverity(subagentFindings, 'HIGH')}</td>
-              <td>${countSeverity(basicFindings, 'HIGH')}</td>
+              <td>${subCounts.HIGH}</td>
+              <td>${basicCounts.HIGH}</td>
           </tr>
           <tr>
               <td>Medium Issues</td>
-              <td>${countSeverity(subagentFindings, 'MEDIUM')}</td>
-              <td>${countSeverity(basicFindings, 'MEDIUM')}</td>
+              <td>${subCounts.MEDIUM}</td>
+              <td>${basicCounts.MEDIUM}</td>
           </tr>
           <tr>
               <td>Low Issues</td>
-              <td>${countSeverity(subagentFindings, 'LOW')}</td>
-              <td>${countSeverity(basicFindings, 'LOW')}</td>
+              <td>${subCounts.LOW}</td>
+              <td>${basicCounts.LOW}</td>
           </tr>
       `;
   }

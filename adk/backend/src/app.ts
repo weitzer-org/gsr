@@ -4,6 +4,11 @@ import path from 'path';
 
 import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
+import { Evaluator } from './evaluator';
+import { ReviewSource } from './types';
+
+const SYSTEM_PROMPTS_DIR = 'system_prompts';
+const BASIC_PROMPT_DIR = 'basic_prompt';
 
 export const app = express();
 app.use(cors());
@@ -37,7 +42,8 @@ app.post('/api/review', async (req, res) => {
 
   try {
     const ghClient = new GitHubClient(pat);
-    const orchestrator = new Orchestrator(5); // Run 5 LLM requests concurrently
+    const subagentOrchestrator = new Orchestrator(5, SYSTEM_PROMPTS_DIR); // Run 5 LLM requests concurrently
+    const basicOrchestrator = new Orchestrator(5, BASIC_PROMPT_DIR);
 
     console.log(`Fetching diff for ${url}...`);
     const chunks = await ghClient.getPRDiff(url);
@@ -51,15 +57,53 @@ app.post('/api/review', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    orchestrator.onProgress = (agentName, file, status) => {
-      console.log(`[Agent: ${agentName}] - ${file} - Status: ${status}`);
-      res.write(JSON.stringify({ type: 'progress', agent: agentName, file, status }) + '\n');
+    subagentOrchestrator.onProgress = (agentName, file, status) => {
+      console.log(`[Subagent: ${agentName}] - ${file} - Status: ${status}`);
+      res.write(JSON.stringify({ type: 'progress', source: ReviewSource.SUBAGENT, agent: agentName, file, status }) + '\n');
     };
 
-    const result = await orchestrator.runReview(chunks);
-    console.log(`Review complete. Found ${result.findings.length} total issues.`);
+    basicOrchestrator.onProgress = (agentName, file, status) => {
+      console.log(`[Basic: ${agentName}] - ${file} - Status: ${status}`);
+      res.write(JSON.stringify({ type: 'progress', source: ReviewSource.BASIC, agent: agentName, file, status }) + '\n');
+    };
+
+    // Run both orchestrators concurrently using Promise.allSettled to ensure independence
+    const results = await Promise.allSettled([
+      subagentOrchestrator.runReview(chunks),
+      basicOrchestrator.runReview(chunks)
+    ]);
+
+    const subagentResult = results[0].status === 'fulfilled' ? results[0].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
+    const basicResult = results[1].status === 'fulfilled' ? results[1].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
+
+    // Tag findings with source cleanly to avoid mutating the original arrays
+    const subagentFindingsWithSource = subagentResult.findings.map(f => ({ ...f, source: ReviewSource.SUBAGENT }));
+    const basicFindingsWithSource = basicResult.findings.map(f => ({ ...f, source: ReviewSource.BASIC }));
+
+    console.log(`Review complete. Subagents found ${subagentResult.findings.length} issues, Basic found ${basicResult.findings.length} issues.`);
     
-    res.write(JSON.stringify({ type: 'done', findings: result.findings, metrics: result.metrics }) + '\n');
+    // Evaluate comparison
+    console.log(`Evaluating comparison...`);
+    const evaluator = new Evaluator();
+    // Pass original unmutated findings to evaluator
+    const evaluationText = await evaluator.evaluateComparison(subagentResult.findings, basicResult.findings);
+
+    // Merge findings and metrics efficiently
+    const allFindings = subagentFindingsWithSource.concat(basicFindingsWithSource);
+    const combinedMetrics = {
+       inputTokens: subagentResult.metrics.inputTokens + basicResult.metrics.inputTokens,
+       outputTokens: subagentResult.metrics.outputTokens + basicResult.metrics.outputTokens,
+       calls: subagentResult.metrics.calls + basicResult.metrics.calls,
+       subagentMetrics: subagentResult.metrics,
+       basicMetrics: basicResult.metrics
+    };
+
+    res.write(JSON.stringify({ 
+      type: 'done', 
+      findings: allFindings, 
+      metrics: combinedMetrics,
+      evaluation: evaluationText
+    }) + '\n');
     res.end();
   } catch (error: any) {
     console.error('Error during review:', error);
@@ -76,8 +120,8 @@ app.post('/api/review', async (req, res) => {
 const frontendPath = path.join(process.cwd(), '../frontend');
 app.use(express.static(frontendPath));
 
-// Fallback to index.html for SPA routing
-app.get(/(.*)/, (req, res) => {
+// Fallback to index.html for SPA routing (ignore static asset extensions to allow 404s)
+app.get(/^(?!\/.*\.[a-zA-Z0-9]+$).*$/, (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

@@ -10,8 +10,11 @@ export class Orchestrator {
   private maxConcurrency: number;
   public onProgress?: (agentName: string, file: string, status: 'start' | 'complete' | 'skipped') => void;
 
-  constructor(maxConcurrency: number = 5) {
+  private promptsDirName: string;
+
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts') {
     this.maxConcurrency = maxConcurrency;
+    this.promptsDirName = path.basename(promptsDirName);
     this.initializeAgents();
   }
 
@@ -28,7 +31,7 @@ export class Orchestrator {
         // Fallback for test environments (e.g. Jest ESM mode)
         projectRoot = path.resolve(process.cwd(), '../../');
     }
-    const promptsDir = path.join(projectRoot, 'gemini-cli-extension', 'system_prompts');
+    const promptsDir = path.join(projectRoot, 'gemini-cli-extension', this.promptsDirName);
 
     try {
       const files = fs.readdirSync(promptsDir);
@@ -39,12 +42,19 @@ export class Orchestrator {
             const name = f.replace('.md', '');
             // Capitalize for user display
             const displayName = name.charAt(0).toUpperCase() + name.slice(1);
-            return new GeminiAgent(displayName, f);
+            const promptPath = path.join(promptsDir, f);
+            let promptContent = '';
+            try {
+              promptContent = fs.readFileSync(promptPath, 'utf8');
+            } catch (e) {
+              console.error(`Could not read prompt file for ${displayName}: ${promptPath}`);
+            }
+            return new GeminiAgent(displayName, promptContent);
         });
       console.log(`Loaded ${this.subagents.length} agents from ${promptsDir}`);
     } catch (e) {
       console.error("Failed to load subagents from prompts directory: " + promptsDir, e);
-      this.subagents = [new GeminiAgent('Logic', 'logic.md')];
+      this.subagents = [new GeminiAgent('Logic', 'You are the Logic agent. Review the following code diff.')];
     }
   }
 
@@ -77,33 +87,39 @@ export class Orchestrator {
     // Map Tasks based on routing rules
     const tasks: (() => Promise<AnalyzeResult>)[] = [];
 
-    for (const chunk of chunks) {
-      for (const agent of this.subagents) {
+    for (const agent of this.subagents) {
+      const activeChunks = chunks.filter(chunk => {
         if (!this.shouldRun(agent.name, chunk.file)) {
-            if (this.onProgress) {
-                this.onProgress(agent.name, chunk.file, 'skipped');
-            }
-            continue;
+          if (this.onProgress) {
+             this.onProgress(agent.name, chunk.file, 'skipped');
+          }
+          return false;
         }
+        return true;
+      });
 
-        tasks.push(async () => {
-            if (this.onProgress) {
-                this.onProgress(agent.name, chunk.file, 'start');
-            }
-            try {
-                const res = await agent.analyze(chunk);
-                if (this.onProgress) {
-                    this.onProgress(agent.name, chunk.file, 'complete');
-                }
-                return res;
-            } catch (err) {
-                if (this.onProgress) {
-                    this.onProgress(agent.name, chunk.file, 'complete');
-                }
-                throw err;
-            }
-        });
+      if (activeChunks.length === 0) {
+        continue;
       }
+
+      tasks.push(async () => {
+          const progressFileName = `Aggregated PR (${activeChunks.length} files)`;
+          if (this.onProgress) {
+              this.onProgress(agent.name, progressFileName, 'start');
+          }
+          try {
+              const res = await agent.analyze(activeChunks);
+              if (this.onProgress) {
+                  this.onProgress(agent.name, progressFileName, 'complete');
+              }
+              return res;
+          } catch (err) {
+              if (this.onProgress) {
+                  this.onProgress(agent.name, progressFileName, 'complete');
+              }
+              throw err;
+          }
+      });
     }
 
     console.log(`Orchestrator routing ${chunks.length} files to ${tasks.length} subagent analysis tasks...`);

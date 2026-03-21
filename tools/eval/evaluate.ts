@@ -92,35 +92,47 @@ async function main() {
     process.exit();
   });
 
-  // Give it a moment to boot up
-  await new Promise(resolve => setTimeout(resolve, 8000));
+  // 4.5. Wait for backend to be ready via health check polling
+  for (let i = 0; i < 20; i++) {
+    try {
+      await fetch(localUrl).catch(() => {});
+      // Even if fetch fails with 404, connection succeeded
+      break;
+    } catch (e) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
   console.log('✅ Local backend assumed ready.');
 
-  // 5. Evaluate each PR
-  for (const prUrl of prs) {
+  // 5. Evaluate all PRs concurrently
+  const evalPromises = prs.map(async (prUrl: string) => {
     console.log(`\n================================`);
     console.log(`🔍 Evaluating PR: ${prUrl}`);
     console.log(`================================`);
 
-    console.log(`[Production] Sending review request to: ${prodUrl}`);
-    let prodResult: CombinedResult;
-    try {
-      prodResult = await runReview(prodUrl, prUrl, githubPat);
-      console.log(`✅ [Production] Retrieved ${prodResult.findings.length} findings.`);
-    } catch (e: any) {
-      console.error(`❌ [Production] Failed: ${e.message}`);
-      prodResult = { findings: [], metrics: { calls:0, inputTokens:0, outputTokens:0 }, error: e.message };
-    }
+    console.log(`[Production & Local] Sending review requests simultaneously...`);
+    
+    const prodPromise = runReview(prodUrl, prUrl, githubPat)
+      .then(res => {
+        console.log(`✅ [Production] Retrieved ${res.findings.length} findings.`);
+        return res;
+      })
+      .catch(e => {
+        console.error(`❌ [Production] Failed: ${e.message}`);
+        return { findings: [], metrics: { calls:0, inputTokens:0, outputTokens:0 }, error: e.message };
+      });
 
-    console.log(`[Local] Sending review request to: ${localUrl}`);
-    let localResult: CombinedResult;
-    try {
-      localResult = await runReview(localUrl, prUrl, githubPat);
-      console.log(`✅ [Local] Retrieved ${localResult.findings.length} findings.`);
-    } catch (e: any) {
-      console.error(`❌ [Local] Failed: ${e.message}`);
-      localResult = { findings: [], metrics: { calls:0, inputTokens:0, outputTokens:0 }, error: e.message };
-    }
+    const localPromise = runReview(localUrl, prUrl, githubPat)
+      .then(res => {
+        console.log(`✅ [Local] Retrieved ${res.findings.length} findings.`);
+        return res;
+      })
+      .catch(e => {
+        console.error(`❌ [Local] Failed: ${e.message}`);
+        return { findings: [], metrics: { calls:0, inputTokens:0, outputTokens:0 }, error: e.message };
+      });
+
+    const [prodResult, localResult] = await Promise.all([prodPromise, localPromise]);
 
     // 6. Compare results with LLM if both succeeded roughly
     let llmEvaluation = 'Skipped due to API errors.';
@@ -139,13 +151,15 @@ async function main() {
        }
     }
 
-    runPayload.results.push({
+    return {
       prUrl,
       local: localResult,
       production: prodResult,
       llm_comparison_report: llmEvaluation
-    });
-  }
+    };
+  });
+
+  runPayload.results = await Promise.all(evalPromises);
 
   // 7. Archive data
   const dateStr = runPayload.run_date.replace(/[:.]/g, '-');

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSR - Evaluation Dashboard</title>
+    <!-- Use Inter font for a modern look -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="container eval-container">
+        <header>
+            <div class="nav-bar">
+                <a href="index.html" class="nav-link">Code Review</a>
+                <a href="evals.html" class="nav-link active">Evaluations</a>
+            </div>
+            <h1>Evaluation Harness Dashboard</h1>
+            <p>Run full automated evaluations of the AI code reviewer across multiple test PRs.</p>
+        </header>
+
+        <div class="eval-layout">
+            <!-- Sidebar for listing past runs -->
+            <aside class="eval-sidebar card">
+                <h3>Evaluation History</h3>
+                <button id="run-eval-btn" class="primary-btn">
+                    <span class="btn-text">Run New Evaluation</span>
+                    <span class="spinner hidden"></span>
+                </button>
+                <div id="run-status-notice" class="status-notice hidden"></div>
+                <hr>
+                <ul id="run-list" class="run-list">
+                    <!-- Populated by JS -->
+                </ul>
+            </aside>
+
+            <!-- Main view for a specific run -->
+            <main class="eval-main hidden" id="eval-main">
+                <div class="card summary-card">
+                    <div class="card-header">
+                        <h2>Run Summary</h2>
+                        <span id="run-date-badge" class="badge"></span>
+                    </div>
+                    
+                    <div class="metrics-panel">
+                        <!-- Local Metrics -->
+                        <div class="metric-box comparison-metric">
+                            <span class="metric-label">Local Tokens</span>
+                            <div><span id="metric-local-input" class="metric-value">0</span> in / <span id="metric-local-output" class="metric-value">0</span> out</div>
+                        </div>
+                        <div class="metric-box comparison-metric">
+                            <span class="metric-label">Local LLM Calls</span>
+                            <span id="metric-local-calls" class="metric-value">0</span>
+                        </div>
+                        
+                        <!-- Prod Metrics -->
+                        <div class="metric-box comparison-metric">
+                            <span class="metric-label">Production Tokens</span>
+                            <div><span id="metric-prod-input" class="metric-value">0</span> in / <span id="metric-prod-output" class="metric-value">0</span> out</div>
+                        </div>
+                        <div class="metric-box comparison-metric">
+                            <span class="metric-label">Production LLM Calls</span>
+                            <span id="metric-prod-calls" class="metric-value">0</span>
+                        </div>
+                    </div>
+
+                    <div id="aggregate-report" class="markdown-body evaluation-panel">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <div class="card pr-list-card">
+                    <h2>PR Breakdowns</h2>
+                    <p>Select a PR below to see the isolated local vs production comparison.</p>
+                    
+                    <div id="pr-accordion" class="accordion">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    <script type="module" src="evals.js"></script>
+</body>
+</html>

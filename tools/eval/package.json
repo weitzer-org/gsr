@@ -4,7 +4,10 @@
   "description": "Evaluation harness for testing GSR outputs",
   "main": "evaluate.js",
   "scripts": {
-    "eval": "ts-node evaluate.ts"
+    "test": "jest",
+    "eval": "ts-node evaluate.ts",
+    "eval:list": "ts-node api-gcs.ts list",
+    "eval:get": "ts-node api-gcs.ts get"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^5.0.1",
@@ -13,8 +16,12 @@
     "dotenv": "^17.3.1"
   },
   "devDependencies": {
+    "@jest/globals": "^30.3.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22.0.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.9.3"
   }
 }

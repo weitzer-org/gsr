@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-
+import { spawn, exec } from './cmd.js';
 import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
 import { Evaluator } from './evaluator';
@@ -114,6 +114,60 @@ app.post('/api/review', async (req, res) => {
       res.end();
     }
   }
+});
+
+// --- Evals API ---
+app.post('/api/evals/start', (req, res, next) => {
+  try {
+    console.log(`[Backend API] Starting evaluation harness...`);
+    
+    // Spawn the eval script detached so it doesn't block
+  const evalDir = path.resolve(process.cwd(), '../../tools/eval');
+    const child = spawn('npm', ['run', 'eval'], {
+      cwd: evalDir,
+      detached: true,
+      stdio: 'ignore'
+    });
+    
+    child.unref(); // prevent waiting for this child
+    res.status(202).json({ status: 'started', message: 'Evaluation harness is running in the background.' });
+  } catch(e) {
+    console.error('ERROR INSIDE POST API:', e);
+    next(e);
+  }
+});
+
+app.get('/api/evals/results', (req, res) => {
+  const evalDir = path.resolve(process.cwd(), '../../tools/eval');
+  exec('npm run eval:list', { cwd: evalDir }, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Error listing GCS bucket:', error);
+      return res.status(500).json({ error: error.message });
+    }
+    try {
+      const results = JSON.parse(stdout);
+      res.json(results);
+    } catch(e) {
+      res.status(500).json({ error: 'Failed to parse list script output' });
+    }
+  });
+});
+
+app.get('/api/evals/results/:id', (req, res) => {
+  const fileId = req.params.id;
+  const evalDir = path.resolve(process.cwd(), '../../tools/eval');
+  exec(`npm run eval:get ${fileId}`, { cwd: evalDir, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Error fetching GCS object:', error);
+      return res.status(500).json({ error: error.message });
+    }
+    try {
+      const resultObj = JSON.parse(stdout);
+      res.json(resultObj);
+    } catch(e) {
+      res.status(500).json({ error: 'Failed to parse get script output' });
+    }
+  });
 });
 
 // Serve frontend static files

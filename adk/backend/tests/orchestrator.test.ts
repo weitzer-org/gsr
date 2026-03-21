@@ -21,7 +21,7 @@ describe('Orchestrator', () => {
         process.env.GEMINI_API_KEY = 'test-key';
         jest.restoreAllMocks();
         
-        const mod = await import('../src/orchestrator');
+        const mod = await import('../src/orchestrator.js');
         Orchestrator = mod.Orchestrator;
     });
 

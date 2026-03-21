@@ -10,6 +10,7 @@
     "eval:get": "ts-node api-gcs.ts get"
   },
   "dependencies": {
+    "@google-cloud/cloudbuild": "^5.5.0",
     "@google-cloud/secret-manager": "^5.0.1",
     "@google-cloud/storage": "^7.15.0",
     "@google/genai": "^1.45.0",

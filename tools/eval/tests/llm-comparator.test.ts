@@ -11,6 +11,7 @@ describe('LLM Comparator', () => {
   beforeEach(() => {
     process.env.GEMINI_API_KEY = 'test_api_key'; // Set a dummy key
 
+    // @ts-ignore
     generateContentMock = jest.fn().mockResolvedValue({
       text: 'Mocked Gemini Response'
     });
@@ -30,14 +31,15 @@ describe('LLM Comparator', () => {
   describe('compareResultsWithLLM', () => {
     it('should throw an error if no API key is set', async () => {
       delete process.env.GEMINI_API_KEY;
-      await expect(compareResultsWithLLM('pr_url', [], [])).rejects.toThrow('GEMINI_API_KEY must be set');
+      // @ts-ignore
+      await expect(compareResultsWithLLM('pr_url', [], [], 'Local', 'Branch')).rejects.toThrow('GEMINI_API_KEY must be set');
     });
 
     it('should successfully ask Gemini to evaluate the comparison and return text', async () => {
       const localFindings = [{ file: 'a.js', message: 'Local finding' }];
       const prodFindings = [{ file: 'b.js', message: 'Prod finding' }];
       
-      const responseText = await compareResultsWithLLM('https://github.com/my/pr/1', localFindings as any, prodFindings as any);
+      const responseText = await compareResultsWithLLM('https://github.com/my/pr/1', localFindings as any, prodFindings as any, 'Local', 'Branch');
 
       expect(responseText).toBe('Mocked Gemini Response');
       expect(generateContentMock).toHaveBeenCalled();
@@ -52,20 +54,23 @@ describe('LLM Comparator', () => {
     it('should throw if Gemini returns an empty response', async () => {
       generateContentMock.mockResolvedValueOnce({ text: null }); // Mock failure
 
-      await expect(compareResultsWithLLM('pr_url', [], [])).rejects.toThrow('LLM returned empty text');
+      // @ts-ignore
+      await expect(compareResultsWithLLM('pr_url', [], [], 'Local', 'Branch')).rejects.toThrow('LLM returned empty text');
     });
 
     it('should throw if Gemini call completely throws an error', async () => {
       generateContentMock.mockRejectedValueOnce(new Error('Network Error'));
 
-      await expect(compareResultsWithLLM('pr_url', [], [])).rejects.toThrow('Network Error');
+      // @ts-ignore
+      await expect(compareResultsWithLLM('pr_url', [], [], 'Local', 'Branch')).rejects.toThrow('Network Error');
     });
   });
 
   describe('generateAggregateReport', () => {
     it('should throw an error if no API key is set', async () => {
       delete process.env.GEMINI_API_KEY;
-      await expect(generateAggregateReport(['report1'], {})).rejects.toThrow('GEMINI_API_KEY must be set');
+      // @ts-ignore
+      await expect(generateAggregateReport(['report1'], {}, 'Local', 'Branch')).rejects.toThrow('GEMINI_API_KEY must be set');
     });
 
     it('should successfully ask Gemini to generate aggregate report and return text', async () => {
@@ -76,7 +81,7 @@ describe('LLM Comparator', () => {
       
       const reports = ['Report 1 details', 'Report 2 details'];
       
-      const responseText = await generateAggregateReport(reports, metrics);
+      const responseText = await generateAggregateReport(reports, metrics, 'Local', 'Branch');
 
       expect(responseText).toBe('Mocked Gemini Response');
       expect(generateContentMock).toHaveBeenCalled();
@@ -91,13 +96,15 @@ describe('LLM Comparator', () => {
     it('should throw if Gemini returns an empty response', async () => {
       generateContentMock.mockResolvedValueOnce({ text: null }); // Mock failure
 
-      await expect(generateAggregateReport(['r1'], {})).rejects.toThrow('LLM returned empty text for aggregate report');
+      // @ts-ignore
+      await expect(generateAggregateReport(['r1'], {}, 'Local', 'Branch')).rejects.toThrow('LLM returned empty text for aggregate report');
     });
 
     it('should throw if Gemini call completely throws an error', async () => {
       generateContentMock.mockRejectedValueOnce(new Error('Network Error'));
 
-      await expect(generateAggregateReport(['r1'], {})).rejects.toThrow('Network Error');
+      // @ts-ignore
+      await expect(generateAggregateReport(['r1'], {}, 'Local', 'Branch')).rejects.toThrow('Network Error');
     });
   });
 });

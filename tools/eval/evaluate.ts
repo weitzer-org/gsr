@@ -8,24 +8,42 @@ import { compareResultsWithLLM, generateAggregateReport } from './llm-comparator
 import { uploadResultsToGCS, ensureBucketExists } from './gcs-storage';
 import { buildRunMetadata } from './version-tracker';
 
-function deployStagingBranch(branch: string, githubPat: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    console.log(`\n☁️  Triggering Cloud Build to deploy branch '${branch}'...`);
-    const buildCmd = `export PATH="$HOME/google-cloud-sdk/bin:$PATH" && gcloud builds submit https://x-access-token:${githubPat}@github.com/weitzer-org/gsr.git --git-source-revision=${branch} --config=../../cloudbuild.yaml --substitutions=_CLOUD_RUN_SERVICE_NAME=gsr-code-review-staging,_ARTIFACT_REGISTRY_REPO_NAME=gsr-code-review,_IMAGE_TAG=staging`;
+import { CloudBuildClient } from '@google-cloud/cloudbuild';
+
+async function deployStagingBranch(branch: string, githubPat: string): Promise<string> {
+    console.log(`\n☁️  Triggering Cloud Build via Node SDK for branch '${branch}'...`);
+    const client = new CloudBuildClient();
+    const projectId = process.env.GOOGLE_CLOUD_PROJECT || 'quacktastic-waffle';
+    const triggerId = 'gsr-eval-staging'; // Manual Trigger ID defined in GCP
     
-    const { spawn, exec } = require('child_process');
-    const bChild = spawn(buildCmd, { shell: true, stdio: 'inherit' });
-    
-    bChild.on('close', (code: number) => {
-       if (code !== 0) return reject(new Error(`Cloud Build failed for branch deployment (code ${code}).`));
-       
-       console.log('☁️  Fetching staging URL...');
-       exec(`gcloud run services describe gsr-code-review-staging --region us-central1 --format="value(status.url)"`, (err: any, stdout: string) => {
-           if (err) return reject(err);
-           resolve(stdout.trim());
-       });
-    });
-  });
+    try {
+      const [operation] = await client.runBuildTrigger({
+        name: `projects/${projectId}/locations/us-central1/triggers/gsr-eval-staging`,
+        source: {
+          branchName: branch,
+          repoName: 'gsr',
+          projectId
+        }
+      });
+      
+      console.log('☁️  Build trigger started. Waiting for pipeline to finish (this may take a few minutes)...');
+      const [buildResult] = await operation.promise();
+      
+      if (buildResult.status !== 'SUCCESS' && buildResult.status !== 3) {
+         throw new Error(`Cloud Build failed with status: ${buildResult.status}`);
+      }
+      
+      return new Promise((resolve, reject) => {
+        console.log('☁️  Build successful! Fetching staging URL...');
+        const { exec } = require('child_process');
+        exec(`export PATH="$HOME/google-cloud-sdk/bin:$PATH" && gcloud run services describe gsr-code-review-staging --region us-central1 --format="value(status.url)"`, (err: any, stdout: string) => {
+            if (err) return reject(err);
+            resolve(stdout.trim());
+        });
+      });
+    } catch (err: any) {
+      throw new Error(`Failed to deploy staging branch: ${err.message}`);
+    }
 }
 
 async function main() {

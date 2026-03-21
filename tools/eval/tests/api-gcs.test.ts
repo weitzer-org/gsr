@@ -24,6 +24,7 @@ jest.mock('@google-cloud/storage', () => {
 });
 
 // Retrieve them from the mock module so tests can use them
+// @ts-ignore
 import { _mockGetFiles, _mockDownload, _mockFile, _mockBucket } from '@google-cloud/storage';
 const mockGetFiles = _mockGetFiles as jest.Mock;
 const mockDownload = _mockDownload as jest.Mock;
@@ -55,6 +56,7 @@ describe('api-gcs script', () => {
         { name: 'eval-run_1', metadata: { updated: '2026-03-21T00:00:00.000Z', size: 1024 } }
       ];
 
+      // @ts-ignore
       mockGetFiles.mockResolvedValue([mockFiles]);
 
       await main(['list']);
@@ -72,6 +74,7 @@ describe('api-gcs script', () => {
 
   describe('get action', () => {
     it('should fetch the contents of a specific file', async () => {
+      // @ts-ignore
       mockDownload.mockResolvedValue([Buffer.from('{"data": "file_contents"}')]);
 
       const testFilename = 'eval-run_my_run.json';

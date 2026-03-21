@@ -119,14 +119,25 @@ app.post('/api/review', async (req, res) => {
 // --- Evals API ---
 app.post('/api/evals/start', (req, res, next) => {
   try {
-    console.log(`[Backend API] Starting evaluation harness...`);
+    const { comparisonGroup = 'local_vs_production', branchName } = req.body || {};
+
+    if (comparisonGroup.includes('branch') && !branchName) {
+      return res.status(400).json({ error: 'branchName is required when comparison group involves a branch.' });
+    }
+
+    console.log(`[Backend API] Starting evaluation harness... (Group: ${comparisonGroup}, Branch: ${branchName || 'N/A'})`);
     
     // Spawn the eval script detached so it doesn't block
-  const evalDir = path.resolve(process.cwd(), '../../tools/eval');
+    const evalDir = path.resolve(process.cwd(), '../../tools/eval');
     const child = spawn('npm', ['run', 'eval'], {
       cwd: evalDir,
       detached: true,
-      stdio: 'ignore'
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        EVAL_COMPARISON_GROUP: comparisonGroup,
+        EVAL_TARGET_BRANCH: branchName || ''
+      }
     });
     
     child.unref(); // prevent waiting for this child

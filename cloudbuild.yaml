@@ -6,6 +6,7 @@ substitutions:
   _ARTIFACT_REGISTRY_REPO_NAME: 'gsr-code-review'
   _CLOUD_RUN_SERVICE_NAME: 'gsr-code-review'
   _SECRET_NAME: 'gsr-gemini-api-key'
+  _IMAGE_TAG: $COMMIT_SHA
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -19,7 +20,7 @@ steps:
   args: [
     'build',
     '-f', 'adk/Dockerfile',
-    '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$COMMIT_SHA',
+    '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$_IMAGE_TAG',
     '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:latest',
     '.'
   ]
@@ -75,7 +76,7 @@ steps:
   - '-c'
   - |
     gcloud run deploy $_CLOUD_RUN_SERVICE_NAME \
-      --image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$COMMIT_SHA \
+      --image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$_IMAGE_TAG \
       --region=$_REGION \
       --allow-unauthenticated \
       --set-secrets="GEMINI_API_KEY=$_SECRET_NAME:latest"
@@ -109,5 +110,5 @@ steps:
   waitFor: ['deploy-adk']
 
 images:
-  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$COMMIT_SHA'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$_IMAGE_TAG'
   - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:latest'

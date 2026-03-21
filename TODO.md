@@ -4,3 +4,8 @@
 2. **Improve Prompts:** Refine and improve the specific prompts utilized by the various subagents.
 3. **Review Granularity:** Evaluate whether it is better to stick with the file-by-file review approach, or process the entire pull request context collectively across the board.
 4. **Optimize Subagent Concurrency:** Reduce the sheer number of independent subagent tasks generated (currently ~200 tasks for large PRs) by batching files or analyzing the aggregated diff as a whole instead of evaluating every file with every subagent independently.
+5. **Evaluation UI:** Build a UI as part of the ADK frontend to visualize and show the results of the evaluation comparisons.
+6. **Evals Dataset:** Create a standardized evaluation dataset (a robust set of diverse Pull Requests) to run comparisons against automatically.
+7. **Context Optimization:** Better understand how context is shared between the agents and optimize the flow to reduce overhead or improve reasoning.
+8. **Evals Harness Verbosity:** Improve and streamline the verbosity of the evaluation harness outputs and logs to make debugging or monitoring easier.
+9. **Code Changes vs LLM Variance:** Focus the evaluation harness strictly on actual programmatic code changes made in GSR, reducing noise triggered by general differences in random LLM variance across baseline comparisons.

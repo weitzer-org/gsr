@@ -30,7 +30,10 @@ describe('Evaluations API Endpoints', () => {
       const mockChild = { unref: jest.fn() };
       spawnMock.mockReturnValue(mockChild);
 
-      const response = await request(app).post('/api/evals/start').send();
+      const response = await request(app).post('/api/evals/start').send({
+        comparisonGroup: 'local_vs_branch',
+        branchName: 'dummy-feat'
+      });
 
       expect(response.status).toBe(202);
       expect(response.body).toEqual({
@@ -42,10 +45,27 @@ describe('Evaluations API Endpoints', () => {
         ['run', 'eval'],
         expect.objectContaining({
           detached: true,
-          stdio: 'ignore'
+          stdio: 'inherit',
+          env: expect.objectContaining({
+            EVAL_COMPARISON_GROUP: 'local_vs_branch',
+            EVAL_TARGET_BRANCH: 'dummy-feat'
+          })
         })
       );
       expect(mockChild.unref).toHaveBeenCalled();
+    });
+
+    it('should return 400 when comparisonGroup is branch reliant but branchName is missing', async () => {
+      const response = await request(app).post('/api/evals/start').send({
+        comparisonGroup: 'local_vs_branch',
+        branchName: ''
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({
+        error: 'branchName is required when comparison group involves a branch.'
+      });
+      expect(spawnMock).not.toHaveBeenCalled();
     });
   });
 
@@ -63,7 +83,7 @@ describe('Evaluations API Endpoints', () => {
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockResult);
       expect(execMock).toHaveBeenCalledWith(
-        'npm run eval:list',
+        'npm run --silent eval:list',
         expect.any(Object),
         expect.any(Function)
       );
@@ -113,7 +133,7 @@ describe('Evaluations API Endpoints', () => {
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockReport);
       expect(execMock).toHaveBeenCalledWith(
-        `npm run eval:get ${fileId}`,
+        `npm run --silent eval:get ${fileId}`,
         expect.any(Object),
         expect.any(Function)
       );

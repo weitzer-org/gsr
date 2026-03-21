@@ -1,21 +1,46 @@
-// evals.js
+// 
 // Handles fetching GCS eval data, kicking off runs, and populating the UI.
 
-document.addEventListener('DOMContentLoaded', () => {
+export function initEvals() {
     const runEvalBtn = document.getElementById('run-eval-btn');
     const statusNotice = document.getElementById('run-status-notice');
     const runList = document.getElementById('run-list');
     const evalMain = document.getElementById('eval-main');
 
     const aggReportEl = document.getElementById('aggregate-report');
-    const metricLocalInput = document.getElementById('metric-local-input');
-    const metricLocalOutput = document.getElementById('metric-local-output');
-    const metricLocalCalls = document.getElementById('metric-local-calls');
-    const metricProdInput = document.getElementById('metric-prod-input');
-    const metricProdOutput = document.getElementById('metric-prod-output');
-    const metricProdCalls = document.getElementById('metric-prod-calls');
+    const metricAInput = document.getElementById('metric-a-input');
+    const metricAOutput = document.getElementById('metric-a-output');
+    const metricACalls = document.getElementById('metric-a-calls');
+    const metricBInput = document.getElementById('metric-b-input');
+    const metricBOutput = document.getElementById('metric-b-output');
+    const metricBCalls = document.getElementById('metric-b-calls');
+    const labelATokens = document.getElementById('label-metric-a-tokens');
+    const labelACalls = document.getElementById('label-metric-a-calls');
+    const labelBTokens = document.getElementById('label-metric-b-tokens');
+    const labelBCalls = document.getElementById('label-metric-b-calls');
     const runDateBadge = document.getElementById('run-date-badge');
     const prAccordion = document.getElementById('pr-accordion');
+
+    const comparisonGroupSelect = document.getElementById('comparison-group');
+    const branchNameInput = document.getElementById('branch-name');
+
+    // UI Logic for Comparison Dropdown
+    if (window.location.hostname.includes('run.app')) {
+        // Remove local options if running in production
+        for (let i = comparisonGroupSelect.options.length - 1; i >= 0; i--) {
+            if (comparisonGroupSelect.options[i].value.includes('local')) {
+                comparisonGroupSelect.remove(i);
+            }
+        }
+    }
+
+    comparisonGroupSelect.addEventListener('change', (e) => {
+        if (e.target.value.includes('branch')) {
+            branchNameInput.classList.remove('hidden');
+        } else {
+            branchNameInput.classList.add('hidden');
+        }
+    });
 
     let currentLoadingFile = null;
 
@@ -28,9 +53,27 @@ document.addEventListener('DOMContentLoaded', () => {
         statusNotice.classList.remove('hidden', 'success', 'error');
         statusNotice.classList.add('info');
 
+        const comparisonGroup = comparisonGroupSelect.value;
+        const branchName = branchNameInput.value.trim();
+
+        if (comparisonGroup.includes('branch') && !branchName) {
+            statusNotice.textContent = "Error: Please specify a Branch Name.";
+            statusNotice.classList.replace('info', 'error');
+            runEvalBtn.disabled = false;
+            return;
+        }
+
         try {
-            const res = await fetch('/api/evals/start', { method: 'POST' });
-            if (!res.ok) throw new Error('Failed to start evaluation');
+            const res = await fetch('/api/evals/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ comparisonGroup, branchName })
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to start evaluation');
+            }
 
             statusNotice.textContent = "Harness running... Check back in ~3-5 mins for new results.";
             statusNotice.classList.replace('info', 'success');
@@ -97,15 +140,23 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderDashboard(data) {
         runDateBadge.textContent = new Date(data.run_date).toLocaleString();
 
-        // Safe metrics rendering
-        const aggM = data.aggregate_metrics || { local: {}, production: {} };
-        metricLocalInput.textContent = aggM.local.inputTokens || 0;
-        metricLocalOutput.textContent = aggM.local.outputTokens || 0;
-        metricLocalCalls.textContent = aggM.local.calls || 0;
+        // Safe metrics rendering, mapped dynamically
+        const aggM = data.aggregate_metrics || { targetA: {}, targetB: {} };
+        const labelALit = data.targetA_label || 'Local';
+        const labelBLit = data.targetB_label || 'Production';
 
-        metricProdInput.textContent = aggM.production.inputTokens || 0;
-        metricProdOutput.textContent = aggM.production.outputTokens || 0;
-        metricProdCalls.textContent = aggM.production.calls || 0;
+        labelATokens.textContent = `${labelALit} Tokens`;
+        labelACalls.textContent = `${labelALit} LLM Calls`;
+        labelBTokens.textContent = `${labelBLit} Tokens`;
+        labelBCalls.textContent = `${labelBLit} LLM Calls`;
+
+        metricAInput.textContent = aggM.targetA?.inputTokens || aggM.local?.inputTokens || 0;
+        metricAOutput.textContent = aggM.targetA?.outputTokens || aggM.local?.outputTokens || 0;
+        metricACalls.textContent = aggM.targetA?.calls || aggM.local?.calls || 0;
+
+        metricBInput.textContent = aggM.targetB?.inputTokens || aggM.production?.inputTokens || 0;
+        metricBOutput.textContent = aggM.targetB?.outputTokens || aggM.production?.outputTokens || 0;
+        metricBCalls.textContent = aggM.targetB?.calls || aggM.production?.calls || 0;
 
         if (data.aggregate_report) {
             aggReportEl.innerHTML = marked.parse(data.aggregate_report);
@@ -113,12 +164,15 @@ document.addEventListener('DOMContentLoaded', () => {
             aggReportEl.innerHTML = '<em>No aggregate summary generated for this run.</em>';
         }
 
-        renderPRBreakdowns(data.results || []);
+        renderPRBreakdowns(data.results || [], labelALit, labelBLit);
     }
 
-    function renderPRBreakdowns(results) {
+    function renderPRBreakdowns(results, labelALit, labelBLit) {
         prAccordion.innerHTML = '';
         results.forEach((r, idx) => {
+            const taFindings = r.targetA?.findings || r.local?.findings || [];
+            const tbFindings = r.targetB?.findings || r.production?.findings || [];
+
             const detailStr = `
                 <details class="pr-detail">
                     <summary class="pr-summary">
@@ -132,12 +186,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <div class="pr-split-pane">
                             <div class="pane local-pane">
-                                <h4>Local Findings (${r.local.findings ? r.local.findings.length : 0})</h4>
-                                ${buildFindingsHtml(r.local.findings || [])}
+                                <h4>${labelALit} Findings (${taFindings.length})</h4>
+                                ${buildFindingsHtml(taFindings)}
                             </div>
                             <div class="pane prod-pane">
-                                <h4>Production Findings (${r.production.findings ? r.production.findings.length : 0})</h4>
-                                ${buildFindingsHtml(r.production.findings || [])}
+                                <h4>${labelBLit} Findings (${tbFindings.length})</h4>
+                                ${buildFindingsHtml(tbFindings)}
                             </div>
                         </div>
                     </div>
@@ -166,4 +220,8 @@ document.addEventListener('DOMContentLoaded', () => {
         html += '</ul>';
         return html;
     }
-});
+}
+
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', initEvals);
+}

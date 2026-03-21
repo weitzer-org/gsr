@@ -8,6 +8,26 @@ import { compareResultsWithLLM, generateAggregateReport } from './llm-comparator
 import { uploadResultsToGCS, ensureBucketExists } from './gcs-storage';
 import { buildRunMetadata } from './version-tracker';
 
+function deployStagingBranch(branch: string, githubPat: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    console.log(`\n☁️  Triggering Cloud Build to deploy branch '${branch}'...`);
+    const buildCmd = `export PATH="$HOME/google-cloud-sdk/bin:$PATH" && gcloud builds submit https://x-access-token:${githubPat}@github.com/weitzer-org/gsr.git --git-source-revision=${branch} --config=../../cloudbuild.yaml --substitutions=_CLOUD_RUN_SERVICE_NAME=gsr-code-review-staging,_ARTIFACT_REGISTRY_REPO_NAME=gsr-code-review,_IMAGE_TAG=staging`;
+    
+    const { spawn, exec } = require('child_process');
+    const bChild = spawn(buildCmd, { shell: true, stdio: 'inherit' });
+    
+    bChild.on('close', (code: number) => {
+       if (code !== 0) return reject(new Error(`Cloud Build failed for branch deployment (code ${code}).`));
+       
+       console.log('☁️  Fetching staging URL...');
+       exec(`gcloud run services describe gsr-code-review-staging --region us-central1 --format="value(status.url)"`, (err: any, stdout: string) => {
+           if (err) return reject(err);
+           resolve(stdout.trim());
+       });
+    });
+  });
+}
+
 async function main() {
   console.log('🚀 Starting GSR Evaluation Harness...');
 
@@ -32,8 +52,20 @@ async function main() {
   }
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
+  const compGroup = process.env.EVAL_COMPARISON_GROUP || 'local_vs_production';
+  const targetBranch = process.env.EVAL_TARGET_BRANCH || '';
+
   const localUrl = process.env.LOCAL_URL || 'http://localhost:8080';
   const prodUrl = config.production_url || process.env.PRODUCTION_URL || 'https://adk-backend-gsr-595305141203.us-central1.run.app';
+  
+  let targetAConfig = { label: 'Local', url: localUrl, isLocal: true, isBranch: false };
+  let targetBConfig = { label: 'Production', url: prodUrl, isLocal: false, isBranch: false };
+
+  if (compGroup === 'local_vs_branch') {
+     targetBConfig = { label: `Branch '${targetBranch}'`, url: '', isLocal: false, isBranch: true };
+  } else if (compGroup === 'branch_vs_production') {
+     targetAConfig = { label: `Branch '${targetBranch}'`, url: '', isLocal: false, isBranch: true };
+  }
   
   // NOTE: In production scenario, use dynamic project ID derivation or fallback 
   const gcpProjectId = process.env.GOOGLE_CLOUD_PROJECT || 'weitzer-org';
@@ -64,45 +96,53 @@ async function main() {
   // 3. Ensure GCS bucket exists
   await ensureBucketExists(bucketName);
 
+  // 3.5. Branch deployments if required
+  if (targetAConfig.isBranch) targetAConfig.url = await deployStagingBranch(targetBranch, githubPat);
+  if (targetBConfig.isBranch) targetBConfig.url = await deployStagingBranch(targetBranch, githubPat);
+
   // 4. Initialize Metadata
   const runPayload: any = {
     ...buildRunMetadata(prodUrl),
     prs_tested: prs,
+    targetA_label: targetAConfig.label,
+    targetB_label: targetBConfig.label,
     results: []
   };
 
   // 4.5 Start Local Server
-  console.log('🚀 Starting local backend server...');
-  const { spawn } = require('child_process');
-  
-  // Start the backend server directly overriding the port just in case
-  const serverProcess = spawn('npm', ['run', 'dev'], {
-    cwd: path.resolve(__dirname, '../../adk/backend'),
-    env: { ...process.env, PORT: '8080' },
-    stdio: 'ignore' // Do not clutter evaluation output with server logs
-  });
+  let serverProcess: any = null;
+  if (targetAConfig.isLocal || targetBConfig.isLocal) {
+    console.log('🚀 Starting local backend server...');
+    const { spawn } = require('child_process');
+    
+    // Start the backend server directly overriding the port just in case
+    serverProcess = spawn('npm', ['run', 'dev'], {
+      cwd: path.resolve(__dirname, '../../adk/backend'),
+      env: { ...process.env, PORT: '8080' },
+      stdio: 'ignore' // Do not clutter evaluation output with server logs
+    });
 
-  process.on('exit', () => {
-    if (serverProcess && !serverProcess.killed) {
-      serverProcess.kill('SIGTERM');
+    process.on('exit', () => {
+      if (serverProcess && !serverProcess.killed) {
+        serverProcess.kill('SIGTERM');
+      }
+    });
+
+    process.on('SIGINT', () => {
+      process.exit();
+    });
+
+    // Wait for backend to be ready via health check polling
+    for (let i = 0; i < 20; i++) {
+      try {
+        await fetch(localUrl).catch(() => {});
+        break;
+      } catch (e) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
     }
-  });
-
-  process.on('SIGINT', () => {
-    process.exit();
-  });
-
-  // 4.5. Wait for backend to be ready via health check polling
-  for (let i = 0; i < 20; i++) {
-    try {
-      await fetch(localUrl).catch(() => {});
-      // Even if fetch fails with 404, connection succeeded
-      break;
-    } catch (e) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
+    console.log('✅ Local backend assumed ready.');
   }
-  console.log('✅ Local backend assumed ready.');
 
   // 5. Evaluate all PRs concurrently
   const evalPromises = prs.map(async (prUrl: string) => {
@@ -110,37 +150,36 @@ async function main() {
     console.log(`🔍 Evaluating PR: ${prUrl}`);
     console.log(`================================`);
 
-    console.log(`[Production & Local] Sending review requests simultaneously...`);
+    console.log(`[${targetAConfig.label} & ${targetBConfig.label}] Sending review requests simultaneously...`);
     
-    const prodPromise = runReview(prodUrl, prUrl, githubPat)
+    const targetAPromise = runReview(targetAConfig.url, prUrl, githubPat)
       .then(res => {
-        console.log(`✅ [Production] Retrieved ${res.findings.length} findings.`);
+        console.log(`✅ [${targetAConfig.label}] Retrieved ${res.findings.length} findings.`);
         return res;
       })
       .catch(e => {
-        console.error(`❌ [Production] Failed: ${e.message}`);
+        console.error(`❌ [${targetAConfig.label}] Failed: ${e.message}`);
         return { findings: [], metrics: { calls:0, inputTokens:0, outputTokens:0 }, error: e.message };
       });
 
-    const localPromise = runReview(localUrl, prUrl, githubPat)
+    const targetBPromise = runReview(targetBConfig.url, prUrl, githubPat)
       .then(res => {
-        console.log(`✅ [Local] Retrieved ${res.findings.length} findings.`);
+        console.log(`✅ [${targetBConfig.label}] Retrieved ${res.findings.length} findings.`);
         return res;
       })
       .catch(e => {
-        console.error(`❌ [Local] Failed: ${e.message}`);
+        console.error(`❌ [${targetBConfig.label}] Failed: ${e.message}`);
         return { findings: [], metrics: { calls:0, inputTokens:0, outputTokens:0 }, error: e.message };
       });
 
-    const [prodResult, localResult] = await Promise.all([prodPromise, localPromise]);
+    const [targetAResult, targetBResult] = await Promise.all([targetAPromise, targetBPromise]);
 
     // 6. Compare results with LLM if both succeeded roughly
     let llmEvaluation = 'Skipped due to API errors.';
-    if (!prodResult.error && !localResult.error) {
+    if (!targetAResult.error && !targetBResult.error) {
        try {
-         // Temporarily mock LLM comparison if GEMINI_API_KEY is not set since GenAI SDK throws error
          if (process.env.GEMINI_API_KEY) {
-           llmEvaluation = await compareResultsWithLLM(prUrl, localResult.findings, prodResult.findings);
+           llmEvaluation = await compareResultsWithLLM(prUrl, targetAResult.findings, targetBResult.findings, targetAConfig.label, targetBConfig.label);
          } else {
            console.warn('⚠️ GEMINI_API_KEY is not set. Skipping LLM comparison step.');
            llmEvaluation = 'Skipped due to missing GEMINI_API_KEY.';
@@ -153,8 +192,8 @@ async function main() {
 
     return {
       prUrl,
-      local: localResult,
-      production: prodResult,
+      targetA: targetAResult,
+      targetB: targetBResult,
       llm_comparison_report: llmEvaluation
     };
   });
@@ -167,22 +206,22 @@ async function main() {
     .filter((r: string) => r && !r.startsWith('Skipped due to') && !r.startsWith('Error:'));
 
   const aggregateMetrics = {
-    local: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 },
-    production: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 }
+    targetA: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 },
+    targetB: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 }
   };
   
   for (const r of runPayload.results) {
-    if (r.local?.metrics) {
-       aggregateMetrics.local.inputTokens += r.local.metrics.inputTokens || 0;
-       aggregateMetrics.local.outputTokens += r.local.metrics.outputTokens || 0;
-       aggregateMetrics.local.calls += r.local.metrics.calls || 0;
-       aggregateMetrics.local.findingsCount += r.local.findings?.length || 0;
+    if (r.targetA?.metrics) {
+       aggregateMetrics.targetA.inputTokens += r.targetA.metrics.inputTokens || 0;
+       aggregateMetrics.targetA.outputTokens += r.targetA.metrics.outputTokens || 0;
+       aggregateMetrics.targetA.calls += r.targetA.metrics.calls || 0;
+       aggregateMetrics.targetA.findingsCount += r.targetA.findings?.length || 0;
     }
-    if (r.production?.metrics) {
-       aggregateMetrics.production.inputTokens += r.production.metrics.inputTokens || 0;
-       aggregateMetrics.production.outputTokens += r.production.metrics.outputTokens || 0;
-       aggregateMetrics.production.calls += r.production.metrics.calls || 0;
-       aggregateMetrics.production.findingsCount += r.production.findings?.length || 0;
+    if (r.targetB?.metrics) {
+       aggregateMetrics.targetB.inputTokens += r.targetB.metrics.inputTokens || 0;
+       aggregateMetrics.targetB.outputTokens += r.targetB.metrics.outputTokens || 0;
+       aggregateMetrics.targetB.calls += r.targetB.metrics.calls || 0;
+       aggregateMetrics.targetB.findingsCount += r.targetB.findings?.length || 0;
     }
   }
   
@@ -190,7 +229,7 @@ async function main() {
 
   if (validReports.length > 0 && process.env.GEMINI_API_KEY) {
     try {
-      runPayload.aggregate_report = await generateAggregateReport(validReports, aggregateMetrics);
+      runPayload.aggregate_report = await generateAggregateReport(validReports, aggregateMetrics, targetAConfig.label, targetBConfig.label);
     } catch (e: any) {
       console.error(`❌ [LLM Aggregate] Failed: ${e.message}`);
       runPayload.aggregate_report = `Error: ${e.message}`;
@@ -214,5 +253,5 @@ async function main() {
 
 main().catch(err => {
   console.error('\n💥 Unhandled error in evaluation harness:', err);
-  process.exit(1);
+  if (process.exit) process.exit(1);
 });

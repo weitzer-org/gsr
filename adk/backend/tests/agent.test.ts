@@ -68,4 +68,41 @@ describe('GeminiAgent', () => {
         expect(result.findings).toEqual([]);
     });
 
+    it('should extract usage metadata when present', async () => {
+        const agent = new GeminiAgent('Logic', 'logic.md');
+        const mockResponseJSON = JSON.stringify([]);
+        
+        // @ts-ignore
+        agent.ai = {
+            models: {
+                generateContent: jest.fn().mockImplementation(() => Promise.resolve({
+                    text: mockResponseJSON,
+                    usageMetadata: {
+                        promptTokenCount: 10,
+                        candidatesTokenCount: 20,
+                        totalTokenCount: 30
+                    }
+                }))
+            }
+        } as any;
+
+        const result = await agent.analyze([{ file: 'app.ts', content: 'test' }]);
+        expect(result.usage).toBeDefined();
+        expect(result.usage?.promptTokenCount).toBe(10);
+        expect(result.usage?.candidatesTokenCount).toBe(20);
+    });
+
+    it('should use gemini-2.5-pro as fallback model if GEMINI_MODEL is not set', async () => {
+        delete process.env.GEMINI_MODEL;
+        const agent = new GeminiAgent('Logic', 'logic.md');
+        const generateContentSpy = jest.fn().mockImplementation(() => Promise.resolve({ text: '[]' }));
+        // @ts-ignore
+        agent.ai = { models: { generateContent: generateContentSpy } } as any;
+
+        await agent.analyze([{ file: 'test.ts', content: 'test' }]);
+        
+        expect(generateContentSpy).toHaveBeenCalledWith(expect.objectContaining({
+            model: 'gemini-2.5-pro'
+        }));
+    });
 });

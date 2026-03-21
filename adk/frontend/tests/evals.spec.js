@@ -60,13 +60,13 @@ test.describe('Evals Dashboard UI', () => {
         await expect(page.locator('#eval-main')).toBeVisible();
 
         // Metrics logic
-        await expect(page.locator('#metric-local-input')).toHaveText('50');
-        await expect(page.locator('#metric-local-output')).toHaveText('10');
-        await expect(page.locator('#metric-local-calls')).toHaveText('1');
+        await expect(page.locator('#metric-a-input')).toHaveText('50');
+        await expect(page.locator('#metric-a-output')).toHaveText('10');
+        await expect(page.locator('#metric-a-calls')).toHaveText('1');
 
-        await expect(page.locator('#metric-prod-input')).toHaveText('100');
-        await expect(page.locator('#metric-prod-output')).toHaveText('20');
-        await expect(page.locator('#metric-prod-calls')).toHaveText('2');
+        await expect(page.locator('#metric-b-input')).toHaveText('100');
+        await expect(page.locator('#metric-b-output')).toHaveText('20');
+        await expect(page.locator('#metric-b-calls')).toHaveText('2');
 
         // Check the report markdown body
         const reportText = await page.locator('#aggregate-report').innerText();

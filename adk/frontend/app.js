@@ -1,6 +1,6 @@
 import { escapeHTML, parseStreamChunk } from './utils.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+export function initApp() {
 
   const form = document.getElementById('review-form');
   const submitBtn = document.getElementById('submit-btn');
@@ -325,4 +325,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
   // escapeHTML is now imported from utils.js
-});
+}
+
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', initApp);
+}

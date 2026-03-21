@@ -24,10 +24,18 @@
             <!-- Sidebar for listing past runs -->
             <aside class="eval-sidebar card">
                 <h3>Evaluation History</h3>
-                <button id="run-eval-btn" class="primary-btn">
-                    <span class="btn-text">Run New Evaluation</span>
-                    <span class="spinner hidden"></span>
-                </button>
+                <div class="eval-controls">
+                    <select id="comparison-group" class="form-select">
+                        <option value="local_vs_production" selected>Local vs Production</option>
+                        <option value="local_vs_branch">Local vs Branch</option>
+                        <option value="branch_vs_production">Branch vs Production</option>
+                    </select>
+                    <input type="text" id="branch-name" class="form-input hidden" placeholder="Branch name (e.g. feat-xyz)" />
+                    <button id="run-eval-btn" class="primary-btn">
+                        <span class="btn-text">Run New Evaluation</span>
+                        <span class="spinner hidden"></span>
+                    </button>
+                </div>
                 <div id="run-status-notice" class="status-notice hidden"></div>
                 <hr>
                 <ul id="run-list" class="run-list">
@@ -44,24 +52,24 @@
                     </div>
                     
                     <div class="metrics-panel">
-                        <!-- Local Metrics -->
+                        <!-- Target A Metrics -->
                         <div class="metric-box comparison-metric">
-                            <span class="metric-label">Local Tokens</span>
-                            <div><span id="metric-local-input" class="metric-value">0</span> in / <span id="metric-local-output" class="metric-value">0</span> out</div>
+                            <span class="metric-label" id="label-metric-a-tokens">Target A Tokens</span>
+                            <div><span id="metric-a-input" class="metric-value">0</span> in / <span id="metric-a-output" class="metric-value">0</span> out</div>
                         </div>
                         <div class="metric-box comparison-metric">
-                            <span class="metric-label">Local LLM Calls</span>
-                            <span id="metric-local-calls" class="metric-value">0</span>
+                            <span class="metric-label" id="label-metric-a-calls">Target A LLM Calls</span>
+                            <span id="metric-a-calls" class="metric-value">0</span>
                         </div>
                         
-                        <!-- Prod Metrics -->
+                        <!-- Target B Metrics -->
                         <div class="metric-box comparison-metric">
-                            <span class="metric-label">Production Tokens</span>
-                            <div><span id="metric-prod-input" class="metric-value">0</span> in / <span id="metric-prod-output" class="metric-value">0</span> out</div>
+                            <span class="metric-label" id="label-metric-b-tokens">Target B Tokens</span>
+                            <div><span id="metric-b-input" class="metric-value">0</span> in / <span id="metric-b-output" class="metric-value">0</span> out</div>
                         </div>
                         <div class="metric-box comparison-metric">
-                            <span class="metric-label">Production LLM Calls</span>
-                            <span id="metric-prod-calls" class="metric-value">0</span>
+                            <span class="metric-label" id="label-metric-b-calls">Target B LLM Calls</span>
+                            <span id="metric-b-calls" class="metric-value">0</span>
                         </div>
                     </div>
 
@@ -72,7 +80,7 @@
 
                 <div class="card pr-list-card">
                     <h2>PR Breakdowns</h2>
-                    <p>Select a PR below to see the isolated local vs production comparison.</p>
+                    <p>Select a PR below to see the isolated comparison.</p>
                     
                     <div id="pr-accordion" class="accordion">
                         <!-- Populated by JS -->

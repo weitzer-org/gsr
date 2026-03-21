@@ -167,8 +167,8 @@ async function main() {
     .filter((r: string) => r && !r.startsWith('Skipped due to') && !r.startsWith('Error:'));
 
   const aggregateMetrics = {
-    local: { inputTokens: 0, outputTokens: 0, calls: 0 },
-    production: { inputTokens: 0, outputTokens: 0, calls: 0 }
+    local: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 },
+    production: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 }
   };
   
   for (const r of runPayload.results) {
@@ -176,11 +176,13 @@ async function main() {
        aggregateMetrics.local.inputTokens += r.local.metrics.inputTokens || 0;
        aggregateMetrics.local.outputTokens += r.local.metrics.outputTokens || 0;
        aggregateMetrics.local.calls += r.local.metrics.calls || 0;
+       aggregateMetrics.local.findingsCount += r.local.findings?.length || 0;
     }
     if (r.production?.metrics) {
        aggregateMetrics.production.inputTokens += r.production.metrics.inputTokens || 0;
        aggregateMetrics.production.outputTokens += r.production.metrics.outputTokens || 0;
        aggregateMetrics.production.calls += r.production.metrics.calls || 0;
+       aggregateMetrics.production.findingsCount += r.production.findings?.length || 0;
     }
   }
   

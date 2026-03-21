@@ -139,7 +139,7 @@ app.post('/api/evals/start', (req, res, next) => {
 
 app.get('/api/evals/results', (req, res) => {
   const evalDir = path.resolve(process.cwd(), '../../tools/eval');
-  exec('npm run eval:list', { cwd: evalDir }, (error, stdout, stderr) => {
+  exec('npm run --silent eval:list', { cwd: evalDir }, (error, stdout, stderr) => {
     if (error) {
       console.error('Error listing GCS bucket:', error);
       return res.status(500).json({ error: error.message });
@@ -156,7 +156,7 @@ app.get('/api/evals/results', (req, res) => {
 app.get('/api/evals/results/:id', (req, res) => {
   const fileId = req.params.id;
   const evalDir = path.resolve(process.cwd(), '../../tools/eval');
-  exec(`npm run eval:get ${fileId}`, { cwd: evalDir, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+  exec(`npm run --silent eval:get ${fileId}`, { cwd: evalDir, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
     if (error) {
       console.error('Error fetching GCS object:', error);
       return res.status(500).json({ error: error.message });

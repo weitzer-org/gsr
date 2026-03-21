@@ -40,10 +40,11 @@ ${JSON.stringify(localFindings, null, 2)}
 
 Analyze the two sets of findings and provide a comprehensive comparison report covering the following criteria:
 1. **Accuracy**: Did the Local version find more accurate or relevant bugs than Production?
-2. **Regressions**: Did the Local version completely miss important bugs that Production successfully caught?
-3. **Formatting & Readability**: Which version resulted in better, clearer markdown and structure?
-4. **Actionability**: Are the suggestions provided by the Local version more actionable?
-5. **False Positives**: Does the Local version introduce new noisy false positives compared to Production?
+2. **Finding Counts & Regressions**: Compare the total number of findings caught. Did the Local version completely miss important bugs that Production successfully caught?
+3. **Source Analysis**: Note if any errors/improvements in the Local version are driven more by 'subagent' findings or 'basic' findings (each finding has a 'source' tag).
+4. **Formatting & Readability**: Which version resulted in better, clearer markdown and structure?
+5. **Actionability**: Are the suggestions provided by the Local version more actionable?
+6. **False Positives**: Does the Local version introduce new noisy false positives compared to Production?
 
 Provide your report in clean Markdown. Conclude with a clear verdict on whether the Local version is an "Improvement", "Regression", or "Neutral" change.
 `;
@@ -100,8 +101,9 @@ ${JSON.stringify(aggregateMetrics, null, 2)}
 </AGGREGATE_METRICS>
 
 Your task is to synthesize these individual PR reports and aggregate metrics into a single, cohesive Executive Summary. 
-Highlight the common strengths, consistent weaknesses (e.g., if there's a recurring bug like hallucinated line numbers), overall trends, and discuss the aggregate token/call usage differences between the Local and Production versions. 
-Conclude with a final overall verdict: "Improvement", "Regression", or "Neutral" based on the aggregate performance and resource usage.
+Highlight the common strengths, consistent weaknesses (e.g., if there's a recurring bug like hallucinated line numbers), overall trends, and discuss the aggregate token/call usage differences between the Local and Production versions.
+Include explicit Quantitative Finding Counts: "Local identified X total findings across the 10 PRs compared to Production's Y findings" (use findingsCount from the metrics).
+Conclude with a final overall verdict (Improvement/Regression/Neutral) and include Actionable Next Steps (e.g. prompt tweaks or architecture changes to fix identified regressions).
 
 Format your output in clean Markdown.
 `;

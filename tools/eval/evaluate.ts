@@ -4,7 +4,7 @@ import 'dotenv/config';
 
 import { getSecret } from './secret-manager';
 import { runReview, CombinedResult } from './api-client';
-import { compareResultsWithLLM } from './llm-comparator';
+import { compareResultsWithLLM, generateAggregateReport } from './llm-comparator';
 import { uploadResultsToGCS, ensureBucketExists } from './gcs-storage';
 import { buildRunMetadata } from './version-tracker';
 
@@ -160,6 +160,40 @@ async function main() {
   });
 
   runPayload.results = await Promise.all(evalPromises);
+
+  // 6.5 Generate aggregate evaluation report
+  const validReports = runPayload.results
+    .map((r: any) => r.llm_comparison_report)
+    .filter((r: string) => r && !r.startsWith('Skipped due to') && !r.startsWith('Error:'));
+
+  const aggregateMetrics = {
+    local: { inputTokens: 0, outputTokens: 0, calls: 0 },
+    production: { inputTokens: 0, outputTokens: 0, calls: 0 }
+  };
+  
+  for (const r of runPayload.results) {
+    if (r.local?.metrics) {
+       aggregateMetrics.local.inputTokens += r.local.metrics.inputTokens || 0;
+       aggregateMetrics.local.outputTokens += r.local.metrics.outputTokens || 0;
+       aggregateMetrics.local.calls += r.local.metrics.calls || 0;
+    }
+    if (r.production?.metrics) {
+       aggregateMetrics.production.inputTokens += r.production.metrics.inputTokens || 0;
+       aggregateMetrics.production.outputTokens += r.production.metrics.outputTokens || 0;
+       aggregateMetrics.production.calls += r.production.metrics.calls || 0;
+    }
+  }
+  
+  runPayload.aggregate_metrics = aggregateMetrics;
+
+  if (validReports.length > 0 && process.env.GEMINI_API_KEY) {
+    try {
+      runPayload.aggregate_report = await generateAggregateReport(validReports, aggregateMetrics);
+    } catch (e: any) {
+      console.error(`❌ [LLM Aggregate] Failed: ${e.message}`);
+      runPayload.aggregate_report = `Error: ${e.message}`;
+    }
+  }
 
   // 7. Archive data
   const dateStr = runPayload.run_date.replace(/[:.]/g, '-');

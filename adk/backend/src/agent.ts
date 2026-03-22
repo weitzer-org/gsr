@@ -82,7 +82,7 @@ export class GeminiAgent implements Subagent {
             timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
         });
 
-        const response = await Promise.race([genAiRequest, timeoutPromise]);
+        const response = await Promise.race([genAiRequest, timeoutPromise]).finally(() => clearTimeout(timeoutId));
         
         if (response.usageMetadata) {
             promptTokens += response.usageMetadata.promptTokenCount || 0;
@@ -147,7 +147,7 @@ export class GeminiAgent implements Subagent {
 
       const remediationResponse = await Promise.race([remediationRequest, new Promise<any>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini remediation fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
-      })]);
+      })]).finally(() => clearTimeout(timeoutId));
 
       if (remediationResponse.usageMetadata) {
           promptTokens += remediationResponse.usageMetadata.promptTokenCount || 0;

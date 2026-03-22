@@ -12,7 +12,7 @@ export interface DiscoveryIssue {
 
 export class GeminiAgent implements Subagent {
   name: string;
-  private promptContent: string;
+  public promptContent: string;
   private ai: GoogleGenAI;
 
   constructor(name: string, promptContent: string) {

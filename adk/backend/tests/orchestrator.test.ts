@@ -1,5 +1,6 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { GeminiAgent } from '../src/agent';
+import { TriageRouter } from '../src/triage';
 import * as originalFs from 'fs';
 
 const readdirSyncMock = jest.fn<any>();
@@ -23,6 +24,12 @@ describe('Orchestrator', () => {
         
         const mod = await import('../src/orchestrator.js');
         Orchestrator = mod.Orchestrator;
+        
+        // Mock Triage Router by default to isolate Orchestrator logic
+        jest.spyOn(TriageRouter.prototype, 'predictRouting').mockResolvedValue({
+            routingMap: {},
+            usage: { promptTokens: 10, candidatesTokens: 5 }
+        });
     });
 
     it('should initialize with logic agent when constructed', () => {
@@ -62,6 +69,9 @@ describe('Orchestrator', () => {
         ];
 
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ findings: [] });
+        
+        // Mock Triage to fail, to ensure fallback is used
+        jest.spyOn(TriageRouter.prototype, 'predictRouting').mockRejectedValue(new Error('Mock Triage Failure'));
 
         let skippedFiles: string[] = [];
         orchestrator.onProgress = (name: any, file: any, status: any) => {
@@ -82,6 +92,41 @@ describe('Orchestrator', () => {
         expect(skippedFiles).toContain('Dependencies:Dockerfile');
         expect(skippedFiles).not.toContain('Cicd:Dockerfile');
         expect(skippedFiles).not.toContain('Dependencies:package.json');
+
+        mockAnalyze.mockRestore();
+    });
+    
+    it('should use routing map from TriageRouter instead of static fallback', async () => {
+        const orchestrator = new Orchestrator();
+        orchestrator['subagents'] = [
+            new GeminiAgent('Performance', 'test'),
+            new GeminiAgent('Security', 'test')
+        ];
+
+        const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ findings: [] });
+        
+        // Mock Triage to return a specific routing map
+        jest.spyOn(TriageRouter.prototype, 'predictRouting').mockResolvedValue({
+            routingMap: {
+                'index.ts': ['Performance'],
+                'auth.ts': ['Security', 'Performance'],
+                'ignored.txt': []
+            },
+            usage: { promptTokens: 10, candidatesTokens: 10 }
+        });
+
+        const chunks = [
+            { file: 'index.ts', content: '' },
+            { file: 'auth.ts', content: '' },
+            { file: 'ignored.txt', content: '' }
+        ];
+
+        await orchestrator.runReview(chunks);
+
+        // Performance gets index.ts and auth.ts
+        // Security gets auth.ts
+        // both skip ignored.txt, Security skips index.ts
+        expect(mockAnalyze).toHaveBeenCalledTimes(2);
 
         mockAnalyze.mockRestore();
     });

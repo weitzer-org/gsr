@@ -33,6 +33,7 @@ export interface AnalyzeResult {
 export interface Subagent {
   name: string;
   analyze(chunks: DiffChunk[]): Promise<AnalyzeResult>;
+  promptContent?: string;
 }
 
 export interface ReviewResult {

@@ -1,5 +1,6 @@
 import { CandidateFinding, DiffChunk, Subagent, ReviewResult, AnalyzeResult } from './types';
 import { GeminiAgent } from './agent';
+import { TriageRouter } from './triage';
 import { PromisePool } from './pool';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -11,10 +12,12 @@ export class Orchestrator {
   public onProgress?: (agentName: string, file: string, status: 'start' | 'complete' | 'skipped') => void;
 
   private promptsDirName: string;
+  private triageRouter: TriageRouter;
 
   constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts') {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = path.basename(promptsDirName);
+    this.triageRouter = new TriageRouter();
     this.initializeAgents();
   }
 
@@ -83,13 +86,37 @@ export class Orchestrator {
     const allFindings: CandidateFinding[] = [];
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let triageCalls = 0;
+
+    let routingMap: Record<string, string[]> | null = null;
+    try {
+        const availableAgents = this.subagents.map(a => ({ name: a.name, promptContent: a.promptContent || '' }));
+        const triageResult = await this.triageRouter.predictRouting(chunks, availableAgents);
+        routingMap = triageResult.routingMap;
+        totalInputTokens += triageResult.usage.promptTokens;
+        totalOutputTokens += triageResult.usage.candidatesTokens;
+        triageCalls = 1;
+    } catch (e) {
+        console.error("Triage Router failed, falling back to static routing rules.", e);
+    }
 
     // Map Tasks based on routing rules
     const tasks: (() => Promise<AnalyzeResult>)[] = [];
 
     for (const agent of this.subagents) {
       const activeChunks = chunks.filter(chunk => {
-        if (!this.shouldRun(agent.name, chunk.file)) {
+        let shouldInclude = false;
+        
+        if (routingMap) {
+            // Using smart Triage Router Output
+            const assignedAgents = routingMap[chunk.file];
+            shouldInclude = assignedAgents && assignedAgents.includes(agent.name);
+        } else {
+            // Fallback to static rules
+            shouldInclude = this.shouldRun(agent.name, chunk.file);
+        }
+
+        if (!shouldInclude) {
           if (this.onProgress) {
              this.onProgress(agent.name, chunk.file, 'skipped');
           }
@@ -145,7 +172,7 @@ export class Orchestrator {
       metrics: {
         inputTokens: totalInputTokens,
         outputTokens: totalOutputTokens,
-        calls: results.length
+        calls: results.length + triageCalls
       }
     };
   }

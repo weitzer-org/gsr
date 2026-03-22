@@ -19,3 +19,4 @@
 17. **Resolve P0 Coverage Bug (File Skipping):** 
     - *Problem:* Subagents stubbornly skip certain generalized files (e.g., `eslint.config.js`) during the Discovery phase despite strict JSON Schema retry loops. This occurs because highly specialized roles (e.g., "CICD Agent", "Performance Agent") cause the LLM to aggressively filter out out-of-scope files.
     - *Solution:* Soften or remove the strict agent-specialty role constraints during the Pass 1 Discovery Phase, or create a generalized "Coverage Agent" that guarantees every file is scanned fundamentally before passing to specialized Mentors.
+18. **Configurable Token Limits:** Introduce application-level configurable caps (`MAX_INPUT_TOKENS`, `MAX_OUTPUT_TOKENS`) for the code review process to better manage API costs and prevent runaway token consumption per PR analysis.

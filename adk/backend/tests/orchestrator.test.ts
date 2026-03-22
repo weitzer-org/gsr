@@ -19,6 +19,8 @@ describe('Orchestrator', () => {
         jest.resetModules();
         readdirSyncMock.mockReset();
         readFileSyncMock.mockReset();
+        readdirSyncMock.mockReturnValue(['security.md', 'logic.md']);
+        readFileSyncMock.mockReturnValue('You are a test agent.');
         process.env.GEMINI_API_KEY = 'test-key';
         jest.restoreAllMocks();
         
@@ -182,5 +184,30 @@ describe('Orchestrator', () => {
             .rejects.toThrow('Agent Failed');
 
         expect(progressCalls).toEqual([{ status: 'start' }, { status: 'complete' }]);
+    });
+    it('should bypass triage router when useTriage is false', async () => {
+        readdirSyncMock.mockReturnValue(['logic.md']);
+        readFileSyncMock.mockReturnValue('content');
+        
+        const orchestrator = new Orchestrator(5, 'system_prompts', false); // useTriage = false
+        orchestrator['subagents'] = [
+            new GeminiAgent('Cicd', 'test')
+        ];
+
+        const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ findings: [] });
+        const mockTriagePredict = jest.spyOn(TriageRouter.prototype, 'predictRouting');
+
+        const chunks = [
+            { file: 'README.md', content: '' },
+            { file: 'Dockerfile', content: '' } // Cicd agent should trigger here via static fallback
+        ];
+
+        await orchestrator.runReview(chunks);
+
+        expect(mockTriagePredict).not.toHaveBeenCalled();
+        expect(mockAnalyze).toHaveBeenCalledTimes(1);
+
+        mockAnalyze.mockRestore();
+        mockTriagePredict.mockRestore();
     });
 });

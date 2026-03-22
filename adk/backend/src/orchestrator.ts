@@ -13,11 +13,13 @@ export class Orchestrator {
 
   private promptsDirName: string;
   private triageRouter: TriageRouter;
+  private useTriage: boolean;
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts') {
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useTriage: boolean = true) {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = path.basename(promptsDirName);
     this.triageRouter = new TriageRouter();
+    this.useTriage = useTriage;
     this.initializeAgents();
   }
 
@@ -89,64 +91,100 @@ export class Orchestrator {
     let triageCalls = 0;
 
     let routingMap: Record<string, string[]> | null = null;
-    try {
-        const availableAgents = this.subagents.map(a => ({ name: a.name, promptContent: a.promptContent || '' }));
-        const triageResult = await this.triageRouter.predictRouting(chunks, availableAgents);
-        routingMap = triageResult.routingMap;
-        totalInputTokens += triageResult.usage.promptTokens;
-        totalOutputTokens += triageResult.usage.candidatesTokens;
-        triageCalls = 1;
-    } catch (e) {
-        console.error("Triage Router failed, falling back to static routing rules.", e);
+    if (this.useTriage) {
+      try {
+          const availableAgents = this.subagents.map(a => ({ name: a.name, promptContent: a.promptContent || '' }));
+          const triageResult = await this.triageRouter.predictRouting(chunks, availableAgents);
+          routingMap = triageResult.routingMap;
+          totalInputTokens += triageResult.usage.promptTokens;
+          totalOutputTokens += triageResult.usage.candidatesTokens;
+          triageCalls = 1;
+      } catch (e) {
+          console.error("Triage Router failed, falling back to static routing rules.", e);
+      }
+    } else {
+      console.log("Triage Router disabled via config. Using static routing fallback for all files.");
     }
 
     // Map Tasks based on routing rules
     const tasks: (() => Promise<AnalyzeResult>)[] = [];
 
-    for (const agent of this.subagents) {
-      const activeChunks = chunks.filter(chunk => {
-        let shouldInclude = false;
-        
-        if (routingMap) {
-            // Using smart Triage Router Output
-            const assignedAgents = routingMap[chunk.file];
-            shouldInclude = assignedAgents && assignedAgents.includes(agent.name);
-        } else {
-            // Fallback to static rules
-            shouldInclude = this.shouldRun(agent.name, chunk.file);
-        }
-
-        if (!shouldInclude) {
-          if (this.onProgress) {
-             this.onProgress(agent.name, chunk.file, 'skipped');
+    if (this.useTriage) {
+      for (const agent of this.subagents) {
+        const activeChunks = chunks.filter(chunk => {
+          let shouldInclude = false;
+          
+          if (routingMap) {
+              // Using smart Triage Router Output
+              const assignedAgents = routingMap[chunk.file];
+              shouldInclude = assignedAgents && assignedAgents.includes(agent.name);
+          } else {
+              // Fallback to static rules
+              shouldInclude = this.shouldRun(agent.name, chunk.file);
           }
-          return false;
-        }
-        return true;
-      });
 
-      if (activeChunks.length === 0) {
-        continue;
+          if (!shouldInclude) {
+            if (this.onProgress) {
+               this.onProgress(agent.name, chunk.file, 'skipped');
+            }
+            return false;
+          }
+          return true;
+        });
+
+        if (activeChunks.length === 0) {
+          continue;
+        }
+
+        tasks.push(async () => {
+            const progressFileName = `Aggregated PR (${activeChunks.length} files)`;
+            if (this.onProgress) {
+                this.onProgress(agent.name, progressFileName, 'start');
+            }
+            try {
+                const res = await agent.analyze(activeChunks);
+                if (this.onProgress) {
+                    this.onProgress(agent.name, progressFileName, 'complete');
+                }
+                return res;
+            } catch (err) {
+                if (this.onProgress) {
+                    this.onProgress(agent.name, progressFileName, 'complete');
+                }
+                throw err;
+            }
+        });
       }
+    } else {
+      // Legacy fallback: File-by-File routing to completely replicate Production behavior (no chunk grouping)
+      for (const chunk of chunks) {
+         for (const agent of this.subagents) {
+            if (!this.shouldRun(agent.name, chunk.file)) {
+                if (this.onProgress) {
+                    this.onProgress(agent.name, chunk.file, 'skipped');
+                }
+                continue;
+            }
 
-      tasks.push(async () => {
-          const progressFileName = `Aggregated PR (${activeChunks.length} files)`;
-          if (this.onProgress) {
-              this.onProgress(agent.name, progressFileName, 'start');
-          }
-          try {
-              const res = await agent.analyze(activeChunks);
-              if (this.onProgress) {
-                  this.onProgress(agent.name, progressFileName, 'complete');
-              }
-              return res;
-          } catch (err) {
-              if (this.onProgress) {
-                  this.onProgress(agent.name, progressFileName, 'complete');
-              }
-              throw err;
-          }
-      });
+            tasks.push(async () => {
+                if (this.onProgress) {
+                    this.onProgress(agent.name, chunk.file, 'start');
+                }
+                try {
+                    const res = await agent.analyze([chunk]);
+                    if (this.onProgress) {
+                        this.onProgress(agent.name, chunk.file, 'complete');
+                    }
+                    return res;
+                } catch (err) {
+                    if (this.onProgress) {
+                        this.onProgress(agent.name, chunk.file, 'complete');
+                    }
+                    throw err;
+                }
+            });
+         }
+      }
     }
 
     console.log(`Orchestrator routing ${chunks.length} files to ${tasks.length} subagent analysis tasks...`);

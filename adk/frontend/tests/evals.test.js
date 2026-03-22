@@ -72,12 +72,16 @@ describe('Evals frontend logic (evals.js)', () => {
     });
 
     it('should correctly handle and render an evaluation run with 0 findings in the dataset without crashing', async () => {
+        // Stub marked.js globally
+        global.marked = { parse: (t) => t };
+
         // Mock the fetch for the history list
         global.fetch.mockResolvedValueOnce({
             ok: true,
             json: async () => [{ name: 'eval-run_test.json', updated: '2026-03-22' }]
         });
         
+
         // Mock the fetch for the actual evaluation file containing 0 findings
         global.fetch.mockResolvedValueOnce({
             ok: true,
@@ -97,7 +101,7 @@ describe('Evals frontend logic (evals.js)', () => {
         await new Promise(process.nextTick);
 
         // Click the loaded run
-        const runLink = document.querySelector('#run-list li span[role="link"]');
+        const runLink = document.querySelector('#run-list li.run-item');
         expect(runLink).not.toBeNull();
         if (runLink) {
             runLink.click();

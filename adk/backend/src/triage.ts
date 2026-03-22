@@ -67,7 +67,7 @@ Be precise to save downstream tokens: only assign an agent if their scope direct
     try {
       console.log(`[TriageRouter] Starting routing prediction for ${chunks.length} files...`);
       const request = this.ai.models.generateContent({
-        model: process.env.TRIAGE_MODEL || 'gemini-2.5-pro',
+        model: process.env.TRIAGE_MODEL || 'gemini-2.5-flash',
         contents,
         config: {
           systemInstruction,

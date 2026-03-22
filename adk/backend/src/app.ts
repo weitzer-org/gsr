@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { Storage } from '@google-cloud/storage';
 import path from 'path';
 import { spawn, exec } from './cmd.js';
 import { GitHubClient } from './github';
@@ -174,21 +175,29 @@ app.post('/api/evals/start', (req, res, next) => {
   }
 });
 
-app.get('/api/evals/results', (req, res) => {
-  const evalDir = path.resolve(process.cwd(), '../../tools/eval');
-  const child = spawn('npm', ['run', '--silent', 'eval:list'], { cwd: evalDir });
-  
-  res.setHeader('Content-Type', 'application/json');
-  child.stdout.pipe(res);
+const getStorageInstance = () => new Storage();
+const getBucketName = () => process.env.GCS_BUCKET || `gsr-eval-results-${process.env.GOOGLE_CLOUD_PROJECT || 'weitzer-org'}`;
 
-  child.stderr.on('data', (data) => {
-    console.error(`GCS List Stderr: ${data.toString()}`);
-  });
-
-  child.on('error', (error) => {
-    console.error('Error spawning GCS list process:', error);
+app.get('/api/evals/results', async (req, res) => {
+  try {
+    const storage = getStorageInstance();
+    const bucket = storage.bucket(getBucketName());
+    const [files] = await bucket.getFiles({ prefix: 'eval-run_' });
+    
+    const fileList = files.map(f => ({
+      name: f.name,
+      updated: f.metadata.updated,
+      size: f.metadata.size
+    }));
+    
+    // Sort by updated descending
+    fileList.sort((a, b) => new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime());
+    
+    res.json(fileList);
+  } catch (error: any) {
+    console.error('Error fetching GCS list:', error);
     if (!res.headersSent) res.status(500).json({ error: error.message });
-  });
+  }
 });
 
 app.get('/api/evals/results/:id', (req, res) => {
@@ -199,23 +208,22 @@ app.get('/api/evals/results/:id', (req, res) => {
     return res.status(400).json({ error: 'Invalid file ID format.' });
   }
 
-  const evalDir = path.resolve(process.cwd(), '../../tools/eval');
-  
-  // Utilize un-shelled spawn with isolated arguments array to prevent Command Injection.
-  // Directly pipe the stdout stream to prevent Node.js 10MB maxBuffer memory blowout.
-  const child = spawn('npm', ['run', '--silent', 'eval:get', '--', fileId], { cwd: evalDir });
-  
-  res.setHeader('Content-Type', 'application/json');
-  child.stdout.pipe(res);
-
-  child.stderr.on('data', (data) => {
-    console.error(`GCS Get Stderr: ${data.toString()}`);
-  });
-
-  child.on('error', (error) => {
-    console.error('Error spawning GCS get process:', error);
+  try {
+    const storage = getStorageInstance();
+    const bucket = storage.bucket(getBucketName());
+    const file = bucket.file(fileId);
+    
+    res.setHeader('Content-Type', 'application/json');
+    file.createReadStream()
+      .on('error', (error) => {
+        console.error('Error streaming GCS file:', error);
+        if (!res.headersSent) res.status(500).json({ error: error.message });
+      })
+      .pipe(res);
+  } catch (error: any) {
+    console.error('Error initializing GCS stream:', error);
     if (!res.headersSent) res.status(500).json({ error: error.message });
-  });
+  }
 });
 
 // Serve frontend static files

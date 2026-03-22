@@ -24,7 +24,7 @@ export class GeminiAgent implements Subagent {
   }
 
   async analyze(chunks: DiffChunk[]): Promise<AnalyzeResult> {
-    if (process.env.USE_TRIAGE_AGENT === 'false') {
+    if (true) {
       return this.analyzeLegacy(chunks[0]);
     }
 

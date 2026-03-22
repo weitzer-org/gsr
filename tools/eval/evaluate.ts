@@ -137,7 +137,7 @@ async function main() {
     serverProcess = spawn('npm', ['run', 'dev'], {
       cwd: path.resolve(__dirname, '../../adk/backend'),
       env: { ...process.env, PORT: '8080' },
-      stdio: 'ignore' // Do not clutter evaluation output with server logs
+      stdio: 'inherit' // Do not clutter evaluation output with server logs
     });
 
     process.on('exit', () => {
@@ -153,10 +153,12 @@ async function main() {
     // Wait for backend to be ready via health check polling
     for (let i = 0; i < 20; i++) {
       try {
-        await fetch(localUrl).catch(() => {});
-        break;
+        const res = await fetch(localUrl);
+        if (res.ok) break;
+        throw new Error("Not ok");
       } catch (e) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        if (i === 19) console.warn("Local backend took too long to start, moving on...");
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
     console.log('✅ Local backend assumed ready.');

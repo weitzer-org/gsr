@@ -9,3 +9,6 @@
 7. **Context Optimization:** Better understand how context is shared between the agents and optimize the flow to reduce overhead or improve reasoning.
 8. **Evals Harness Verbosity:** Improve and streamline the verbosity of the evaluation harness outputs and logs to make debugging or monitoring easier.
 9. **Code Changes vs LLM Variance:** Focus the evaluation harness strictly on actual programmatic code changes made in GSR, reducing noise triggered by general differences in random LLM variance across baseline comparisons.
+10. **Model Upgrades:** Migrate the primary subagent execution to use Gemini 3.1 Pro and implement graceful fallback logic to standard 3.1 Flash (or equivalents) in the event of API quota limits or downtime.
+11. **Payload Batching:** Implement dynamic file chunking logic in the orchestrator to prevent crashing the Gemini API with payloads exceeding the 10MB limit.
+12. **Context Sharing Architectures:** Explore and implement techniques (like Rolling Summarization or global AST skeletons) to maintain context awareness across separated batches for massive 1,000+ file monolithic PRs.

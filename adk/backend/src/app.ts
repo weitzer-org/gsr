@@ -47,7 +47,19 @@ app.post('/api/review', async (req, res) => {
 
     console.log(`Fetching diff for ${url}...`);
     const chunks = await ghClient.getPRDiff(url);
-    console.log(`Found ${chunks.length} modified files in PR.`);
+    console.log(`Found ${chunks.length} modified files in PR (post-filter).`);
+
+    // Defensive Limits: Gemini 2.5 API rejects >10MB
+    const MAX_FILES = 300;
+    const MAX_BYTE_SIZE = 9000000; // ~9.0MB ceiling
+    const payloadSize = Buffer.byteLength(JSON.stringify(chunks), 'utf8');
+
+    if (chunks.length > MAX_FILES || payloadSize > MAX_BYTE_SIZE) {
+      console.warn(`⚠️ PR ${url} rejected. Files: ${chunks.length}, Size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB.`);
+      return res.status(400).json({ 
+          error: `Pull Request is too massive for reliable automated review (Files: ${chunks.length}, Size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB). Please split your commits.` 
+      });
+    }
 
     console.log(`Starting concurrent agent execution...`);
 

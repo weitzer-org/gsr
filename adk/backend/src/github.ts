@@ -25,47 +25,48 @@ export class GitHubClient {
   }
 
   /**
-   * Fetches the raw diff of a Pull Request and parses it into chunks
+   * Fetches the file changes of a Pull Request and maps them into chunks
    */
   public async getPRDiff(url: string): Promise<DiffChunk[]> {
     const { owner, repo, pull_number } = this.parsePRUrl(url);
 
     try {
-      const response = await this.octokit.rest.pulls.get({
+      // Use pagination to fetch all files without hitting the 300 file monolithic limit
+      const files = await this.octokit.paginate(this.octokit.rest.pulls.listFiles, {
         owner,
         repo,
         pull_number,
-        mediaType: {
-          format: "diff",
-        },
+        per_page: 100
       });
 
-      const rawDiff = response.data as unknown as string;
-      return this.parseDiff(rawDiff);
+      const IGNORE_PATTERNS = [
+        /package-lock\.json$/i,
+        /yarn\.lock$/i,
+        /pnpm-lock\.yaml$/i,
+        /\.min\.js$/i,
+        /\.bundle\.js$/i,
+        /\.svg$/i,
+        /^dist\//i,
+        /^build\//i
+      ];
+
+      const chunks: DiffChunk[] = [];
+      for (const file of files) {
+        // file.patch only exists if the file was modified and the diff is not too large
+        if (file.patch) {
+          const isIgnored = IGNORE_PATTERNS.some(pattern => pattern.test(file.filename));
+          if (!isIgnored) {
+            chunks.push({
+              file: file.filename,
+              content: file.patch
+            });
+          }
+        }
+      }
+      return chunks;
     } catch (error: any) {
       console.error("Failed to fetch PR diff:", error);
       throw new Error(`Failed to fetch PR diff: ${error.message}`);
     }
-  }
-
-  /**
-   * Parses a raw unified git diff into an array of file-specific DiffChunks
-   */
-  private parseDiff(rawDiff: string): DiffChunk[] {
-    const chunks: DiffChunk[] = [];
-    const files = rawDiff.split(/^diff --git a\/(.+?) b\/(.+?)$/m);
-    
-    // The split returns: [ preamble, filename_a, filename_b, file_diff_content, ... ]
-    for (let i = 1; i < files.length; i += 3) {
-      const filename = files[i];
-      const content = files[i + 2]?.trim();
-      if (filename && content) {
-        chunks.push({
-          file: filename,
-          content: content
-        });
-      }
-    }
-    return chunks;
   }
 }

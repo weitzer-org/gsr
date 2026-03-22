@@ -49,15 +49,24 @@ app.post('/api/review', async (req, res) => {
     const chunks = await ghClient.getPRDiff(url);
     console.log(`Found ${chunks.length} modified files in PR (post-filter).`);
 
-    // Defensive Limits: Gemini 2.5 API rejects >10MB
-    const MAX_FILES = 300;
-    const MAX_BYTE_SIZE = 9000000; // ~9.0MB ceiling
-    const payloadSize = Buffer.byteLength(JSON.stringify(chunks), 'utf8');
+    let activeChunks = chunks;
+    let truncationWarning = '';
 
-    if (chunks.length > MAX_FILES || payloadSize > MAX_BYTE_SIZE) {
-      console.warn(`⚠️ PR ${url} rejected. Files: ${chunks.length}, Size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB.`);
+    const MAX_FILES = parseInt(process.env.MAX_REVIEW_FILES || '300', 10);
+    if (activeChunks.length > MAX_FILES) {
+      console.warn(`⚠️ PR ${url} has ${activeChunks.length} files. Truncating down to ${MAX_FILES}...`);
+      truncationWarning = `PR exceeded configured limits. Only the first ${MAX_FILES} files were analyzed.`;
+      activeChunks = activeChunks.slice(0, MAX_FILES);
+    }
+
+    // Defensive Limits: Gemini 2.5 API natively rejects >10MB
+    const MAX_BYTE_SIZE = 9000000; // ~9.0MB ceiling
+    const payloadSize = Buffer.byteLength(JSON.stringify(activeChunks), 'utf8');
+
+    if (payloadSize > MAX_BYTE_SIZE) {
+      console.warn(`⚠️ PR ${url} rejected. Final Payload Size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB.`);
       return res.status(400).json({ 
-          error: `Pull Request is too massive for reliable automated review (Files: ${chunks.length}, Size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB). Please split your commits.` 
+          error: `Pull Request patch size is too massive for reliable automated review (Size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB). Please split your commits.` 
       });
     }
 
@@ -68,6 +77,11 @@ app.post('/api/review', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
+
+    // Broadcast truncation warning natively over NDJSON if applicable
+    if (truncationWarning) {
+      res.write(JSON.stringify({ type: 'warning', message: truncationWarning }) + '\n');
+    }
 
     subagentOrchestrator.onProgress = (agentName, file, status) => {
       console.log(`[Subagent: ${agentName}] - ${file} - Status: ${status}`);
@@ -81,8 +95,8 @@ app.post('/api/review', async (req, res) => {
 
     // Run both orchestrators concurrently using Promise.allSettled to ensure independence
     const results = await Promise.allSettled([
-      subagentOrchestrator.runReview(chunks),
-      basicOrchestrator.runReview(chunks)
+      subagentOrchestrator.runReview(activeChunks),
+      basicOrchestrator.runReview(activeChunks)
     ]);
 
     const subagentResult = results[0].status === 'fulfilled' ? results[0].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };

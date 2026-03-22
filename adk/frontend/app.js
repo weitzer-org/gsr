@@ -73,6 +73,7 @@ export function initApp() {
       // Progress UI elements
       const progressContainer = document.getElementById('progress-container');
       const progressGrid = document.getElementById('progress-grid');
+      const warningContainer = document.getElementById('warning-container');
       
       // UI Loading State
       submitBtn.disabled = true;
@@ -80,6 +81,8 @@ export function initApp() {
       spinner.classList.remove('hidden');
       resultsContainer.classList.add('hidden');
       progressContainer.classList.remove('hidden');
+      warningContainer.classList.add('hidden');
+      warningContainer.innerHTML = '';
       
       subagentFindingsList.innerHTML = '';
       basicFindingsList.innerHTML = '';
@@ -122,6 +125,9 @@ export function initApp() {
                       
                       if (data.type === 'progress') {
                           renderProgress(data, agentTasks, progressGrid);
+                      } else if (data.type === 'warning') {
+                          warningContainer.innerHTML = '⚠️ ' + escapeHTML(data.message);
+                          warningContainer.classList.remove('hidden');
                       } else if (data.type === 'done') {
                           resultsContainer.classList.remove('hidden');
                           

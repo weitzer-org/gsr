@@ -41,6 +41,8 @@ export function initEvals() {
             branchNameInput.classList.add('hidden');
         }
     });
+    // Trigger initial state
+    comparisonGroupSelect.dispatchEvent(new Event('change'));
 
     let currentLoadingFile = null;
 

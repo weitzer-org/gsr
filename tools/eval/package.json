@@ -1,0 +1,28 @@
+{
+  "name": "gsr-eval-harness",
+  "version": "1.0.0",
+  "description": "Evaluation harness for testing GSR outputs",
+  "main": "evaluate.js",
+  "scripts": {
+    "test": "jest",
+    "eval": "ts-node evaluate.ts",
+    "eval:list": "ts-node api-gcs.ts list",
+    "eval:get": "ts-node api-gcs.ts get"
+  },
+  "dependencies": {
+    "@google-cloud/cloudbuild": "^5.5.0",
+    "@google-cloud/secret-manager": "^5.0.1",
+    "@google-cloud/storage": "^7.15.0",
+    "@google/genai": "^1.45.0",
+    "dotenv": "^17.3.1"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.3.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.0.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

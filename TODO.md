@@ -4,3 +4,19 @@
 2. **Improve Prompts:** Refine and improve the specific prompts utilized by the various subagents.
 3. **Review Granularity:** Evaluate whether it is better to stick with the file-by-file review approach, or process the entire pull request context collectively across the board.
 4. **Optimize Subagent Concurrency:** Reduce the sheer number of independent subagent tasks generated (currently ~200 tasks for large PRs) by batching files or analyzing the aggregated diff as a whole instead of evaluating every file with every subagent independently.
+5. **Evaluation UI:** Build a UI as part of the ADK frontend to visualize and show the results of the evaluation comparisons.
+6. **Evals Dataset:** Create a standardized evaluation dataset (a robust set of diverse Pull Requests) to run comparisons against automatically.
+7. **Context Optimization:** Better understand how context is shared between the agents and optimize the flow to reduce overhead or improve reasoning.
+8. **Evals Harness Verbosity:** Improve and streamline the verbosity of the evaluation harness outputs and logs to make debugging or monitoring easier.
+9. **Code Changes vs LLM Variance:** Focus the evaluation harness strictly on actual programmatic code changes made in GSR, reducing noise triggered by general differences in random LLM variance across baseline comparisons.
+10. **Model Upgrades:** Migrate the primary subagent execution to use Gemini 3.1 Pro and implement graceful fallback logic to standard 3.1 Flash (or equivalents) in the event of API quota limits or downtime.
+11. **Payload Batching:** Implement dynamic file chunking logic in the orchestrator to prevent crashing the Gemini API with payloads exceeding the 10MB limit.
+12. **Context Sharing Architectures:** Explore and implement techniques (like Rolling Summarization or global AST skeletons) to maintain context awareness across separated batches for massive 1,000+ file monolithic PRs.
+13. **Persistent Review History:** Make the code review tab persistent so it shows the last code review result and keeps a running history of previous PR analyses.
+14. **Metrics & Usage Dashboard:** Implement programmatic metric tracking and a dedicated usage dashboard for monitoring system performance over time.
+15. **AST Context Pruning:** Implement aggressive context window pruning via Abstract Syntax Trees or enhanced filtering to reduce the 13% input token overhead observed in the local evaluation.
+16. **Automated Evals/Fix Loop:** Build an automated execution loop that routinely runs the Evaluation Harness and forces AI agents to iterate on prompt refinement based on regressions detected in the baseline.
+17. **Resolve P0 Coverage Bug (File Skipping):** 
+    - *Problem:* Subagents stubbornly skip certain generalized files (e.g., `eslint.config.js`) during the Discovery phase despite strict JSON Schema retry loops. This occurs because highly specialized roles (e.g., "CICD Agent", "Performance Agent") cause the LLM to aggressively filter out out-of-scope files.
+    - *Solution:* Soften or remove the strict agent-specialty role constraints during the Pass 1 Discovery Phase, or create a generalized "Coverage Agent" that guarantees every file is scanned fundamentally before passing to specialized Mentors.
+18. **Configurable Token Limits:** Introduce application-level configurable caps (`MAX_INPUT_TOKENS`, `MAX_OUTPUT_TOKENS`) for the code review process to better manage API costs and prevent runaway token consumption per PR analysis.

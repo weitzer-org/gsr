@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-
+import { spawn, exec } from './cmd.js';
 import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
 import { Evaluator } from './evaluator';
@@ -47,7 +47,28 @@ app.post('/api/review', async (req, res) => {
 
     console.log(`Fetching diff for ${url}...`);
     const chunks = await ghClient.getPRDiff(url);
-    console.log(`Found ${chunks.length} modified files in PR.`);
+    console.log(`Found ${chunks.length} modified files in PR (post-filter).`);
+
+    let activeChunks = chunks;
+    let truncationWarning = '';
+
+    const MAX_FILES = parseInt(process.env.MAX_REVIEW_FILES || '300', 10);
+    if (activeChunks.length > MAX_FILES) {
+      console.warn(`⚠️ PR ${url} has ${activeChunks.length} files. Truncating down to ${MAX_FILES}...`);
+      truncationWarning = `PR exceeded configured limits. Only the first ${MAX_FILES} files were analyzed.`;
+      activeChunks = activeChunks.slice(0, MAX_FILES);
+    }
+
+    // Defensive Limits: Gemini 2.5 API natively rejects >10MB
+    const MAX_BYTE_SIZE = 9000000; // ~9.0MB ceiling
+    const payloadSize = Buffer.byteLength(JSON.stringify(activeChunks), 'utf8');
+
+    if (payloadSize > MAX_BYTE_SIZE) {
+      console.warn(`⚠️ PR ${url} rejected. Final Payload Size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB.`);
+      return res.status(400).json({ 
+          error: `Pull Request patch size is too massive for reliable automated review (Size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB). Please split your commits.` 
+      });
+    }
 
     console.log(`Starting concurrent agent execution...`);
 
@@ -56,6 +77,11 @@ app.post('/api/review', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
+
+    // Broadcast truncation warning natively over NDJSON if applicable
+    if (truncationWarning) {
+      res.write(JSON.stringify({ type: 'warning', message: truncationWarning }) + '\n');
+    }
 
     subagentOrchestrator.onProgress = (agentName, file, status) => {
       console.log(`[Subagent: ${agentName}] - ${file} - Status: ${status}`);
@@ -69,8 +95,8 @@ app.post('/api/review', async (req, res) => {
 
     // Run both orchestrators concurrently using Promise.allSettled to ensure independence
     const results = await Promise.allSettled([
-      subagentOrchestrator.runReview(chunks),
-      basicOrchestrator.runReview(chunks)
+      subagentOrchestrator.runReview(activeChunks),
+      basicOrchestrator.runReview(activeChunks)
     ]);
 
     const subagentResult = results[0].status === 'fulfilled' ? results[0].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
@@ -114,6 +140,82 @@ app.post('/api/review', async (req, res) => {
       res.end();
     }
   }
+});
+
+// --- Evals API ---
+app.post('/api/evals/start', (req, res, next) => {
+  try {
+    const { comparisonGroup = 'local_vs_production', branchName } = req.body || {};
+
+    if (comparisonGroup.includes('branch') && !branchName) {
+      return res.status(400).json({ error: 'branchName is required when comparison group involves a branch.' });
+    }
+
+    console.log(`[Backend API] Starting evaluation harness... (Group: ${comparisonGroup}, Branch: ${branchName || 'N/A'})`);
+    
+    // Spawn the eval script detached so it doesn't block
+    const evalDir = path.resolve(process.cwd(), '../../tools/eval');
+    const child = spawn('npm', ['run', 'eval'], {
+      cwd: evalDir,
+      detached: true,
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        EVAL_COMPARISON_GROUP: comparisonGroup,
+        EVAL_TARGET_BRANCH: branchName || ''
+      }
+    });
+    
+    child.unref(); // prevent waiting for this child
+    res.status(202).json({ status: 'started', message: 'Evaluation harness is running in the background.' });
+  } catch(e) {
+    console.error('ERROR INSIDE POST API:', e);
+    next(e);
+  }
+});
+
+app.get('/api/evals/results', (req, res) => {
+  const evalDir = path.resolve(process.cwd(), '../../tools/eval');
+  const child = spawn('npm', ['run', '--silent', 'eval:list'], { cwd: evalDir });
+  
+  res.setHeader('Content-Type', 'application/json');
+  child.stdout.pipe(res);
+
+  child.stderr.on('data', (data) => {
+    console.error(`GCS List Stderr: ${data.toString()}`);
+  });
+
+  child.on('error', (error) => {
+    console.error('Error spawning GCS list process:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  });
+});
+
+app.get('/api/evals/results/:id', (req, res) => {
+  const fileId = req.params.id;
+  
+  // Defense-in-depth: Strict regex sanitization to prevent Path Traversal
+  if (!/^[a-zA-Z0-9_.-]+$/.test(fileId) || fileId.includes('..')) {
+    return res.status(400).json({ error: 'Invalid file ID format.' });
+  }
+
+  const evalDir = path.resolve(process.cwd(), '../../tools/eval');
+  
+  // Utilize un-shelled spawn with isolated arguments array to prevent Command Injection.
+  // Directly pipe the stdout stream to prevent Node.js 10MB maxBuffer memory blowout.
+  const child = spawn('npm', ['run', '--silent', 'eval:get', '--', fileId], { cwd: evalDir });
+  
+  res.setHeader('Content-Type', 'application/json');
+  child.stdout.pipe(res);
+
+  child.stderr.on('data', (data) => {
+    console.error(`GCS Get Stderr: ${data.toString()}`);
+  });
+
+  child.on('error', (error) => {
+    console.error('Error spawning GCS get process:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  });
 });
 
 // Serve frontend static files

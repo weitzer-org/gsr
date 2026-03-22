@@ -18,3 +18,4 @@ jetski-sa-key.json
 dev_test_config.json
 *.log
 *.pid
+test-repos/

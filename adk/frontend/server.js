@@ -22,6 +22,10 @@ app.use((req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(PORT, () => {
-    console.log(`GSR ADK Frontend server running at http://localhost:${PORT}`);
-});
+export { app };
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+    app.listen(PORT, () => {
+        console.log(`GSR ADK Frontend server running at http://localhost:${PORT}`);
+    });
+}

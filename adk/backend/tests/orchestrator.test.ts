@@ -1,11 +1,28 @@
-import { jest } from '@jest/globals';
-import { Orchestrator } from '../src/orchestrator';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { GeminiAgent } from '../src/agent';
+import * as originalFs from 'fs';
+
+const readdirSyncMock = jest.fn<any>();
+const readFileSyncMock = jest.fn<any>();
+
+jest.unstable_mockModule('fs', () => ({
+    ...originalFs,
+    readdirSync: readdirSyncMock,
+    readFileSync: readFileSyncMock
+}));
 
 describe('Orchestrator', () => {
-    beforeEach(() => {
+    let Orchestrator: any;
+
+    beforeEach(async () => {
+        jest.resetModules();
+        readdirSyncMock.mockReset();
+        readFileSyncMock.mockReset();
         process.env.GEMINI_API_KEY = 'test-key';
         jest.restoreAllMocks();
+        
+        const mod = await import('../src/orchestrator.js');
+        Orchestrator = mod.Orchestrator;
     });
 
     it('should initialize with logic agent when constructed', () => {
@@ -19,6 +36,55 @@ describe('Orchestrator', () => {
         expect(results.findings).toEqual([]);
     });
 
+    it('should handle fs errors gracefully during initialization', () => {
+        readdirSyncMock.mockImplementation(() => { throw new Error('Mock FS Error'); });
+        const orchestrator = new Orchestrator();
+        expect(orchestrator).toBeDefined();
+        // Should fallback to Logic agent
+        expect((orchestrator as any).subagents.length).toBe(1);
+        expect((orchestrator as any).subagents[0].name).toBe('Logic');
+    });
+
+    it('should initialize agents successfully from fs', () => {
+        readdirSyncMock.mockReturnValue(['security.md', 'logic.md']);
+        readFileSyncMock.mockReturnValue('You are a test agent.');
+
+        const orchestrator = new Orchestrator();
+        expect((orchestrator as any).subagents.length).toBe(2);
+        expect((orchestrator as any).subagents[0].name).toBe('Security');
+    });
+
+    it('should filter chunks based on shouldRun rules for specific agents', async () => {
+        const orchestrator = new Orchestrator();
+        orchestrator['subagents'] = [
+            new GeminiAgent('Cicd', 'test'),
+            new GeminiAgent('Dependencies', 'test')
+        ];
+
+        const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ findings: [] });
+
+        let skippedFiles: string[] = [];
+        orchestrator.onProgress = (name: any, file: any, status: any) => {
+            if (status === 'skipped') skippedFiles.push(`${name}:${file}`);
+        };
+
+        const chunks = [
+            { file: 'README.md', content: '' },
+            { file: 'package.json', content: '' },
+            { file: 'Dockerfile', content: '' }
+        ];
+
+        await orchestrator.runReview(chunks);
+
+        expect(skippedFiles).toContain('Cicd:README.md');
+        expect(skippedFiles).toContain('Cicd:package.json');
+        expect(skippedFiles).toContain('Dependencies:README.md');
+        expect(skippedFiles).toContain('Dependencies:Dockerfile');
+        expect(skippedFiles).not.toContain('Cicd:Dockerfile');
+        expect(skippedFiles).not.toContain('Dependencies:package.json');
+
+        mockAnalyze.mockRestore();
+    });
 
     it('should aggregate findings and filter low severity', async () => {
         // Setup mock return for GeminiAgent
@@ -37,7 +103,7 @@ describe('Orchestrator', () => {
         orchestrator.subagents = [new GeminiAgent('Logic', 'logic.md')];
         
         let progressCalls: any[] = [];
-        orchestrator.onProgress = (name, file, status) => {
+        orchestrator.onProgress = (name: any, file: any, status: any) => {
             progressCalls.push({name, file, status});
         };
 
@@ -63,7 +129,7 @@ describe('Orchestrator', () => {
         orchestrator.subagents = [new GeminiAgent('Logic', 'logic.md')];
         
         let progressCalls: any[] = [];
-        orchestrator.onProgress = (name, file, status) => {
+        orchestrator.onProgress = (name: any, file: any, status: any) => {
             progressCalls.push({status});
         };
 

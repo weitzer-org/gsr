@@ -1,6 +1,6 @@
 import { escapeHTML, parseStreamChunk } from './utils.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+export function initApp() {
 
   const form = document.getElementById('review-form');
   const submitBtn = document.getElementById('submit-btn');
@@ -73,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Progress UI elements
       const progressContainer = document.getElementById('progress-container');
       const progressGrid = document.getElementById('progress-grid');
+      const warningContainer = document.getElementById('warning-container');
       
       // UI Loading State
       submitBtn.disabled = true;
@@ -80,6 +81,8 @@ document.addEventListener('DOMContentLoaded', () => {
       spinner.classList.remove('hidden');
       resultsContainer.classList.add('hidden');
       progressContainer.classList.remove('hidden');
+      warningContainer.classList.add('hidden');
+      warningContainer.innerHTML = '';
       
       subagentFindingsList.innerHTML = '';
       basicFindingsList.innerHTML = '';
@@ -122,6 +125,9 @@ document.addEventListener('DOMContentLoaded', () => {
                       
                       if (data.type === 'progress') {
                           renderProgress(data, agentTasks, progressGrid);
+                      } else if (data.type === 'warning') {
+                          warningContainer.innerHTML = '⚠️ ' + escapeHTML(data.message);
+                          warningContainer.classList.remove('hidden');
                       } else if (data.type === 'done') {
                           resultsContainer.classList.remove('hidden');
                           
@@ -325,4 +331,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
   // escapeHTML is now imported from utils.js
-});
+}
+
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', initApp);
+}

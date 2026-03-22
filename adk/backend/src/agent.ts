@@ -25,7 +25,15 @@ export class GeminiAgent implements Subagent {
 
   async analyze(chunks: DiffChunk[]): Promise<AnalyzeResult> {
     if (process.env.USE_TRIAGE_AGENT === 'false') {
-      return this.analyzeLegacy(chunks[0]);
+      const results = await Promise.all(chunks.map(chunk => this.analyzeLegacy(chunk)));
+      return {
+          findings: results.flatMap(r => r.findings),
+          usage: {
+              promptTokenCount: results.reduce((sum, r) => sum + (r.usage?.promptTokenCount || 0), 0),
+              candidatesTokenCount: results.reduce((sum, r) => sum + (r.usage?.candidatesTokenCount || 0), 0),
+              totalTokenCount: results.reduce((sum, r) => sum + (r.usage?.totalTokenCount || 0), 0)
+          }
+      };
     }
 
     const aggregatedFiles = `Aggregated PR (${chunks.length} files)`;

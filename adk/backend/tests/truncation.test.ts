@@ -1,12 +1,13 @@
 import request from 'supertest';
 import { app } from '../src/app';
+import { jest, describe, beforeEach, afterEach, it, expect } from '@jest/globals';
 
 // Mock GitHubClient so it returns fake data to test logic locally
 jest.mock('../src/github', () => {
   return {
     GitHubClient: jest.fn().mockImplementation(() => {
       return {
-        getPRDiff: jest.fn().mockResolvedValue(Array(301).fill({ file: 'fake.js', content: 'fake' }))
+        getPRDiff: (jest.fn() as any).mockResolvedValue(Array(301).fill({ file: 'fake.js', content: 'fake' }))
       };
     })
   };

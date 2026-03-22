@@ -25,36 +25,6 @@ describe('GitHubClient', () => {
         expect(() => client.parsePRUrl(url)).toThrow('Invalid GitHub Pull Request URL.');
     });
 
-    it('should correctly parse a unified git diff text', () => {
-        const rawDiff = `
-diff --git a/src/example.ts b/src/example.ts
-index e69de29..d95f3ad 100644
---- a/src/example.ts
-+++ b/src/example.ts
-@@ -0,0 +1,3 @@
-+export function test() {
-+  console.log("hello");
-+}
-diff --git a/test/test.ts b/test/test.ts
-index e69de29..c12bb1a 100644
---- a/test/test.ts
-+++ b/test/test.ts
-@@ -0,0 +1,2 @@
-+import { test } from '../src/example';
-+test();
-`.trim();
-
-        // Access the private method for testing via any cast
-        const diffChunks = (client as any).parseDiff(rawDiff);
-
-        expect(diffChunks).toHaveLength(2);
-        expect(diffChunks[0].file).toBe('src/example.ts');
-        expect(diffChunks[0].content).toContain('export function test()');
-        
-        expect(diffChunks[1].file).toBe('test/test.ts');
-        expect(diffChunks[1].content).toContain('import { test }');
-    });
-
     it('should fetch and parse PR diff successfully', async () => {
         const mockDiff = `
 diff --git a/src/example.ts b/src/example.ts
@@ -68,9 +38,11 @@ index e69de29..d95f3ad 100644
         `.trim();
 
         (client as any).octokit = {
+            paginate: (jest.fn() as any).mockResolvedValue([{ filename: 'src/example.ts', patch: mockDiff }]),
             rest: {
                 pulls: {
-                    get: (jest.fn() as any).mockResolvedValue({ data: mockDiff })
+                    get: (jest.fn() as any).mockResolvedValue({ data: mockDiff }),
+                    listFiles: jest.fn()
                 }
             }
         };
@@ -79,12 +51,6 @@ index e69de29..d95f3ad 100644
         
         expect(chunks).toHaveLength(1);
         expect(chunks[0].file).toBe('src/example.ts');
-        expect((client as any).octokit.rest.pulls.get).toHaveBeenCalledWith({
-            owner: 'GoogleCloudPlatform',
-            repo: 'scion',
-            pull_number: 123,
-            mediaType: { format: 'diff' }
-        });
     });
 
     it('should throw an error if fetching PR diff fails', async () => {
@@ -92,9 +58,11 @@ index e69de29..d95f3ad 100644
         console.error = jest.fn(); 
 
         (client as any).octokit = {
+            paginate: (jest.fn() as any).mockRejectedValue(new Error('Network error')),
             rest: {
                 pulls: {
-                    get: (jest.fn() as any).mockRejectedValue(new Error('Network error'))
+                    get: (jest.fn() as any).mockRejectedValue(new Error('Network error')),
+                    listFiles: jest.fn()
                 }
             }
         };

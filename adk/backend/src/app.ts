@@ -176,34 +176,45 @@ app.post('/api/evals/start', (req, res, next) => {
 
 app.get('/api/evals/results', (req, res) => {
   const evalDir = path.resolve(process.cwd(), '../../tools/eval');
-  exec('npm run --silent eval:list', { cwd: evalDir }, (error, stdout, stderr) => {
-    if (error) {
-      console.error('Error listing GCS bucket:', error);
-      return res.status(500).json({ error: error.message });
-    }
-    try {
-      const results = JSON.parse(stdout);
-      res.json(results);
-    } catch(e) {
-      res.status(500).json({ error: 'Failed to parse list script output' });
-    }
+  const child = spawn('npm', ['run', '--silent', 'eval:list'], { cwd: evalDir });
+  
+  res.setHeader('Content-Type', 'application/json');
+  child.stdout.pipe(res);
+
+  child.stderr.on('data', (data) => {
+    console.error(`GCS List Stderr: ${data.toString()}`);
+  });
+
+  child.on('error', (error) => {
+    console.error('Error spawning GCS list process:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
   });
 });
 
 app.get('/api/evals/results/:id', (req, res) => {
   const fileId = req.params.id;
+  
+  // Defense-in-depth: Strict regex sanitization to prevent Path Traversal
+  if (!/^[a-zA-Z0-9_.-]+$/.test(fileId) || fileId.includes('..')) {
+    return res.status(400).json({ error: 'Invalid file ID format.' });
+  }
+
   const evalDir = path.resolve(process.cwd(), '../../tools/eval');
-  exec(`npm run --silent eval:get ${fileId}`, { cwd: evalDir, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
-    if (error) {
-      console.error('Error fetching GCS object:', error);
-      return res.status(500).json({ error: error.message });
-    }
-    try {
-      const resultObj = JSON.parse(stdout);
-      res.json(resultObj);
-    } catch(e) {
-      res.status(500).json({ error: 'Failed to parse get script output' });
-    }
+  
+  // Utilize un-shelled spawn with isolated arguments array to prevent Command Injection.
+  // Directly pipe the stdout stream to prevent Node.js 10MB maxBuffer memory blowout.
+  const child = spawn('npm', ['run', '--silent', 'eval:get', '--', fileId], { cwd: evalDir });
+  
+  res.setHeader('Content-Type', 'application/json');
+  child.stdout.pipe(res);
+
+  child.stderr.on('data', (data) => {
+    console.error(`GCS Get Stderr: ${data.toString()}`);
+  });
+
+  child.on('error', (error) => {
+    console.error('Error spawning GCS get process:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
   });
 });
 

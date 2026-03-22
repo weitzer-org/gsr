@@ -3,6 +3,13 @@ import { CandidateFinding, DiffChunk, Subagent, AnalyzeResult } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
 
+export interface DiscoveryIssue {
+  file: string;
+  line: number;
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  summary: string;
+}
+
 export class GeminiAgent implements Subagent {
   name: string;
   private promptContent: string;
@@ -19,7 +26,6 @@ export class GeminiAgent implements Subagent {
   async analyze(chunks: DiffChunk[]): Promise<AnalyzeResult> {
     const aggregatedFiles = `Aggregated PR (${chunks.length} files)`;
     let timeoutId: NodeJS.Timeout | undefined;
-    let finalFindings: CandidateFinding[] = [];
     let promptTokens = 0;
     let candidatesTokens = 0;
 
@@ -32,15 +38,16 @@ export class GeminiAgent implements Subagent {
       let chunksToProcess = [...chunks];
       const maxRetries = 2;
       let retries = 0;
-      let discoveryIssues: any[] = [];
+      let discoveryIssues: DiscoveryIssue[] = [];
 
       while (chunksToProcess.length > 0 && retries <= maxRetries) {
-        const prompt = this.buildDiscoveryPrompt(chunksToProcess);
+        const promptPayload = this.buildDiscoveryPrompt(chunksToProcess);
         
         const genAiRequest = this.ai.models.generateContent({
            model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
-           contents: prompt,
+           contents: promptPayload.contents,
            config: {
+             systemInstruction: promptPayload.systemInstruction,
              responseMimeType: 'application/json',
              responseSchema: {
                type: Type.OBJECT,
@@ -83,7 +90,7 @@ export class GeminiAgent implements Subagent {
         }
 
         if (response.text) {
-            const result = JSON.parse(response.text) as { filesAnalyzed: string[], issues: any[] };
+            const result = JSON.parse(response.text) as { filesAnalyzed: string[], issues: DiscoveryIssue[] };
             if (result.issues) {
                 discoveryIssues.push(...result.issues);
             }
@@ -112,11 +119,12 @@ export class GeminiAgent implements Subagent {
       console.log(`[${this.name}] Starting Pass 2 (Remediation) for ${discoveryIssues.length} identified issues...`);
 
       // PASS 2: Remediation
-      const remediationPrompt = this.buildRemediationPrompt(chunks, discoveryIssues);
+      const remediationPayload = this.buildRemediationPrompt(chunks, discoveryIssues);
       const remediationRequest = this.ai.models.generateContent({
            model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
-           contents: remediationPrompt,
+           contents: remediationPayload.contents,
            config: {
+             systemInstruction: remediationPayload.systemInstruction,
              responseMimeType: 'application/json',
              responseSchema: {
                type: Type.ARRAY,
@@ -168,44 +176,30 @@ export class GeminiAgent implements Subagent {
     }
   }
 
-  private buildDiscoveryPrompt(chunks: DiffChunk[]): string {
+  private buildDiscoveryPrompt(chunks: DiffChunk[]): { systemInstruction: string, contents: string } {
     const diffsText = chunks.map(c => `File: ${c.file}\n\`\`\`diff\n${c.content}\n\`\`\``).join('\n\n');
-    return `
-<SYSTEM_INSTRUCTIONS>
-You are the ${this.name} discovery agent.
+    const systemInstruction = `You are the ${this.name} discovery agent.
 Your ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.
 Ensure you return your response in the strictly required JSON format.
 CRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. 
 If you skip a file, the system will fail.
-${this.promptContent}
-</SYSTEM_INSTRUCTIONS>
+${this.promptContent}`;
 
-<DIFF_CONTENTS>
-${diffsText}
-</DIFF_CONTENTS>
-`;
+    const contents = `<DIFF_CONTENTS>\n${diffsText}\n</DIFF_CONTENTS>`;
+    return { systemInstruction, contents };
   }
 
-  private buildRemediationPrompt(chunks: DiffChunk[], issues: any[]): string {
+  private buildRemediationPrompt(chunks: DiffChunk[], issues: DiscoveryIssue[]): { systemInstruction: string, contents: string } {
     const diffsText = chunks.map(c => `File: ${c.file}\n\`\`\`diff\n${c.content}\n\`\`\``).join('\n\n');
     const issuesText = JSON.stringify(issues, null, 2);
-    return `
-<SYSTEM_INSTRUCTIONS>
-You are an elite, highly educational Staff Engineer acting as the ${this.name} remediation agent.
+    const systemInstruction = `You are an elite, highly educational Staff Engineer acting as the ${this.name} remediation agent.
 A junior system has already flagged the potential issues in the following JSON array.
 Your job is to read these flagged locations, read the source code context, and synthesize a masterful, highly detailed, and educational explanation for each issue.
 Most importantly, you MUST provide a complete, copy-pasteable markdown code block in the \`suggestion\` field showing exactly how the developers should rewrite the code to adhere to best architectural practices.
 Your descriptions must elevate from simple linting to deep mentorship and architectural guidance.
-${this.promptContent}
-</SYSTEM_INSTRUCTIONS>
+${this.promptContent}`;
 
-<FLAGGED_ISSUES>
-${issuesText}
-</FLAGGED_ISSUES>
-
-<DIFF_CONTENTS>
-${diffsText}
-</DIFF_CONTENTS>
-`;
+    const contents = `<FLAGGED_ISSUES>\n${issuesText}\n</FLAGGED_ISSUES>\n\n<DIFF_CONTENTS>\n${diffsText}\n</DIFF_CONTENTS>`;
+    return { systemInstruction, contents };
   }
 }

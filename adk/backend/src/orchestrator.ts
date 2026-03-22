@@ -15,7 +15,7 @@ export class Orchestrator {
   private triageRouter: TriageRouter;
   private useTriage: boolean;
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useTriage: boolean = true) {
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useTriage: boolean = false) {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = path.basename(promptsDirName);
     this.triageRouter = new TriageRouter();

@@ -134,7 +134,7 @@ async function main() {
     const { spawn } = require('child_process');
     
     // Start the backend server directly overriding the port just in case
-    serverProcess = spawn('npm', ['run', 'dev'], {
+    serverProcess = spawn('npm', ['run', 'start'], {
       cwd: path.resolve(__dirname, '../../adk/backend'),
       env: { ...process.env, PORT: '8080' },
       stdio: 'inherit' // Do not clutter evaluation output with server logs

@@ -28,3 +28,5 @@
 20. **Optimize Evaluation Output Verbosity:**
     - *Problem:* Evaluation harness runs currently generate massive walls of text, inflating our *Output Token* consumption and reducing readability.
     - *Solution:* Constrain the LLM Prompts within `evaluate.ts` to enforce strictly concise wording, summarize findings tersely, and aggressively reduce unnecessary prose to save downstream token costs.
+32. **Implement Post-Execution Triage Architecture:** Pivot the current "Pre-Filter" Triage routing (which drops context) into a "Post-Execution" Deduplicator that merges overlapping findings from all specialist agents.
+33. **Implement Vertex AI Context Caching:** Cache the static system prompts and agent personas using Vertex AI Context Caching to achieve a 90% reduction in input token costs.

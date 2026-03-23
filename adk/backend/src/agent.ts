@@ -14,13 +14,17 @@ export class GeminiAgent implements Subagent {
   name: string;
   public promptContent: string;
   private ai: GoogleGenAI;
+  private cachedContentName?: string;
 
   constructor(name: string, promptContent: string) {
     this.name = name;
     this.promptContent = promptContent;
-    // The SDK automatically picks up GOOGLE_APPLICATION_CREDENTIALS for ADC,
-    // or GEMINI_API_KEY from the environment.
-    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
+    const useVertex = process.env.USE_VERTEX_AI === 'true';
+    if (useVertex) {
+      this.ai = new GoogleGenAI({});
+    } else {
+      this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    }
   }
 
   async analyze(chunks: DiffChunk[]): Promise<AnalyzeResult> {
@@ -41,6 +45,29 @@ export class GeminiAgent implements Subagent {
     let promptTokens = 0;
     let candidatesTokens = 0;
 
+    const useContextCaching = process.env.USE_CONTEXT_CACHING !== 'false';
+
+    if (useContextCaching && !this.cachedContentName) {
+      try {
+        console.log(`[${this.name}] Initializing Context Cache for persona...`);
+        // Note: GoogleGenAI caches.create defaults exactly
+        const discoverySystemInstruction = `You are the ${this.name} discovery agent.\nYour ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.\nEnsure you return your response in the strictly required JSON format.\nCRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. \nIf you skip a file, the system will fail.\n${this.promptContent}`;
+        
+        const cache = await this.ai.caches.create({
+          model: 'models/gemini-2.5-pro',
+          config: {
+            systemInstruction: discoverySystemInstruction,
+            ttl: '3600s'
+          }
+        });
+        
+        this.cachedContentName = cache.name;
+        console.log(`[${this.name}] Cache created successfully: ${cache.name}`);
+      } catch (e) {
+        console.warn(`[${this.name}] Failed to create Context Cache, falling back to un-cached:`, e);
+      }
+    }
+
     try {
       console.log(`[${this.name}] Starting Pass 1 (Discovery) for ${aggregatedFiles}...`);
       
@@ -55,11 +82,10 @@ export class GeminiAgent implements Subagent {
       while (chunksToProcess.length > 0 && retries <= maxRetries) {
         const promptPayload = this.buildDiscoveryPrompt(chunksToProcess);
         
-        const genAiRequest = this.ai.models.generateContent({
+        const requestArgs: any = {
            model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
            contents: promptPayload.contents,
            config: {
-             systemInstruction: promptPayload.systemInstruction,
              responseMimeType: 'application/json',
              responseSchema: {
                type: Type.OBJECT,
@@ -88,7 +114,16 @@ export class GeminiAgent implements Subagent {
                required: ["filesAnalyzed", "issues"]
              }
            }
-        });
+        };
+
+        if (useContextCaching && this.cachedContentName) {
+           requestArgs.cachedContent = this.cachedContentName;
+           // The cachedContent implies systemInstruction is fulfilled natively
+        } else {
+           requestArgs.config.systemInstruction = promptPayload.systemInstruction;
+        }
+
+        const genAiRequest = this.ai.models.generateContent(requestArgs);
 
         const timeoutPromise = new Promise<any>((_, reject) => {
             timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
@@ -131,6 +166,7 @@ export class GeminiAgent implements Subagent {
       console.log(`[${this.name}] Starting Pass 2 (Remediation) for ${discoveryIssues.length} identified issues...`);
 
       // PASS 2: Remediation
+      // Not cached because it uses a different short-lived prompt focused tightly on synthesizing solutions
       const remediationPayload = this.buildRemediationPrompt(chunks, discoveryIssues);
       const remediationRequest = this.ai.models.generateContent({
            model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
@@ -250,12 +286,7 @@ ${chunk.content}
 
   private buildDiscoveryPrompt(chunks: DiffChunk[]): { systemInstruction: string, contents: string } {
     const diffsText = chunks.map(c => `File: ${c.file}\n\`\`\`diff\n${c.content}\n\`\`\``).join('\n\n');
-    const systemInstruction = `You are the ${this.name} discovery agent.
-Your ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.
-Ensure you return your response in the strictly required JSON format.
-CRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. 
-If you skip a file, the system will fail.
-${this.promptContent}`;
+    const systemInstruction = `You are the ${this.name} discovery agent.\nYour ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.\nEnsure you return your response in the strictly required JSON format.\nCRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. \nIf you skip a file, the system will fail.\n${this.promptContent}`;
 
     const contents = `<DIFF_CONTENTS>\n${diffsText}\n</DIFF_CONTENTS>`;
     return { systemInstruction, contents };

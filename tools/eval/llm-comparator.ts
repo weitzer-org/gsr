@@ -41,12 +41,13 @@ ${JSON.stringify(targetAFindings, null, 2)}
 \`\`\`
 
 Analyze the two sets of findings and provide a comprehensive comparison report covering the following criteria:
-1. **Accuracy**: Did the ${targetALabel} version find more accurate or relevant bugs than ${targetBLabel}?
-2. **Finding Counts & Regressions**: Compare the total number of findings caught. Did the ${targetALabel} version completely miss important bugs that ${targetBLabel} successfully caught?
-3. **Source Analysis**: Note if any errors/improvements in the ${targetALabel} version are driven more by 'subagent' findings or 'basic' findings (each finding has a 'source' tag).
-4. **Formatting & Readability**: Which version resulted in better, clearer markdown and structure?
-5. **Actionability**: Are the suggestions provided by the ${targetALabel} version more actionable?
-6. **False Positives**: Does the ${targetALabel} version introduce new noisy false positives compared to ${targetBLabel}?
+4. **Accuracy**: Did the ${targetALabel} version find more accurate or relevant bugs than ${targetBLabel}?
+5. **Finding Counts & Regressions**: Compare the total number of findings caught. Fewer findings is inherently BETTER if the findings are consolidated or less noisy. Do not penalize lower finding counts unless severe, critical bugs were entirely missed.
+6. **Source Analysis**: Note if any errors/improvements in the ${targetALabel} version are driven more by 'subagent' findings or 'basic' findings (each finding has a 'source' tag).
+7. **Duplication & Noise**: Does one version present concise, highly actionable summaries while the other produces rambling, duplicated noise? Explicitly reward the version that deduplicates overlapping findings and is more concise. If ${targetALabel} correctly consolidated these duplicates into a single actionable finding, unequivocally praise it as an Improvement. If ${targetBLabel} is merely repeating itself, it should NEVER be credited for finding "more" bugs.
+5. **Formatting & Readability**: Which version resulted in better, clearer markdown and structure?
+6. **Actionability**: Are the suggestions provided by the ${targetALabel} version more actionable?
+7. **False Positives**: Does the ${targetALabel} version introduce new noisy false positives compared to ${targetBLabel}?
 
 Provide your report in clean Markdown. Conclude with a clear verdict on whether the ${targetALabel} version is an "Improvement", "Regression", or "Neutral" change compared to ${targetBLabel}.
 `;
@@ -103,8 +104,8 @@ ${JSON.stringify(aggregateMetrics, null, 2)}
 </AGGREGATE_METRICS>
 
 Your task is to synthesize these individual PR reports and aggregate metrics into a single, cohesive Executive Summary. 
-Highlight the common strengths, consistent weaknesses (e.g., if there's a recurring bug like hallucinated line numbers), overall trends, and discuss the aggregate token/call usage differences between the ${targetALabel} and ${targetBLabel} versions.
-Include explicit Quantitative Finding Counts: "${targetALabel} identified X total findings across the PRs compared to ${targetBLabel}'s Y findings".
+Highlight the common strengths, consistent weaknesses (e.g., if there's a recurring bug like hallucinated line numbers), overall trends, and discuss the aggregate token/call usage differences between the ${targetALabel} and ${targetBLabel} versions. Note if one version provided a cleaner, deduplicated output compared to the other.
+Include explicit Quantitative Finding Counts: "${targetALabel} identified X total findings across the PRs compared to ${targetBLabel}'s Y findings". Praise the version that yields fewer but higher-quality, non-duplicate findings. Treat lower finding counts as a significant architectural success if Subagents efficiently deduplicated the noise of the baseline agent.
 Conclude with a final overall verdict (Improvement/Regression/Neutral) and include Actionable Next Steps (e.g. prompt tweaks or architecture changes to fix identified regressions).
 
 Format your output in clean Markdown.

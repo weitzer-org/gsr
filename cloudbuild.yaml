@@ -79,6 +79,7 @@ steps:
       --image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/adk:$_IMAGE_TAG \
       --region=$_REGION \
       --allow-unauthenticated \
+      --set-env-vars="USE_CONTEXT_CACHING=true,USE_VERTEX_AI=true" \
       --set-secrets="GEMINI_API_KEY=$_SECRET_NAME:latest"
     
     echo "✅ Application deployed successfully"

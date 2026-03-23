@@ -56,7 +56,7 @@ export class GeminiAgent implements Subagent {
         const promptPayload = this.buildDiscoveryPrompt(chunksToProcess);
         
         const genAiRequest = this.ai.models.generateContent({
-           model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+           model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
            contents: promptPayload.contents,
            config: {
              systemInstruction: promptPayload.systemInstruction,
@@ -133,7 +133,7 @@ export class GeminiAgent implements Subagent {
       // PASS 2: Remediation
       const remediationPayload = this.buildRemediationPrompt(chunks, discoveryIssues);
       const remediationRequest = this.ai.models.generateContent({
-           model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+           model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
            contents: remediationPayload.contents,
            config: {
              systemInstruction: remediationPayload.systemInstruction,
@@ -207,7 +207,7 @@ ${chunk.content}
       console.log(`[${this.name}] Starting Baseline Gemini API call for ${chunk.file}...`);
       
       const response = await this.ai.models.generateContent({
-         model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+         model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
          contents: prompt,
          config: {
            responseMimeType: 'application/json',

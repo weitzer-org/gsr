@@ -19,7 +19,7 @@ export class GenericAgent implements Subagent {
     
     try {
       const response = await this.ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.5-pro',
          contents: prompt,
          config: {
            responseMimeType: 'application/json',

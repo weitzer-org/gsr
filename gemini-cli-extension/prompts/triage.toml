@@ -12,8 +12,8 @@ Return a JSON object where the keys MUST BE EXACTLY the filenames from the "Pull
 CRITICAL ROUTING RULES:
 1. You MUST assign at least one agent to every file modified that contains logic, infrastructure, or text changes.
 2. If multiple agents apply to a file's context, assign all of them.
-3. You MUST ALWAYS assign the `testing` agent if a file contains logic changes (to ensure test coverage) AND to any actual test files.
-4. You MUST ALWAYS assign the `performance` agent to files containing loops, data processing, backend logic, or core algorithms.
+3. You MUST ALWAYS assign the `testing` agent to ANY file ending in .ts, .js, .py, or .go that contains functional code changes, regardless of apparent complexity. Without exception.
+4. You MUST ALWAYS assign the `performance` agent to ANY file containing functional logic updates, variable assignments, loops, API calls, or database operations. Err on the side of assigning it.
 5. Only map a file to an empty array `[]` if the file consists entirely of whitespace changes or meaningless boilerplate.
 6. Err on the side of inclusion to ensure thorough code review coverage.
 """

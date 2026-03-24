@@ -41,10 +41,10 @@ ${JSON.stringify(targetAFindings, null, 2)}
 \`\`\`
 
 Analyze the two sets of findings and provide a comprehensive comparison report covering the following criteria:
-4. **Accuracy**: Did the ${targetALabel} version find more accurate or relevant bugs than ${targetBLabel}?
-5. **Finding Counts & Regressions**: Compare the total number of findings caught. Fewer findings is inherently BETTER if the findings are consolidated or less noisy. Do not penalize lower finding counts unless severe, critical bugs were entirely missed.
-6. **Source Analysis**: Note if any errors/improvements in the ${targetALabel} version are driven more by 'subagent' findings or 'basic' findings (each finding has a 'source' tag).
-7. **Duplication & Noise**: Does one version present concise, highly actionable summaries while the other produces rambling, duplicated noise? Explicitly reward the version that deduplicates overlapping findings and is more concise. If ${targetALabel} correctly consolidated these duplicates into a single actionable finding, unequivocally praise it as an Improvement. If ${targetBLabel} is merely repeating itself, it should NEVER be credited for finding "more" bugs.
+1. **Accuracy**: Did the ${targetALabel} version find more accurate or relevant bugs than ${targetBLabel}?
+2. **Finding Counts & Regressions**: Compare the total number of findings caught. Fewer findings is inherently BETTER if the findings are consolidated or less noisy. Do not penalize lower finding counts unless severe, critical bugs were entirely missed.
+3. **Source Analysis**: Note if any errors/improvements in the ${targetALabel} version are driven more by 'subagent' findings or 'basic' findings (each finding has a 'source' tag).
+4. **Duplication & Noise**: Does one version present concise, highly actionable summaries while the other produces rambling, duplicated noise? Explicitly reward the version that deduplicates overlapping findings and is more concise. If ${targetALabel} correctly consolidated these duplicates into a single actionable finding, unequivocally praise it as an Improvement. If ${targetBLabel} is merely repeating itself, it should NEVER be credited for finding "more" bugs.
 5. **Formatting & Readability**: Which version resulted in better, clearer markdown and structure?
 6. **Actionability**: Are the suggestions provided by the ${targetALabel} version more actionable?
 7. **False Positives**: Does the ${targetALabel} version introduce new noisy false positives compared to ${targetBLabel}?

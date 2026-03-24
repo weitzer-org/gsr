@@ -14,7 +14,7 @@ RUN cd tools/eval && npm install
 COPY . ./
 
 # Install tools/eval dependencies and build
-RUN cd tools/eval && npm ci
+RUN cd tools/eval && npm install
 RUN cd tools/eval && npx tsc
 
 # Stage 2: Production
@@ -24,7 +24,7 @@ WORKDIR /app/tools/eval
 
 # Copy package and install production dependencies
 COPY --from=builder /app/tools/eval/package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Copy compiled files and any necessary static assets
 COPY --from=builder /app/tools/eval/dist ./dist

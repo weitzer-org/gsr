@@ -8,7 +8,7 @@ COPY tools/eval/package*.json ./tools/eval/
 COPY adk/backend/package*.json ./adk/backend/
 
 # Install tools/eval dependencies
-RUN cd tools/eval && npm ci
+RUN cd tools/eval && npm install
 
 # Copy the entire workspace to ensure relative ../../adk imports satisfy TypeScript
 COPY . ./

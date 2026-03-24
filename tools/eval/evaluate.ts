@@ -134,10 +134,10 @@ async function main() {
     const { spawn } = require('child_process');
     
     // Start the backend server directly overriding the port just in case
-    serverProcess = spawn('npm', ['run', 'dev'], {
+    serverProcess = spawn('npm', ['run', 'start'], {
       cwd: path.resolve(__dirname, '../../adk/backend'),
       env: { ...process.env, PORT: '8080' },
-      stdio: 'ignore' // Do not clutter evaluation output with server logs
+      stdio: 'inherit' // Do not clutter evaluation output with server logs
     });
 
     process.on('exit', () => {
@@ -153,10 +153,12 @@ async function main() {
     // Wait for backend to be ready via health check polling
     for (let i = 0; i < 20; i++) {
       try {
-        await fetch(localUrl).catch(() => {});
-        break;
+        const res = await fetch(localUrl);
+        if (res.ok) break;
+        throw new Error("Not ok");
       } catch (e) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        if (i === 19) console.warn("Local backend took too long to start, moving on...");
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
     console.log('✅ Local backend assumed ready.');
@@ -220,8 +222,17 @@ async function main() {
 
   // 6.5 Generate aggregate evaluation report
   const validReports = runPayload.results
-    .map((r: any) => r.llm_comparison_report)
-    .filter((r: string) => r && !r.startsWith('Skipped due to') && !r.startsWith('Error:'));
+    .map((r: any) => {
+      let combined = "";
+      if (r.llm_comparison_report && !r.llm_comparison_report.startsWith('Skipped due to') && !r.llm_comparison_report.startsWith('Error:')) {
+        combined += `--- **${targetAConfig.label} vs ${targetBConfig.label} Comparison** ---\n${r.llm_comparison_report}`;
+      }
+      if (r.targetA?.evaluation) {
+        combined += `\n\n--- **Subagent vs Basic Agent Comparison (${targetAConfig.label})** ---\n${r.targetA.evaluation}`;
+      }
+      return combined.trim() || null;
+    })
+    .filter((r: any) => r !== null);
 
   const aggregateMetrics = {
     targetA: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 },

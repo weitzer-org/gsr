@@ -43,8 +43,9 @@ app.post('/api/review', async (req, res) => {
 
   try {
     const ghClient = new GitHubClient(pat);
-    const subagentOrchestrator = new Orchestrator(5, SYSTEM_PROMPTS_DIR); // Run 5 LLM requests concurrently
-    const basicOrchestrator = new Orchestrator(5, BASIC_PROMPT_DIR);
+    const useDeduplicator = process.env.USE_DEDUPLICATOR !== 'false';
+    const subagentOrchestrator = new Orchestrator(5, SYSTEM_PROMPTS_DIR, useDeduplicator);
+    const basicOrchestrator = new Orchestrator(5, BASIC_PROMPT_DIR, false); // Basic orchestrator shouldn't deduplicate
 
     console.log(`Fetching diff for ${url}...`);
     const chunks = await ghClient.getPRDiff(url);

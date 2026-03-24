@@ -1,9 +1,9 @@
 import { CandidateFinding, DiffChunk, Subagent, ReviewResult, AnalyzeResult } from './types';
 import { GeminiAgent } from './agent';
+import { DeduplicatorAgent } from './deduplicator';
 import { PromisePool } from './pool';
 import * as fs from 'fs';
 import * as path from 'path';
-
 
 export class Orchestrator {
   private subagents: Subagent[] = [];
@@ -11,10 +11,14 @@ export class Orchestrator {
   public onProgress?: (agentName: string, file: string, status: 'start' | 'complete' | 'skipped') => void;
 
   private promptsDirName: string;
+  private deduplicator: DeduplicatorAgent;
+  private useTriage: boolean; // Keeping the parameter name for backwards compatibility, but it refers to grouping logic now
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts') {
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useTriage: boolean = true) {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = path.basename(promptsDirName);
+    this.deduplicator = new DeduplicatorAgent();
+    this.useTriage = useTriage;
     this.initializeAgents();
   }
 
@@ -87,42 +91,77 @@ export class Orchestrator {
     // Map Tasks based on routing rules
     const tasks: (() => Promise<AnalyzeResult>)[] = [];
 
-    for (const agent of this.subagents) {
-      const activeChunks = chunks.filter(chunk => {
-        if (!this.shouldRun(agent.name, chunk.file)) {
-          if (this.onProgress) {
-             this.onProgress(agent.name, chunk.file, 'skipped');
+    if (this.useTriage) {
+      // Execute all active GeminiAgents on their relevant DiffChunks based strictly on static filtering context for the deduplicator architecture
+      for (const agent of this.subagents) {
+        const activeChunks = chunks.filter(chunk => {
+          let shouldInclude = this.shouldRun(agent.name, chunk.file);
+
+          if (!shouldInclude) {
+            if (this.onProgress) {
+               this.onProgress(agent.name, chunk.file, 'skipped');
+            }
+            return false;
           }
-          return false;
+          return true;
+        });
+
+        if (activeChunks.length === 0) {
+          continue;
         }
-        return true;
-      });
 
-      if (activeChunks.length === 0) {
-        continue;
+        tasks.push(async () => {
+            const progressFileName = `Aggregated PR (${activeChunks.length} files)`;
+            if (this.onProgress) {
+                this.onProgress(agent.name, progressFileName, 'start');
+            }
+            try {
+                const res = await agent.analyze(activeChunks);
+                if (this.onProgress) {
+                    this.onProgress(agent.name, progressFileName, 'complete');
+                }
+                return res;
+            } catch (err) {
+                if (this.onProgress) {
+                    this.onProgress(agent.name, progressFileName, 'complete');
+                }
+                throw err;
+            }
+        });
       }
+    } else {
+      // Legacy fallback: File-by-File routing
+      for (const chunk of chunks) {
+         for (const agent of this.subagents) {
+            if (!this.shouldRun(agent.name, chunk.file)) {
+                if (this.onProgress) {
+                    this.onProgress(agent.name, chunk.file, 'skipped');
+                }
+                continue;
+            }
 
-      tasks.push(async () => {
-          const progressFileName = `Aggregated PR (${activeChunks.length} files)`;
-          if (this.onProgress) {
-              this.onProgress(agent.name, progressFileName, 'start');
-          }
-          try {
-              const res = await agent.analyze(activeChunks);
-              if (this.onProgress) {
-                  this.onProgress(agent.name, progressFileName, 'complete');
-              }
-              return res;
-          } catch (err) {
-              if (this.onProgress) {
-                  this.onProgress(agent.name, progressFileName, 'complete');
-              }
-              throw err;
-          }
-      });
+            tasks.push(async () => {
+                if (this.onProgress) {
+                    this.onProgress(agent.name, chunk.file, 'start');
+                }
+                try {
+                    const res = await agent.analyze([chunk]);
+                    if (this.onProgress) {
+                        this.onProgress(agent.name, chunk.file, 'complete');
+                    }
+                    return res;
+                } catch (err) {
+                    if (this.onProgress) {
+                        this.onProgress(agent.name, chunk.file, 'complete');
+                    }
+                    throw err;
+                }
+            });
+         }
+      }
     }
 
-    console.log(`Orchestrator routing ${chunks.length} files to ${tasks.length} subagent analysis tasks...`);
+    console.log(`Orchestrator mapped ${chunks.length} files to ${tasks.length} subagent analysis tasks...`);
     
     const results = await Promise.all(tasks.map(t => pool.add(t)));
     
@@ -137,15 +176,24 @@ export class Orchestrator {
         }
     }
 
+    // Pass all concatenated CandidateFinding results to the new DeduplicatorAgent
+    let deduplicatedFindings = allFindings;
+    let triageCalls = 0;
+    
+    if (this.useTriage && allFindings.length > 0) {
+        deduplicatedFindings = await this.deduplicator.deduplicate(allFindings);
+        triageCalls = 1; // It acts as the routing/filtering step
+    }
+
     // Filter out low severity by default to avoid noise in the UI
-    const filteredFindings = this.filterFindings(allFindings, "Low");
+    const filteredFindings = this.filterFindings(deduplicatedFindings, "Low");
     
     return {
       findings: filteredFindings,
       metrics: {
         inputTokens: totalInputTokens,
         outputTokens: totalOutputTokens,
-        calls: results.length
+        calls: results.length + triageCalls
       }
     };
   }

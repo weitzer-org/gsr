@@ -12,22 +12,64 @@ export interface DiscoveryIssue {
 
 export class GeminiAgent implements Subagent {
   name: string;
-  private promptContent: string;
+  public promptContent: string;
   private ai: GoogleGenAI;
+  private cachedContentName?: string;
 
   constructor(name: string, promptContent: string) {
     this.name = name;
     this.promptContent = promptContent;
-    // The SDK automatically picks up GOOGLE_APPLICATION_CREDENTIALS for ADC,
-    // or GEMINI_API_KEY from the environment.
-    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
+    const useVertex = process.env.USE_VERTEX_AI === 'true';
+    if (useVertex) {
+      this.ai = new GoogleGenAI({});
+    } else {
+      this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    }
   }
 
   async analyze(chunks: DiffChunk[]): Promise<AnalyzeResult> {
+    if (process.env.USE_TRIAGE_AGENT === 'false') {
+      const results = await Promise.all(chunks.map(chunk => this.analyzeLegacy(chunk)));
+      return {
+          findings: results.flatMap(r => r.findings),
+          usage: {
+              promptTokenCount: results.reduce((sum, r) => sum + (r.usage?.promptTokenCount || 0), 0),
+              candidatesTokenCount: results.reduce((sum, r) => sum + (r.usage?.candidatesTokenCount || 0), 0),
+              totalTokenCount: results.reduce((sum, r) => sum + (r.usage?.totalTokenCount || 0), 0)
+          }
+      };
+    }
+
     const aggregatedFiles = `Aggregated PR (${chunks.length} files)`;
     let timeoutId: NodeJS.Timeout | undefined;
     let promptTokens = 0;
     let candidatesTokens = 0;
+
+    const useContextCaching = process.env.USE_CONTEXT_CACHING !== 'false';
+
+    if (useContextCaching && !this.cachedContentName) {
+      try {
+        console.log(`[${this.name}] Initializing Context Cache for persona...`);
+        // Note: GoogleGenAI caches.create defaults exactly
+        const discoverySystemInstruction = `You are the ${this.name} discovery agent.\nYour ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.\nEnsure you return your response in the strictly required JSON format.\nCRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. \nIf you skip a file, the system will fail.\n${this.promptContent}`;
+        
+        const envModel = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+        const cacheModel = envModel.startsWith('models/') ? envModel : `models/${envModel}`;
+        
+        const cache = await this.ai.caches.create({
+          model: cacheModel,
+          config: {
+             systemInstruction: discoverySystemInstruction,
+             ttl: '3600s'
+          }
+        });
+        
+        this.cachedContentName = cache.name;
+        console.log(`[${this.name}] Cache created successfully: ${cache.name}`);
+      } catch (e) {
+        console.warn(`[${this.name}] Failed to create Context Cache, falling back to un-cached:`, e);
+      }
+    }
 
     try {
       console.log(`[${this.name}] Starting Pass 1 (Discovery) for ${aggregatedFiles}...`);
@@ -43,11 +85,10 @@ export class GeminiAgent implements Subagent {
       while (chunksToProcess.length > 0 && retries <= maxRetries) {
         const promptPayload = this.buildDiscoveryPrompt(chunksToProcess);
         
-        const genAiRequest = this.ai.models.generateContent({
+        const requestArgs: any = {
            model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
            contents: promptPayload.contents,
            config: {
-             systemInstruction: promptPayload.systemInstruction,
              responseMimeType: 'application/json',
              responseSchema: {
                type: Type.OBJECT,
@@ -76,7 +117,16 @@ export class GeminiAgent implements Subagent {
                required: ["filesAnalyzed", "issues"]
              }
            }
-        });
+        };
+
+        if (useContextCaching && this.cachedContentName) {
+           requestArgs.cachedContent = this.cachedContentName;
+           // The cachedContent implies systemInstruction is fulfilled natively
+        } else {
+           requestArgs.config.systemInstruction = promptPayload.systemInstruction;
+        }
+
+        const genAiRequest = this.ai.models.generateContent(requestArgs);
 
         const timeoutPromise = new Promise<any>((_, reject) => {
             timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
@@ -119,6 +169,7 @@ export class GeminiAgent implements Subagent {
       console.log(`[${this.name}] Starting Pass 2 (Remediation) for ${discoveryIssues.length} identified issues...`);
 
       // PASS 2: Remediation
+      // Not cached because it uses a different short-lived prompt focused tightly on synthesizing solutions
       const remediationPayload = this.buildRemediationPrompt(chunks, discoveryIssues);
       const remediationRequest = this.ai.models.generateContent({
            model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
@@ -176,14 +227,69 @@ export class GeminiAgent implements Subagent {
     }
   }
 
+  private async analyzeLegacy(chunk: DiffChunk): Promise<AnalyzeResult> {
+    const prompt = `
+<SYSTEM_INSTRUCTIONS>
+${this.promptContent}
+</SYSTEM_INSTRUCTIONS>
+
+<FILE_PATH>
+${chunk.file}
+</FILE_PATH>
+
+<DIFF_CONTENT>
+${chunk.content}
+</DIFF_CONTENT>
+`;
+    
+    try {
+      console.log(`[${this.name}] Starting Baseline Gemini API call for ${chunk.file}...`);
+      
+      const response = await this.ai.models.generateContent({
+         model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
+         contents: prompt,
+         config: {
+           responseMimeType: 'application/json',
+           responseSchema: {
+             type: Type.ARRAY,
+             description: "A list of potential findings or issues found in the code diff based on the system instructions.",
+             items: {
+               type: Type.OBJECT,
+               properties: {
+                 file: { type: Type.STRING, description: "The path of the file being reviewed" },
+                 line: { type: Type.INTEGER, description: "The starting line number of the issue in the diff" },
+                 severity: { type: Type.STRING, enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"], description: "The severity of the issue" },
+                 summary: { type: Type.STRING, description: "A single sentence summary of the issue" },
+                 description: { type: Type.STRING, description: "More details about the issue, including why it is an issue" },
+                 suggestion: { type: Type.STRING, nullable: true, description: "An optional code snippet demonstrating how to fix the issue." }
+               },
+               required: ["file", "line", "severity", "summary", "description"]
+             }
+           }
+         }
+      });
+
+      if (response.text) {
+          const findings = JSON.parse(response.text) as CandidateFinding[];
+          return {
+            findings: findings.map(f => ({ ...f, file: chunk.file, agent: this.name })),
+            usage: response.usageMetadata ? {
+                promptTokenCount: response.usageMetadata.promptTokenCount || 0,
+                candidatesTokenCount: response.usageMetadata.candidatesTokenCount || 0,
+                totalTokenCount: response.usageMetadata.totalTokenCount || 0
+            } : undefined
+          };
+      }
+      return { findings: [] };
+    } catch (e) {
+      console.error(`⚠️ Note: The ${this.name} Agent failed to complete its baseline review for ${chunk.file}`, e);
+      return { findings: [] };
+    }
+  }
+
   private buildDiscoveryPrompt(chunks: DiffChunk[]): { systemInstruction: string, contents: string } {
     const diffsText = chunks.map(c => `File: ${c.file}\n\`\`\`diff\n${c.content}\n\`\`\``).join('\n\n');
-    const systemInstruction = `You are the ${this.name} discovery agent.
-Your ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.
-Ensure you return your response in the strictly required JSON format.
-CRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. 
-If you skip a file, the system will fail.
-${this.promptContent}`;
+    const systemInstruction = `You are the ${this.name} discovery agent.\nYour ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.\nEnsure you return your response in the strictly required JSON format.\nCRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. \nIf you skip a file, the system will fail.\n${this.promptContent}`;
 
     const contents = `<DIFF_CONTENTS>\n${diffsText}\n</DIFF_CONTENTS>`;
     return { systemInstruction, contents };

@@ -70,4 +70,46 @@ describe('Evals frontend logic (evals.js)', () => {
         const runList = document.getElementById('run-list');
         expect(runList?.innerHTML).toContain('Error loading history: Network offline');
     });
+
+    it('should correctly handle and render an evaluation run with 0 findings in the dataset without crashing', async () => {
+        // Stub marked.js globally
+        global.marked = { parse: (t) => t };
+
+        // Mock the fetch for the history list
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => [{ name: 'eval-run_test.json', updated: '2026-03-22' }]
+        });
+        
+
+        // Mock the fetch for the actual evaluation file containing 0 findings
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+                aggregate_report: 'Zero findings generated.',
+                aggregate_metrics: {
+                    targetA: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 },
+                    targetB: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 }
+                },
+                prResults: [
+                    { prUrl: 'url', targetAOutput: { findings: [] }, targetBOutput: { findings: [] }, evaluation: '' }
+                ]
+            })
+        });
+
+        initEvals(); 
+        await new Promise(process.nextTick);
+
+        // Click the loaded run
+        const runLink = document.querySelector('#run-list li.run-item');
+        expect(runLink).not.toBeNull();
+        if (runLink) {
+            runLink.click();
+            await new Promise(process.nextTick);
+            
+            // Should not have thrown rendering exceptions and metrics should display 0
+            const findingsA = document.getElementById('metric-a-findings');
+            expect(document.getElementById('aggregate-report')?.innerHTML).toContain('Zero');
+        }
+    });
 });

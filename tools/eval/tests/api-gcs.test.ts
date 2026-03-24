@@ -36,7 +36,7 @@ describe('api-gcs script', () => {
 
   beforeEach(() => {
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = 'fake';
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = 'fake-path.json';
     
     mockGetFiles.mockReset();
     mockDownload.mockReset();

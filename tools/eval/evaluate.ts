@@ -81,8 +81,22 @@ export async function runEvaluation(options: EvalOptions = {}) {
   }
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
+  function extractBranchName(input: string): string {
+    if (!input) return '';
+    try {
+      const url = new URL(input);
+      if (url.pathname.includes('/tree/')) {
+        return url.pathname.split('/tree/')[1].split('/')[0];
+      }
+    } catch {
+       // Not a URL
+    }
+    return input.trim();
+  }
+
   const compGroup = options.compGroup || process.env.EVAL_COMPARISON_GROUP || 'local_vs_production';
-  const targetBranch = options.targetBranch || process.env.EVAL_TARGET_BRANCH || '';
+  const targetBranchRaw = options.targetBranch || process.env.EVAL_TARGET_BRANCH || '';
+  const targetBranch = extractBranchName(targetBranchRaw);
 
   const localUrl = process.env.LOCAL_URL || 'http://localhost:8080';
   const prodUrl = config.production_url || process.env.PRODUCTION_URL || 'https://adk-backend-gsr-595305141203.us-central1.run.app';

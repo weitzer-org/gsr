@@ -18,7 +18,7 @@ async function run() {
         totalFindings++;
         const body = f.issueDescription || '';
         const hasSuggestion = body.includes('```suggestion');
-        const hasCode = body.includes('```') && !hasSuggestion;
+        const hasCode = /```(?!suggestion)/.test(body);
 
         if (hasSuggestion) hasSuggestionBlock++;
         if (hasCode) hasCodeBlock++;
@@ -32,6 +32,11 @@ async function run() {
 
   console.log('\n==================================');
   console.log(`Total GCA Findings across 10 PRs: ${totalFindings}`);
+  if (totalFindings === 0) {
+    console.log("No findings to calculate percentages.");
+    console.log('==================================\n');
+    return;
+  }
   console.log(`Findings with \`\`\`suggestion drop-ins: ${hasSuggestionBlock} (${Math.round(hasSuggestionBlock/totalFindings*100)}%)`);
   console.log(`Findings with context \`\`\`code blocks: ${hasCodeBlock} (${Math.round(hasCodeBlock/totalFindings*100)}%)`);
   console.log(`Findings with NO code snippets at all: ${totalFindings - hasSuggestionBlock - hasCodeBlock} (${Math.round((totalFindings - hasSuggestionBlock - hasCodeBlock)/totalFindings*100)}%)`);

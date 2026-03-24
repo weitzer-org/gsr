@@ -32,14 +32,18 @@ export function validateFindingsAgainstDiff(findings: ReviewFinding[], diffChunk
           currentLine = parseInt(match[1], 10);
         }
       } else if (currentLine > 0 && !line.startsWith('\\ No newline')) {
-        if (!line.startsWith('-')) {
+        if (line.startsWith('+')) {
           validLines.add(currentLine);
+          currentLine++;
+        } else if (line.startsWith(' ')) {
+          // Context lines advance the counter but are not valid locations for new findings
           currentLine++;
         }
       }
     }
 
-    fileToValidLines.set(chunk.file, validLines);
+    const cleanChunk = chunk.file.replace(/^\//, '').replace(/^[ab]\//, '');
+    fileToValidLines.set(cleanChunk, validLines);
   }
 
   for (const finding of findings) {
@@ -49,13 +53,19 @@ export function validateFindingsAgainstDiff(findings: ReviewFinding[], diffChunk
     }
     
     let validLinesForFile: Set<number> | undefined;
-    for (const [chunkFile, lines] of fileToValidLines.entries()) {
-      const cleanFinding = finding.fileName.replace(/^\//, '').replace(/^[ab]\//, '');
-      const cleanChunk = chunkFile.replace(/^\//, '').replace(/^[ab]\//, '');
-      if (cleanFinding === cleanChunk || cleanFinding.endsWith(cleanChunk) || cleanChunk.endsWith(cleanFinding)) {
-        validLinesForFile = lines;
-        break;
-      }
+    const cleanFinding = finding.fileName.replace(/^\//, '').replace(/^[ab]\//, '');
+    
+    // O(1) primary lookup
+    validLinesForFile = fileToValidLines.get(cleanFinding);
+    
+    // Structural fallback lookup with boundary bounds
+    if (!validLinesForFile) {
+        for (const [cleanChunk, lines] of fileToValidLines.entries()) {
+            if (cleanFinding.endsWith('/' + cleanChunk) || cleanChunk.endsWith('/' + cleanFinding) || cleanFinding === cleanChunk) {
+                validLinesForFile = lines;
+                break;
+            }
+        }
     }
     
     if (!validLinesForFile) {

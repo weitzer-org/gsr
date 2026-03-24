@@ -35,7 +35,7 @@ export async function fetchBotComments(prUrl: string, pat: string): Promise<{ gc
       
       const finding: ReviewFinding = {
         fileName: comment.path,
-        lineNumber: comment.line || comment.original_line || 1,
+        lineNumber: comment.line || comment.original_line || 0,
         issueDescription: comment.body,
         suggestion: '', // Typically interleaved in the body for external bots
         severity: 'UNKNOWN',

@@ -1,0 +1,77 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { Storage } from '@google-cloud/storage';
+
+// Auto-load Service Account Key for Jetski environments if not set
+if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  const saPath = path.join(__dirname, '../../jetski-sa-key.json');
+  if (fs.existsSync(saPath)) {
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = saPath;
+  }
+}
+
+const storage = new Storage();
+const bucketName = 'gsr-eval-results-weitzer-org';
+
+async function main() {
+  const bucket = storage.bucket(bucketName);
+  const [files] = await bucket.getFiles({ prefix: 'eval-run_' });
+  
+  const fileList = files.map(f => ({
+    name: f.name,
+    updated: f.metadata.updated,
+    size: f.metadata.size
+  }));
+  
+  fileList.sort((a, b) => new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime());
+  
+  // The first 4 files
+  const top4 = fileList.slice(0, 4);
+
+  const testMap: Record<number, string> = {
+    0: "Test 4 (Local Enabled vs Production)",
+    1: "Test 3 (Local Enabled vs Branch)",
+    2: "Test 2 (Local Disabled vs Production)",
+    3: "Test 1 (Local Disabled vs Branch)"
+  };
+
+  for (let i = 0; i < 4; i++) {
+    const f = top4[i];
+    console.log(`\n=================== ${testMap[i]} ===================`);
+    console.log(`File: ${f.name} (${f.updated})`);
+
+    const file = bucket.file(f.name);
+    const [contents] = await file.download();
+    const data = JSON.parse(contents.toString('utf-8'));
+
+    console.log(`\n### Comparison Group: ${data.comparisonGroup}`);
+    console.log(`### Vertex/Context Caching: ${data.useVertexAi}`);
+
+    let localTotal = 0;
+    let remoteTotal = 0;
+
+    console.log(`\n--- PR Breakdown ---`);
+    if (data.results) {
+      for (const pr of data.results) {
+        if (!pr.prUrl) continue;
+        console.log(`- PR: ${pr.prUrl}`);
+        const localCount = pr.targetA?.findings?.length || 0;
+        const remoteCount = pr.targetB?.findings?.length || 0;
+        localTotal += localCount;
+        remoteTotal += remoteCount;
+        console.log(`   Local Findings: ${localCount} | Remote Findings: ${remoteCount}`);
+        if (pr.llm_comparison_report) {
+            console.log(`   Eval Score (0-10 based on summary?): ${pr.llm_comparison_report.split('\n')[0].substring(0, 100)}...`);
+        } else if (pr.targetA?.error || pr.targetB?.error) {
+            console.log(`   Error Local: ${pr.targetA?.error} | Error Remote: ${pr.targetB?.error}`);
+        }
+      }
+    }
+
+    console.log(`\n--- Aggregate Summary ---`);
+    console.log(`Totals -> Local: ${localTotal} | Remote: ${remoteTotal}`);
+    console.log(data.aggregate_evaluation_report || "No Aggregate Summary Available.");
+  }
+}
+
+main().catch(console.error);

@@ -2,6 +2,14 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Copy package manifests first to leverage Docker layer caching
+COPY package*.json ./
+COPY tools/eval/package*.json ./tools/eval/
+COPY adk/backend/package*.json ./adk/backend/
+
+# Install tools/eval dependencies
+RUN cd tools/eval && npm ci
+
 # Copy the entire workspace to ensure relative ../../adk imports satisfy TypeScript
 COPY . ./
 

@@ -1,5 +1,11 @@
 const { execSync } = require('child_process');
-const pat = execSync('gcloud secrets versions access latest --secret=gsr-github-pat').toString().trim();
+let pat = '';
+try {
+  pat = execSync('gcloud secrets versions access latest --secret=gsr-github-pat').toString().trim();
+} catch (err) {
+  console.error('Failed to retrieve GitHub PAT from gcloud secret manager. Exiting.');
+  process.exit(1);
+}
 const { fetchBotComments } = require('./github-comments');
 
 async function run() {
@@ -17,7 +23,7 @@ async function run() {
         totalFindings++;
         const body = f.issueDescription || '';
         const hasSuggestion = body.includes('```suggestion');
-        const hasCode = body.includes('```') && !hasSuggestion;
+        const hasCode = /```(?!suggestion)/.test(body);
 
         if (hasSuggestion) hasSuggestionBlock++;
         if (hasCode) hasCodeBlock++;
@@ -31,6 +37,10 @@ async function run() {
 
   console.log('\n=== SUMMARY ===');
   console.log(`Total GCA Findings across 10 PRs: ${totalFindings}`);
+  if (totalFindings === 0) {
+    console.log("No findings to calculate percentages.");
+    return;
+  }
   console.log(`Findings with \`\`\`suggestion block: ${hasSuggestionBlock} (${Math.round(hasSuggestionBlock/totalFindings*100)}%)`);
   console.log(`Findings with other \`\`\`code blocks: ${hasCodeBlock} (${Math.round(hasCodeBlock/totalFindings*100)}%)`);
   console.log(`Findings with NO code snippets at all: ${totalFindings - hasSuggestionBlock - hasCodeBlock} (${Math.round((totalFindings - hasSuggestionBlock - hasCodeBlock)/totalFindings*100)}%)`);

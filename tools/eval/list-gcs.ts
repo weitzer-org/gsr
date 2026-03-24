@@ -1,7 +1,6 @@
 import { Storage } from '@google-cloud/storage';
-import * as fs from 'fs';
 
-const storage = new Storage({ keyFilename: '../../jetski-sa-key.json' });
+const storage = new Storage();
 const bucketName = 'gsr-eval-results-weitzer-org';
 
 async function listAndFetch() {
@@ -24,14 +23,14 @@ async function listAndFetch() {
       console.log(`Total Comparison Tokens: Prompt=${data.metrics?.totalTokens?.comparisonPrompt}, Candidates=${data.metrics?.totalTokens?.comparisonCandidates}`);
       
       let totalSub = 0, totalBasic = 0, totalPrsEvaluated = 0, prsWonBySub = 0, prsWonByBasic = 0, ties = 0;
-      data.results?.forEach((res: any) => {
+      data.results?.forEach((res: { subagentCount?: number, basicCount?: number, evaluation?: { winner: string } }) => {
         totalPrsEvaluated++;
         totalSub += res.subagentCount || 0;
         totalBasic += res.basicCount || 0;
         if (res.evaluation) {
           if (res.evaluation.winner === 'Control') prsWonByBasic++;
           else if (res.evaluation.winner === 'Subagent') prsWonBySub++;
-          else ties++;
+          else if (res.evaluation.winner === 'Tie') ties++;
         }
       });
       console.log(`Findings Found: Subagents = ${totalSub}, Basic = ${totalBasic}`);

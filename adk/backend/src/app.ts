@@ -154,7 +154,7 @@ app.post('/api/evals/start', (req, res, next) => {
     }
 
     if (evalRunner === 'production') {
-      const prodUrl = process.env.EVALUATOR_SERVICE_URL || 'https://gsr-evaluator-710019748844.europe-west1.run.app';
+      const prodUrl = process.env.EVALUATOR_SERVICE_URL || 'https://gsr-evaluator-710019748844.us-central1.run.app';
       if (!prodUrl) {
          return res.status(400).json({ error: 'Production evaluation requires EVALUATOR_SERVICE_URL environment variable.' });
       }

@@ -71,7 +71,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
   // Parse basic arguments / environment
   const configPath = process.argv.includes('--config') 
     ? process.argv[process.argv.indexOf('--config') + 1] 
-    : path.join(__dirname, 'config.json');
+    : fs.existsSync(path.join(__dirname, 'config.json')) ? path.join(__dirname, 'config.json') : path.resolve(process.cwd(), 'config.json');
   const useNewMetrics = options.useNewMetrics ?? process.argv.includes('--use-new-metrics');
 
   // 1. Load config

@@ -9,6 +9,10 @@ import { uploadResultsToGCS, ensureBucketExists } from './gcs-storage';
 import { buildRunMetadata } from './version-tracker';
 
 import { CloudBuildClient } from '@google-cloud/cloudbuild';
+import { fetchBotComments } from './github-comments';
+import { validateFindingsAgainstDiff } from './validation';
+import { compareResultsWithLLMV2, generateAggregateReportV2, V2ComparisonMetrics } from './llm-comparator-v2';
+import { GitHubClient } from '../../adk/backend/src/github';
 
 async function deployStagingBranch(branch: string, githubPat: string): Promise<string> {
     console.log(`\n☁️  Triggering Cloud Build via Node SDK for branch '${branch}'...`);
@@ -46,7 +50,13 @@ async function deployStagingBranch(branch: string, githubPat: string): Promise<s
     }
 }
 
-async function main() {
+export interface EvalOptions {
+  compGroup?: string;
+  targetBranch?: string;
+  useNewMetrics?: boolean;
+}
+
+export async function runEvaluation(options: EvalOptions = {}) {
   console.log('🚀 Starting GSR Evaluation Harness...');
 
   // Auto-load Service Account Key for Jetski environments
@@ -62,6 +72,7 @@ async function main() {
   const configPath = process.argv.includes('--config') 
     ? process.argv[process.argv.indexOf('--config') + 1] 
     : path.join(__dirname, 'config.json');
+  const useNewMetrics = options.useNewMetrics ?? process.argv.includes('--use-new-metrics');
 
   // 1. Load config
   if (!fs.existsSync(configPath)) {
@@ -70,8 +81,8 @@ async function main() {
   }
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
-  const compGroup = process.env.EVAL_COMPARISON_GROUP || 'local_vs_production';
-  const targetBranch = process.env.EVAL_TARGET_BRANCH || '';
+  const compGroup = options.compGroup || process.env.EVAL_COMPARISON_GROUP || 'local_vs_production';
+  const targetBranch = options.targetBranch || process.env.EVAL_TARGET_BRANCH || '';
 
   const localUrl = process.env.LOCAL_URL || 'http://localhost:8080';
   const prodUrl = config.production_url || process.env.PRODUCTION_URL || 'https://adk-backend-gsr-595305141203.us-central1.run.app';
@@ -119,8 +130,10 @@ async function main() {
   if (targetBConfig.isBranch) targetBConfig.url = await deployStagingBranch(targetBranch, githubPat);
 
   // 4. Initialize Metadata
+  const isCloudRun = !!process.env.K_SERVICE;
   const runPayload: any = {
     ...buildRunMetadata(prodUrl),
+    execution_environment: isCloudRun ? `Server: gsr-evaluator Cloud Run` : `Server: Localhost CLI`,
     prs_tested: prs,
     targetA_label: targetAConfig.label,
     targetB_label: targetBConfig.label,
@@ -196,10 +209,38 @@ async function main() {
 
     // 6. Compare results with LLM if both succeeded roughly
     let llmEvaluation = 'Skipped due to API errors.';
+    let v2Metrics: V2ComparisonMetrics | undefined = undefined;
+
     if (!targetAResult.error && !targetBResult.error) {
        try {
          if (process.env.GEMINI_API_KEY) {
-           llmEvaluation = await compareResultsWithLLM(prUrl, targetAResult.findings, targetBResult.findings, targetAConfig.label, targetBConfig.label);
+           if (useNewMetrics) {
+             console.log(`[V2] Fetching PR Diff for validation...`);
+             const githubClient = new GitHubClient(githubPat);
+             const prDiff = await githubClient.getPRDiff(prUrl);
+
+             console.log(`[V2] Fetching third-party bot comments...`);
+             const { gcaFindings, codeRabbitFindings } = await fetchBotComments(prUrl, githubPat);
+
+             console.log(`[V2] Validating findings against PR Diff...`);
+             const aValid = validateFindingsAgainstDiff(targetAResult.findings, prDiff);
+             const bValid = validateFindingsAgainstDiff(targetBResult.findings, prDiff);
+             const gcaValid = validateFindingsAgainstDiff(gcaFindings, prDiff);
+             const codeRabbitValid = validateFindingsAgainstDiff(codeRabbitFindings, prDiff);
+             
+             // Run the V2 LLM comparator on the valid findings
+             const v2Res = await compareResultsWithLLMV2(prUrl, aValid.validFindings, bValid.validFindings, gcaValid.validFindings, codeRabbitValid.validFindings, targetAConfig.label, targetBConfig.label);
+             llmEvaluation = v2Res.report;
+             v2Metrics = v2Res.metrics;
+             
+             // Inject the extra stats into the payload
+             (targetAResult as any).v2Validation = { valid: aValid.validFindings.length, hallucinated: aValid.hallucinatedFindings.length };
+             (targetBResult as any).v2Validation = { valid: bValid.validFindings.length, hallucinated: bValid.hallucinatedFindings.length };
+             (targetAResult as any).gcaValidation = { valid: gcaValid.validFindings.length, hallucinated: gcaValid.hallucinatedFindings.length };
+             (targetAResult as any).codeRabbitValidation = { valid: codeRabbitValid.validFindings.length, hallucinated: codeRabbitValid.hallucinatedFindings.length };
+           } else {
+             llmEvaluation = await compareResultsWithLLM(prUrl, targetAResult.findings, targetBResult.findings, targetAConfig.label, targetBConfig.label);
+           }
          } else {
            console.warn('⚠️ GEMINI_API_KEY is not set. Skipping LLM comparison step.');
            llmEvaluation = 'Skipped due to missing GEMINI_API_KEY.';
@@ -210,11 +251,21 @@ async function main() {
        }
     }
 
+    let gcaFindingsCount = 0;
+    let codeRabbitFindingsCount = 0;
+    if (useNewMetrics && !targetAResult.error) {
+        gcaFindingsCount = (targetAResult as any).gcaValidation?.valid || 0;
+        codeRabbitFindingsCount = (targetAResult as any).codeRabbitValidation?.valid || 0;
+    }
+
     return {
       prUrl,
       targetA: targetAResult,
       targetB: targetBResult,
-      llm_comparison_report: llmEvaluation
+      llm_comparison_report: llmEvaluation,
+      v2Metrics,
+      gcaFindingsCount,
+      codeRabbitFindingsCount
     };
   });
 
@@ -234,9 +285,11 @@ async function main() {
     })
     .filter((r: any) => r !== null);
 
-  const aggregateMetrics = {
+  const aggregateMetrics: any = {
     targetA: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 },
-    targetB: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 }
+    targetB: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 },
+    gca: { findingsCount: 0 },
+    codeRabbit: { findingsCount: 0 }
   };
   
   for (const r of runPayload.results) {
@@ -252,13 +305,69 @@ async function main() {
        aggregateMetrics.targetB.calls += r.targetB.metrics.calls || 0;
        aggregateMetrics.targetB.findingsCount += r.targetB.findings?.length || 0;
     }
+    if (useNewMetrics) {
+       aggregateMetrics.gca.findingsCount += r.gcaFindingsCount || 0;
+       aggregateMetrics.codeRabbit.findingsCount += r.codeRabbitFindingsCount || 0;
+    }
   }
   
+  if (useNewMetrics) {
+    const emptyTarget = { actionability: 0, falsePositives: 0, uniqueFindings: 0 };
+    const llmAggregatedMetrics: any = {
+        targetA: { ...emptyTarget },
+        targetB: { ...emptyTarget },
+        gca: { ...emptyTarget },
+        codeRabbit: { ...emptyTarget },
+        overlapMatrix: {
+          targetA_targetB: 0,
+          targetA_gca: 0,
+          targetA_codeRabbit: 0,
+          targetB_gca: 0,
+          targetB_codeRabbit: 0,
+          gca_codeRabbit: 0
+        }
+    };
+    let count = 0;
+    for (const r of runPayload.results) {
+        if (r.v2Metrics) {
+            count++;
+            for (const key of ['targetA', 'targetB', 'gca', 'codeRabbit']) {
+              llmAggregatedMetrics[key].actionability += r.v2Metrics[key]?.actionability || 0;
+              llmAggregatedMetrics[key].falsePositives += r.v2Metrics[key]?.falsePositives || 0;
+              llmAggregatedMetrics[key].uniqueFindings += r.v2Metrics[key]?.uniqueFindings || 0;
+            }
+            if (r.v2Metrics.overlapMatrix) {
+              for (const matrixKey of ['targetA_targetB', 'targetA_gca', 'targetA_codeRabbit', 'targetB_gca', 'targetB_codeRabbit', 'gca_codeRabbit']) {
+                llmAggregatedMetrics.overlapMatrix[matrixKey] += r.v2Metrics.overlapMatrix[matrixKey] || 0;
+              }
+            }
+            
+            // Add deterministic diff hallucinations
+            llmAggregatedMetrics.targetA.falsePositives += (r.targetA?.v2Validation?.hallucinated || 0);
+            llmAggregatedMetrics.targetB.falsePositives += (r.targetB?.v2Validation?.hallucinated || 0);
+            llmAggregatedMetrics.gca.falsePositives += (r.targetA?.gcaValidation?.hallucinated || 0);
+            llmAggregatedMetrics.codeRabbit.falsePositives += (r.targetA?.codeRabbitValidation?.hallucinated || 0);
+        }
+    }
+    if (count > 0) {
+        for (const key of ['targetA', 'targetB', 'gca', 'codeRabbit']) {
+            llmAggregatedMetrics[key].actionability /= count;
+        }
+    }
+    runPayload.llm_aggregated_metrics = llmAggregatedMetrics;
+  }
+
   runPayload.aggregate_metrics = aggregateMetrics;
 
   if (validReports.length > 0 && process.env.GEMINI_API_KEY) {
     try {
-      runPayload.aggregate_report = await generateAggregateReport(validReports, aggregateMetrics, targetAConfig.label, targetBConfig.label);
+      if (useNewMetrics) {
+         const reportOutput = await generateAggregateReportV2(validReports, aggregateMetrics, targetAConfig.label, targetBConfig.label, runPayload.llm_aggregated_metrics);
+         runPayload.aggregate_report = `> **Execution Environment:** ${runPayload.execution_environment}\n\n${reportOutput}`;
+      } else {
+         const reportOutput = await generateAggregateReport(validReports, aggregateMetrics, targetAConfig.label, targetBConfig.label);
+         runPayload.aggregate_report = `> **Execution Environment:** ${runPayload.execution_environment}\n\n${reportOutput}`;
+      }
     } catch (e: any) {
       console.error(`❌ [LLM Aggregate] Failed: ${e.message}`);
       runPayload.aggregate_report = `Error: ${e.message}`;
@@ -277,10 +386,13 @@ async function main() {
     serverProcess.kill('SIGTERM');
   }
 
-  console.log(`\n🎉 Evaluation Harness complete! Output archived.`);
+  console.log(`\n🎉 Evaluation Harness complete! Output archived: ${uploadFileName}`);
+  return { status: 'success', uploadFileName, metadata: runPayload };
 }
 
-main().catch(err => {
-  console.error('\n💥 Unhandled error in evaluation harness:', err);
-  if (process.exit) process.exit(1);
-});
+if (require.main === module) {
+  runEvaluation().catch(err => {
+    console.error('\n💥 Unhandled error in evaluation harness:', err);
+    if (process.exit) process.exit(1);
+  });
+}

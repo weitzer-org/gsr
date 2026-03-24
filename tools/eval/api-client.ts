@@ -59,7 +59,11 @@ export async function runReview(baseUrl: string, prUrl: string, pat: string): Pr
       try {
         const parsed = JSON.parse(line);
         if (parsed.type === 'done') {
-          finalFindings = parsed.findings || [];
+          finalFindings = (parsed.findings || []).map((f: any) => ({
+             ...f,
+             fileName: f.fileName || f.file || '',
+             lineNumber: f.lineNumber || f.line || 1
+          }));
           finalMetrics = parsed.metrics || { inputTokens: 0, outputTokens: 0, calls: 0 };
           finalEvaluation = parsed.evaluation;
         } else if (parsed.type === 'error') {
@@ -78,7 +82,11 @@ export async function runReview(baseUrl: string, prUrl: string, pat: string): Pr
     try {
       const parsed = JSON.parse(buffer);
       if (parsed.type === 'done') {
-        finalFindings = parsed.findings || [];
+        finalFindings = (parsed.findings || []).map((f: any) => ({
+           ...f,
+           fileName: f.fileName || f.file || '',
+           lineNumber: f.lineNumber || f.line || 1
+        }));
         finalMetrics = parsed.metrics || finalMetrics;
         finalEvaluation = parsed.evaluation;
       } else if (parsed.type === 'error') {

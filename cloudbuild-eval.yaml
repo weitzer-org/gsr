@@ -2,7 +2,7 @@
 # CI/CD pipeline to build and deploy the standalone GSR Evaluation API to Cloud Run.
 
 substitutions:
-  _REGION: 'us-central1'
+  _REGION: 'europe-west1'
   _ARTIFACT_REGISTRY_REPO_NAME: 'gsr-code-review'
   _CLOUD_RUN_SERVICE_NAME: 'gsr-evaluator'
   _IMAGE_TAG: $COMMIT_SHA

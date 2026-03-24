@@ -147,7 +147,7 @@ app.post('/api/review', async (req, res) => {
 // --- Evals API ---
 app.post('/api/evals/start', (req, res, next) => {
   try {
-    const { comparisonGroup = 'local_vs_production', branchName } = req.body || {};
+    const { comparisonGroup = 'local_vs_production', branchName, evalVersion = 'v2' } = req.body || {};
 
     if (comparisonGroup.includes('branch') && !branchName) {
       return res.status(400).json({ error: 'branchName is required when comparison group involves a branch.' });
@@ -157,7 +157,14 @@ app.post('/api/evals/start', (req, res, next) => {
     
     // Spawn the eval script detached so it doesn't block
     const evalDir = path.resolve(process.cwd(), '../../tools/eval');
-    const child = spawn('npm', ['run', 'eval'], {
+    
+    const runArgs = ['run', 'eval'];
+    if (evalVersion === 'v2') {
+        runArgs.push('--');
+        runArgs.push('--use-new-metrics');
+    }
+
+    const child = spawn('npm', runArgs, {
       cwd: evalDir,
       detached: true,
       stdio: 'inherit',

@@ -91,8 +91,8 @@ fi
 cleanup() {
     echo ""
     echo "🛑 Shutting down ADK services..."
-    kill $BACKEND_PID 2>/dev/null
-    kill $FRONTEND_PID 2>/dev/null
+    kill ${BACKEND_PID:-} 2>/dev/null || true
+    kill ${FRONTEND_PID:-} 2>/dev/null || true
     echo "✅ Shutdown complete."
     exit
 }
@@ -116,7 +116,8 @@ fi
 
 echo "🟢 Starting Unified ADK Server (Port 8080)..."
 cd backend
-npm run dev &
+npx tsc
+npm start &
 BACKEND_PID=$!
 cd ..
 

@@ -69,7 +69,7 @@ describe('Evaluations API Endpoints', () => {
         message: 'Evaluation harness is running in the background.'
       });
 
-      expect(spawnMock).toHaveBeenCalledWith('npm', ['run', 'eval'], expect.objectContaining({
+      expect(spawnMock).toHaveBeenCalledWith('npm', ['run', 'eval', '--', '--use-new-metrics'], expect.objectContaining({
         detached: true,
         stdio: 'inherit',
       }));

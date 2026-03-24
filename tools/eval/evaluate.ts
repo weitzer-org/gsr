@@ -79,8 +79,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
 
   // 1. Load config
   if (!fs.existsSync(configPath)) {
-    console.error(`❌ Config file not found at ${configPath}. Exiting.`);
-    process.exit(1);
+    throw new Error(`❌ Config file not found at ${configPath}.`);
   }
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
@@ -120,8 +119,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
   const prs = config.sample_prs || [];
 
   if (!prs.length) {
-    console.error(`❌ No PRs defined in config file. Exiting.`);
-    process.exit(1);
+    throw new Error(`❌ No PRs defined in config file.`);
   }
 
   // 2. Fetch Secrets

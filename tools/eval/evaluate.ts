@@ -37,14 +37,17 @@ async function deployStagingBranch(branch: string, githubPat: string): Promise<s
          throw new Error(`Cloud Build failed with status: ${buildResult.status}`);
       }
       
-      return new Promise((resolve, reject) => {
-        console.log('☁️  Build successful! Fetching staging URL...');
-        const { exec } = require('child_process');
-        exec(`export PATH="$HOME/google-cloud-sdk/bin:$PATH" && gcloud run services describe gsr-code-review-staging --region us-central1 --format="value(status.url)"`, (err: any, stdout: string) => {
-            if (err) return reject(err);
-            resolve(stdout.trim());
-        });
+      console.log('☁️  Build successful! Fetching staging URL...');
+      const { GoogleAuth } = require('google-auth-library');
+      const auth = new GoogleAuth({ scopes: 'https://www.googleapis.com/auth/cloud-platform' });
+      const authClient = await auth.getClient();
+      const res = await authClient.request({
+        url: `https://run.googleapis.com/v1/projects/${projectId}/locations/us-central1/services/gsr-code-review-staging`
       });
+      if (!res.data || !res.data.status || !res.data.status.url) {
+        throw new Error('Could not extract Cloud Run URL from GCP API response.');
+      }
+      return res.data.status.url;
     } catch (err: any) {
       throw new Error(`Failed to deploy staging branch: ${err.message}`);
     }
@@ -76,13 +79,26 @@ export async function runEvaluation(options: EvalOptions = {}) {
 
   // 1. Load config
   if (!fs.existsSync(configPath)) {
-    console.error(`❌ Config file not found at ${configPath}. Exiting.`);
-    process.exit(1);
+    throw new Error(`❌ Config file not found at ${configPath}.`);
   }
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
+  function extractBranchName(input: string): string {
+    if (!input) return '';
+    try {
+      const url = new URL(input);
+      if (url.pathname.includes('/tree/')) {
+        return url.pathname.split('/tree/')[1].split('/')[0];
+      }
+    } catch {
+       // Not a URL
+    }
+    return input.trim();
+  }
+
   const compGroup = options.compGroup || process.env.EVAL_COMPARISON_GROUP || 'local_vs_production';
-  const targetBranch = options.targetBranch || process.env.EVAL_TARGET_BRANCH || '';
+  const targetBranchRaw = options.targetBranch || process.env.EVAL_TARGET_BRANCH || '';
+  const targetBranch = extractBranchName(targetBranchRaw);
 
   const localUrl = process.env.LOCAL_URL || 'http://localhost:8080';
   const prodUrl = config.production_url || process.env.PRODUCTION_URL || 'https://adk-backend-gsr-595305141203.us-central1.run.app';
@@ -103,8 +119,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
   const prs = config.sample_prs || [];
 
   if (!prs.length) {
-    console.error(`❌ No PRs defined in config file. Exiting.`);
-    process.exit(1);
+    throw new Error(`❌ No PRs defined in config file.`);
   }
 
   // 2. Fetch Secrets

@@ -105,8 +105,12 @@ ${JSON.stringify(aggregateMetrics, null, 2)}
 
 Your task is to synthesize these individual PR reports and aggregate metrics into a single, cohesive Executive Summary. 
 Highlight the common strengths, consistent weaknesses (e.g., if there's a recurring bug like hallucinated line numbers), overall trends, and discuss the aggregate token/call usage differences between the ${targetALabel} and ${targetBLabel} versions. Note if one version provided a cleaner, deduplicated output compared to the other.
-Include explicit Quantitative Finding Counts: "${targetALabel} identified X total findings across the PRs compared to ${targetBLabel}'s Y findings". Praise the version that yields fewer but higher-quality, non-duplicate findings. Treat lower finding counts as a significant architectural success if Subagents efficiently deduplicated the noise of the baseline agent.
-Conclude with a final overall verdict (Improvement/Regression/Neutral) and include Actionable Next Steps (e.g. prompt tweaks or architecture changes to fix identified regressions).
+CRITICAL: The Individual Reports now contain TWO unique comparisons per PR:
+1. **${targetALabel} vs ${targetBLabel} Comparison**: How the new branch compares to production.
+2. **Subagent vs Basic Agent Comparison**: How the Subagent swarm fared against the Basic agent baseline on the same branch.
+You MUST dedicate a specific section of your Executive Summary to explicitly analyze the "Subagent vs Basic" performance, praising the agent that yields fewer but higher-quality, non-duplicate findings. Treat lower finding counts as a significant architectural success if Subagents efficiently deduplicated the noise of the baseline agent.
+Include explicit Quantitative Finding Counts: "${targetALabel} identified X total findings across the PRs compared to ${targetBLabel}'s Y findings". 
+Conclude with a final overall verdict (Improvement/Regression/Neutral) for the branch comparison and include Actionable Next Steps.
 
 Format your output in clean Markdown.
 `;

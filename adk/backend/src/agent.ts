@@ -53,11 +53,14 @@ export class GeminiAgent implements Subagent {
         // Note: GoogleGenAI caches.create defaults exactly
         const discoverySystemInstruction = `You are the ${this.name} discovery agent.\nYour ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.\nEnsure you return your response in the strictly required JSON format.\nCRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. \nIf you skip a file, the system will fail.\n${this.promptContent}`;
         
+        const envModel = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+        const cacheModel = envModel.startsWith('models/') ? envModel : `models/${envModel}`;
+        
         const cache = await this.ai.caches.create({
-          model: 'models/gemini-2.5-pro',
+          model: cacheModel,
           config: {
-            systemInstruction: discoverySystemInstruction,
-            ttl: '3600s'
+             systemInstruction: discoverySystemInstruction,
+             ttl: '3600s'
           }
         });
         

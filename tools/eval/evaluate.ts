@@ -222,8 +222,17 @@ async function main() {
 
   // 6.5 Generate aggregate evaluation report
   const validReports = runPayload.results
-    .map((r: any) => r.llm_comparison_report)
-    .filter((r: string) => r && !r.startsWith('Skipped due to') && !r.startsWith('Error:'));
+    .map((r: any) => {
+      let combined = "";
+      if (r.llm_comparison_report && !r.llm_comparison_report.startsWith('Skipped due to') && !r.llm_comparison_report.startsWith('Error:')) {
+        combined += `--- **${targetAConfig.label} vs ${targetBConfig.label} Comparison** ---\n${r.llm_comparison_report}`;
+      }
+      if (r.targetA?.evaluation) {
+        combined += `\n\n--- **Subagent vs Basic Agent Comparison (${targetAConfig.label})** ---\n${r.targetA.evaluation}`;
+      }
+      return combined.trim() || null;
+    })
+    .filter((r: any) => r !== null);
 
   const aggregateMetrics = {
     targetA: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 },

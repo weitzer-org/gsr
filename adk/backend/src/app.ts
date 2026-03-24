@@ -147,17 +147,41 @@ app.post('/api/review', async (req, res) => {
 // --- Evals API ---
 app.post('/api/evals/start', (req, res, next) => {
   try {
-    const { comparisonGroup = 'local_vs_production', branchName } = req.body || {};
+    const { comparisonGroup = 'local_vs_production', branchName, evalVersion = 'v2', evalRunner = 'local' } = req.body || {};
 
     if (comparisonGroup.includes('branch') && !branchName) {
       return res.status(400).json({ error: 'branchName is required when comparison group involves a branch.' });
     }
 
-    console.log(`[Backend API] Starting evaluation harness... (Group: ${comparisonGroup}, Branch: ${branchName || 'N/A'})`);
+    if (evalRunner === 'production') {
+      const prodUrl = process.env.EVALUATOR_SERVICE_URL || 'https://gsr-evaluator-710019748844.europe-west1.run.app';
+      if (!prodUrl) {
+         return res.status(400).json({ error: 'Production evaluation requires EVALUATOR_SERVICE_URL environment variable.' });
+      }
+      console.log(`[Backend API] Triggering remote evaluation harness on Cloud Run...`);
+      
+      // Fire-and-forget remote fetch
+      fetch(`${prodUrl.replace(/\/$/, '')}/api/evaluate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comparisonGroup, targetBranch: branchName, useNewMetrics: evalVersion === 'v2' })
+      }).catch(err => console.error('Cloud Run Evaluator Trigger Failed:', err));
+
+      return res.status(202).json({ status: 'started', message: 'Evaluation harness is running remotely on Cloud Run.' });
+    }
+
+    console.log(`[Backend API] Starting local evaluation harness... (Group: ${comparisonGroup}, Branch: ${branchName || 'N/A'})`);
     
     // Spawn the eval script detached so it doesn't block
     const evalDir = path.resolve(process.cwd(), '../../tools/eval');
-    const child = spawn('npm', ['run', 'eval'], {
+    
+    const runArgs = ['run', 'eval'];
+    if (evalVersion === 'v2') {
+        runArgs.push('--');
+        runArgs.push('--use-new-metrics');
+    }
+
+    const child = spawn('npm', runArgs, {
       cwd: evalDir,
       detached: true,
       stdio: 'inherit',

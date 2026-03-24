@@ -32,6 +32,14 @@ export function initEvals() {
                 comparisonGroupSelect.remove(i);
             }
         }
+        
+        // Also remove local executor option
+        const evalRunnerSelect = document.getElementById('eval-runner');
+        for (let i = evalRunnerSelect.options.length - 1; i >= 0; i--) {
+            if (evalRunnerSelect.options[i].value === 'local') {
+                evalRunnerSelect.remove(i);
+            }
+        }
     }
 
     comparisonGroupSelect.addEventListener('change', (e) => {
@@ -57,6 +65,8 @@ export function initEvals() {
 
         const comparisonGroup = comparisonGroupSelect.value;
         const branchName = branchNameInput.value.trim();
+        const evalVersion = document.getElementById('eval-version').value;
+        const evalRunner = document.getElementById('eval-runner').value;
 
         if (comparisonGroup.includes('branch') && !branchName) {
             statusNotice.textContent = "Error: Please specify a Branch Name.";
@@ -69,7 +79,7 @@ export function initEvals() {
             const res = await fetch('/api/evals/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ comparisonGroup, branchName })
+                body: JSON.stringify({ comparisonGroup, branchName, evalVersion, evalRunner })
             });
 
             if (!res.ok) {

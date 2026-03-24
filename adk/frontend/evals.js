@@ -32,6 +32,14 @@ export function initEvals() {
                 comparisonGroupSelect.remove(i);
             }
         }
+        
+        // Also remove local executor option
+        const evalRunnerSelect = document.getElementById('eval-runner');
+        for (let i = evalRunnerSelect.options.length - 1; i >= 0; i--) {
+            if (evalRunnerSelect.options[i].value === 'local') {
+                evalRunnerSelect.remove(i);
+            }
+        }
     }
 
     comparisonGroupSelect.addEventListener('change', (e) => {

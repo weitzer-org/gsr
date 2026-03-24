@@ -58,6 +58,7 @@ export function initEvals() {
         const comparisonGroup = comparisonGroupSelect.value;
         const branchName = branchNameInput.value.trim();
         const evalVersion = document.getElementById('eval-version').value;
+        const evalRunner = document.getElementById('eval-runner').value;
 
         if (comparisonGroup.includes('branch') && !branchName) {
             statusNotice.textContent = "Error: Please specify a Branch Name.";
@@ -70,7 +71,7 @@ export function initEvals() {
             const res = await fetch('/api/evals/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ comparisonGroup, branchName, evalVersion })
+                body: JSON.stringify({ comparisonGroup, branchName, evalVersion, evalRunner })
             });
 
             if (!res.ok) {

@@ -25,6 +25,10 @@
             <aside class="eval-sidebar card">
                 <h3>Evaluation History</h3>
                 <div class="eval-controls">
+                    <select id="eval-runner" class="form-select">
+                        <option value="local" selected>⚙️ Local Eval Harness</option>
+                        <option value="production">☁️ Cloud Run Evaluator</option>
+                    </select>
                     <select id="eval-version" class="form-select">
                         <option value="v2" selected>V2 Metrics (4-Way Intersection)</option>
                         <option value="v1">V1 Metrics (Legacy Count)</option>

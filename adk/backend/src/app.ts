@@ -229,7 +229,7 @@ app.get('/api/evals/results/:id', (req, res) => {
   const fileId = req.params.id;
   
   // Defense-in-depth: Strict regex sanitization to prevent Path Traversal
-  if (!/^[a-zA-Z0-9_.-]+$/.test(fileId) || fileId.includes('..')) {
+  if (!/^[a-zA-Z0-9_.-]+$/.test(fileId) || fileId.includes('..') || !fileId.startsWith('eval-run_')) {
     return res.status(400).json({ error: 'Invalid file ID format.' });
   }
 

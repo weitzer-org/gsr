@@ -19,3 +19,4 @@ dev_test_config.json
 *.log
 *.pid
 test-repos/
+security-remediation-plan.md

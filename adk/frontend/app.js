@@ -148,6 +148,8 @@ export function initApp() {
                               comparisonEvaluationPanel.classList.remove('hidden');
                               evaluationText.innerHTML = window.marked ? window.marked.parse(data.evaluation) : escapeHTML(data.evaluation).replace(/\n/g, '<br/>');
                           }
+                          
+                          break; // Immediately exit the parsing loop. The server closed the socket correctly and reading further risks a trailing HTTP NetworkError.
 
                       } else if (data.type === 'error') {
                           throw new Error(data.error);

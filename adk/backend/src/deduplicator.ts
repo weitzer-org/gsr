@@ -30,7 +30,8 @@ Your job is to read all the findings and rigorously MERGE them into a single, co
 Rules:
 1. If multiple agents flagged the same line/file with related architectural or bugs, merge their descriptions and suggestions into ONE comprehensive finding, taking the highest severity.
 2. If findings are entirely distinct, keep them separate.
-3. Your final output MUST match the schema of an array of CandidateFinding objects.`;
+3. Your final output MUST match the schema of an array of CandidateFinding objects.
+4. CRITICAL: You MUST retain the 'agent' field for every single finding. If merging multiple findings, concatenate the agent names together with commas (e.g., 'Performance, Techdebt'). If keeping a finding separate, preserve its original 'agent' name exactly. Without this, the UI breaks.`;
 
       const request = this.ai.models.generateContent({
         model: process.env.DEDUPLICATOR_MODEL || 'gemini-2.5-flash',

@@ -22,6 +22,15 @@ export function initApp() {
   const comparisonEvaluationPanel = document.getElementById('comparison-evaluation');
   const evaluationText = document.getElementById('evaluation-text');
 
+  // History
+  const historyContainer = document.getElementById('history-container');
+  const historyList = document.getElementById('history-list');
+  const refreshHistoryBtn = document.getElementById('refresh-history-btn');
+  const viewMoreHistoryBtn = document.getElementById('view-more-history-btn');
+
+  let fullHistoryData = [];
+  let currentHistoryLimit = 5;
+
   // Tab Setup
   tabs.forEach(tab => {
       tab.addEventListener('click', () => {
@@ -61,6 +70,118 @@ export function initApp() {
 
   // Check immediately on load
   checkApiStatus();
+  fetchHistory();
+
+  if (refreshHistoryBtn) {
+      refreshHistoryBtn.addEventListener('click', fetchHistory);
+  }
+
+  if (viewMoreHistoryBtn) {
+      viewMoreHistoryBtn.addEventListener('click', () => {
+          currentHistoryLimit += 10;
+          renderHistoryList();
+      });
+  }
+
+  async function fetchHistory() {
+      try {
+          const response = await fetch('/api/review/history');
+          const data = await response.json();
+          if (data && data.length > 0) {
+              fullHistoryData = data;
+              historyContainer.classList.remove('hidden');
+              renderHistoryList();
+              
+              // If results container is hidden (first load), optionally load the latest
+              if (resultsContainer.classList.contains('hidden')) {
+                  loadHistoricalReview(data[0].name);
+              }
+          } else {
+              historyContainer.classList.add('hidden');
+          }
+      } catch (err) {
+          console.error("Failed to fetch history", err);
+      }
+  }
+
+  function renderHistoryList() {
+      historyList.innerHTML = '';
+      
+      const visibleData = fullHistoryData.slice(0, currentHistoryLimit);
+      
+      visibleData.forEach(item => {
+          const div = document.createElement('div');
+          div.className = 'history-item';
+          div.dataset.id = item.name;
+          
+          const urlMatch = item.name.match(/review-run_.*_(.*?)\.json/);
+          let displayUrl = urlMatch ? urlMatch[1] : item.name;
+          displayUrl = displayUrl.replace(/-/g, '/').replace('https///', 'https://');
+          
+          const date = new Date(item.updated).toLocaleString();
+
+          div.innerHTML = `
+             <div class="history-item-url" title="${displayUrl}">${displayUrl}</div>
+             <div class="history-item-date">${date}</div>
+          `;
+
+          div.addEventListener('click', () => {
+              document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
+              div.classList.add('active');
+              loadHistoricalReview(item.name);
+          });
+          historyList.appendChild(div);
+      });
+
+      // Handle View More button visibility
+      if (viewMoreHistoryBtn) {
+          viewMoreHistoryBtn.classList.remove('hidden');
+          if (fullHistoryData.length > currentHistoryLimit) {
+              viewMoreHistoryBtn.disabled = false;
+              viewMoreHistoryBtn.textContent = 'View More';
+          } else {
+              viewMoreHistoryBtn.disabled = true;
+              viewMoreHistoryBtn.textContent = 'No More Reviews';
+          }
+      }
+  }
+
+  async function loadHistoricalReview(id) {
+      try {
+          resultsContainer.classList.add('hidden');
+          const response = await fetch(`/api/review/history/${id}`);
+          if (!response.ok) throw new Error("Failed to fetch review data");
+          const data = await response.json();
+          renderReviewData(data);
+      } catch (err) {
+          console.error(err);
+      }
+  }
+
+  function renderReviewData(data) {
+      resultsContainer.classList.remove('hidden');
+      
+      const subagentFindings = data.findings.filter(f => f.source === 'subagent');
+      const basicFindings = data.findings.filter(f => f.source === 'basic');
+      
+      renderFindings(subagentFindings, subagentFindingsList, 'Subagent Review');
+      renderFindings(basicFindings, basicFindingsList, 'Basic Review');
+      
+      if (data.metrics) {
+          renderMetrics(data.metrics.subagentMetrics, 'subagent');
+          renderMetrics(data.metrics.basicMetrics, 'basic');
+          renderComparisonTable(data.metrics.subagentMetrics, data.metrics.basicMetrics, subagentFindings, basicFindings);
+      } else {
+          comparisonTable.classList.add('hidden');
+      }
+      
+      if (data.evaluation) {
+          comparisonEvaluationPanel.classList.remove('hidden');
+          evaluationText.innerHTML = window.marked ? window.marked.parse(data.evaluation) : escapeHTML(data.evaluation).replace(/\n/g, '<br/>');
+      } else {
+          comparisonEvaluationPanel.classList.add('hidden');
+      }
+  }
 
   form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -129,26 +250,9 @@ export function initApp() {
                           warningContainer.innerHTML = '⚠️ ' + escapeHTML(data.message);
                           warningContainer.classList.remove('hidden');
                       } else if (data.type === 'done') {
-                          resultsContainer.classList.remove('hidden');
-                          
-                          // Split findings by source
-                          const subagentFindings = data.findings.filter(f => f.source === 'subagent');
-                          const basicFindings = data.findings.filter(f => f.source === 'basic');
-                          
-                          renderFindings(subagentFindings, subagentFindingsList, 'Subagent Review');
-                          renderFindings(basicFindings, basicFindingsList, 'Basic Review');
-                          
-                          if (data.metrics) {
-                              renderMetrics(data.metrics.subagentMetrics, 'subagent');
-                              renderMetrics(data.metrics.basicMetrics, 'basic');
-                              renderComparisonTable(data.metrics.subagentMetrics, data.metrics.basicMetrics, subagentFindings, basicFindings);
-                          }
-                          
-                          if (data.evaluation) {
-                              comparisonEvaluationPanel.classList.remove('hidden');
-                              evaluationText.innerHTML = window.marked ? window.marked.parse(data.evaluation) : escapeHTML(data.evaluation).replace(/\n/g, '<br/>');
-                          }
-
+                          renderReviewData(data);
+                          // Refresh history to show the new run
+                          setTimeout(fetchHistory, 1000);
                       } else if (data.type === 'error') {
                           throw new Error(data.error);
                       }

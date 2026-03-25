@@ -31,3 +31,4 @@
 32. **Implement Post-Execution Triage Architecture:** Pivot the current "Pre-Filter" Triage routing (which drops context) into a "Post-Execution" Deduplicator that merges overlapping findings from all specialist agents.
 32. **Implement Vertex AI Context Caching:** Cache the static system prompts and agent personas using Vertex AI Context Caching to achieve a 90% reduction in input token costs.
 33. **[P0 Blocker] Fix Deduplicator Formatting Regression:** Investigate and fix the root cause of the catastrophic consolidation failure in `deduplicator.ts` where overlapping findings are occasionally merged into an unformatted, unreadable "wall of text" resulting in malformed UI output.
+34. **Thinking Budget Config:** Add a configuration mechanism (e.g., `GEMINI_THINKING_BUDGET`) to optionally supply a token "thinking budget" to the Gemini SDK (`thinkingConfig`) to enable and scale advanced reasoning capabilities during the review process.

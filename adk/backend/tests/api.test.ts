@@ -4,6 +4,19 @@ import { GitHubClient } from '../src/github';
 import { Orchestrator } from '../src/orchestrator';
 import { Evaluator } from '../src/evaluator';
 
+const saveMock = jest.fn<any>();
+const bucketMock = jest.fn<any>(() => ({
+  file: jest.fn(() => ({
+    save: saveMock
+  }))
+}));
+
+jest.unstable_mockModule('@google-cloud/storage', () => ({
+  Storage: jest.fn(() => ({
+    bucket: bucketMock
+  }))
+}));
+
 describe('GET /api/status', () => {
   const originalEnv = process.env;
   let app: any;
@@ -106,8 +119,9 @@ describe('POST /api/review', () => {
     const expectedBasicFindings = JSON.parse(JSON.stringify(mockFindings));
     expectedBasicFindings[0].source = 'basic';
 
-    expect(JSON.parse(lines[4])).toEqual({
+    expect(JSON.parse(lines[4])).toEqual(expect.objectContaining({
       type: 'done',
+      url: 'https://github.com/owner/repo/pull/1',
       findings: [...expectedSubagentFindings, ...expectedBasicFindings],
       metrics: {
         inputTokens: 0,
@@ -117,7 +131,9 @@ describe('POST /api/review', () => {
         basicMetrics: { inputTokens: 0, outputTokens: 0, calls: 0 }
       },
       evaluation: 'Mock evaluation string'
-    });
+    }));
+
+    expect(JSON.parse(lines[4]).timestamp).toBeDefined();
 
   });
 

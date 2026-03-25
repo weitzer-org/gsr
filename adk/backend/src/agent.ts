@@ -58,8 +58,8 @@ export class GeminiAgent implements Subagent {
         
         const tokenResponse = await this.ai.models.countTokens({
            model: envModel,
-           contents: "",
-           config: { systemInstruction: discoverySystemInstruction }
+           contents: discoverySystemInstruction,
+           config: {}
         });
 
         const tokenTotal = tokenResponse.totalTokens || 0;

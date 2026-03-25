@@ -126,10 +126,12 @@ app.post('/api/review', async (req, res) => {
        basicMetrics: basicResult.metrics
     };
 
+    const currentTimestamp = new Date().toISOString();
+
     const finalPayload = { 
       type: 'done', 
       url: url,
-      timestamp: new Date().toISOString(),
+      timestamp: currentTimestamp,
       findings: allFindings, 
       metrics: combinedMetrics,
       evaluation: evaluationText
@@ -143,11 +145,15 @@ app.post('/api/review', async (req, res) => {
       const storage = getStorageInstance();
       const bucket = storage.bucket(getReviewBucketName());
       const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '-');
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `review-run_${timestamp}_${safeUrl}.json`;
+      const filename = `review-run_${currentTimestamp.replace(/[:.]/g, '-')}_${safeUrl}.json`;
       const file = bucket.file(filename);
       await file.save(JSON.stringify(finalPayload), {
         contentType: 'application/json',
+        metadata: {
+          metadata: {
+            originalUrl: url
+          }
+        }
       });
       console.log(`Successfully uploaded review history to GCS: ${filename}`);
     } catch (uploadError) {
@@ -280,16 +286,15 @@ app.get('/api/review/history', async (req, res) => {
     const bucket = storage.bucket(getReviewBucketName());
     const [files] = await bucket.getFiles({ prefix: 'review-run_' });
     
-    // Sort logic requires file metadata, fetching all details is light enough for this scale
-    const promises = files.map(async f => {
-      const [metadata] = await f.getMetadata();
+    // Sort logic relies on fast pre-populated gcs list metadata
+    const fileList = files.map(f => {
       return {
         name: f.name,
-        updated: metadata.updated,
-        size: metadata.size
+        updated: f.metadata.updated,
+        size: f.metadata.size,
+        originalUrl: f.metadata?.metadata?.originalUrl
       };
     });
-    const fileList = await Promise.all(promises);
     
     fileList.sort((a, b) => new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime());
     

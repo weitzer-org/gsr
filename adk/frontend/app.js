@@ -114,9 +114,12 @@ export function initApp() {
           div.className = 'history-item';
           div.dataset.id = item.name;
           
-          const urlMatch = item.name.match(/review-run_.*_(.*?)\.json/);
-          let displayUrl = urlMatch ? urlMatch[1] : item.name;
-          displayUrl = displayUrl.replace(/-/g, '/').replace('https///', 'https://');
+          let displayUrl = item.originalUrl;
+          if (!displayUrl) {
+              const urlMatch = item.name.match(/review-run_.*_(.*?)\.json/);
+              displayUrl = urlMatch ? urlMatch[1] : item.name;
+              displayUrl = displayUrl.replace(/-/g, '/').replace('https///', 'https://');
+          }
           
           const date = new Date(item.updated).toLocaleString();
 

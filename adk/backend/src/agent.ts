@@ -56,16 +56,25 @@ export class GeminiAgent implements Subagent {
         const envModel = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
         const cacheModel = envModel.startsWith('models/') ? envModel : `models/${envModel}`;
         
-        const cache = await this.ai.caches.create({
-          model: cacheModel,
-          config: {
-             systemInstruction: discoverySystemInstruction,
-             ttl: '3600s'
-          }
+        const tokenResponse = await this.ai.models.countTokens({
+           model: envModel,
+           contents: "",
+           config: { systemInstruction: discoverySystemInstruction }
         });
-        
-        this.cachedContentName = cache.name;
-        console.log(`[${this.name}] Cache created successfully: ${cache.name}`);
+
+        if (tokenResponse.totalTokens < 2048) {
+           console.log(`[${this.name}] Bypassing Context Cache (instructions size ${tokenResponse.totalTokens} is under the 2048 token limit).`);
+        } else {
+           const cache = await this.ai.caches.create({
+             model: cacheModel,
+             config: {
+                systemInstruction: discoverySystemInstruction,
+                ttl: '3600s'
+             }
+           });
+           this.cachedContentName = cache.name;
+           console.log(`[${this.name}] Cache created successfully: ${cache.name}`);
+        }
       } catch (e) {
         console.warn(`[${this.name}] Failed to create Context Cache, falling back to un-cached:`, e);
       }

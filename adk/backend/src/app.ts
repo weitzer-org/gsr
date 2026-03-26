@@ -126,13 +126,40 @@ app.post('/api/review', async (req, res) => {
        basicMetrics: basicResult.metrics
     };
 
-    res.write(JSON.stringify({ 
+    const currentTimestamp = new Date().toISOString();
+
+    const finalPayload = { 
       type: 'done', 
+      url: url,
+      timestamp: currentTimestamp,
       findings: allFindings, 
       metrics: combinedMetrics,
       evaluation: evaluationText
-    }) + '\n');
+    };
+
+    res.write(JSON.stringify(finalPayload) + '\n');
     res.end();
+
+    // Upload to GCS asynchronously
+    try {
+      const storage = getStorageInstance();
+      const bucket = storage.bucket(getReviewBucketName());
+      const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '-');
+      const filename = `review-run_${currentTimestamp.replace(/[:.]/g, '-')}_${safeUrl}.json`;
+      const file = bucket.file(filename);
+      await file.save(JSON.stringify(finalPayload), {
+        contentType: 'application/json',
+        metadata: {
+          metadata: {
+            originalUrl: url
+          }
+        }
+      });
+      console.log(`Successfully uploaded review history to GCS: ${filename}`);
+    } catch (uploadError) {
+      console.error('Failed to upload review history to GCS:', uploadError);
+    }
+
   } catch (error: any) {
     console.error('Error during review:', error);
     if (!res.headersSent) {
@@ -202,12 +229,13 @@ app.post('/api/evals/start', (req, res, next) => {
 
 const getStorageInstance = () => new Storage();
 const getBucketName = () => process.env.GCS_BUCKET || `gsr-eval-results-${process.env.GOOGLE_CLOUD_PROJECT || 'weitzer-org'}`;
+const getReviewBucketName = () => process.env.GCS_REVIEW_BUCKET || `gsr-review-results-${process.env.GOOGLE_CLOUD_PROJECT || 'weitzer-org'}`;
 
 app.get('/api/evals/results', async (req, res) => {
   try {
     const storage = getStorageInstance();
     const bucket = storage.bucket(getBucketName());
-    const [files] = await bucket.getFiles({ prefix: 'eval-run_' });
+    const [files] = await bucket.getFiles({ prefix: 'eval-run_', autoPaginate: false, maxResults: 100 });
     
     const fileList = files.map(f => ({
       name: f.name,
@@ -247,6 +275,57 @@ app.get('/api/evals/results/:id', (req, res) => {
       .pipe(res);
   } catch (error: any) {
     console.error('Error initializing GCS stream:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  }
+});
+
+// --- Review History API ---
+app.get('/api/review/history', async (req, res) => {
+  try {
+    const storage = getStorageInstance();
+    const bucket = storage.bucket(getReviewBucketName());
+    const [files] = await bucket.getFiles({ prefix: 'review-run_', autoPaginate: false, maxResults: 100 });
+    
+    // Sort logic relies on fast pre-populated gcs list metadata
+    const fileList = files.map(f => {
+      return {
+        name: f.name,
+        updated: f.metadata.updated,
+        size: f.metadata.size,
+        originalUrl: f.metadata?.metadata?.originalUrl
+      };
+    });
+    
+    fileList.sort((a, b) => new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime());
+    
+    res.json(fileList);
+  } catch (error: any) {
+    console.error('Error fetching review history list:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/review/history/:id', (req, res) => {
+  const fileId = req.params.id;
+  
+  if (!/^[a-zA-Z0-9_.-]+$/.test(fileId) || fileId.includes('..')) {
+    return res.status(400).json({ error: 'Invalid file ID format.' });
+  }
+
+  try {
+    const storage = getStorageInstance();
+    const bucket = storage.bucket(getReviewBucketName());
+    const file = bucket.file(fileId);
+    
+    res.setHeader('Content-Type', 'application/json');
+    file.createReadStream()
+      .on('error', (error) => {
+        console.error('Error streaming review GCS file:', error);
+        if (!res.headersSent) res.status(500).json({ error: error.message });
+      })
+      .pipe(res);
+  } catch (error: any) {
+    console.error('Error initializing review GCS stream:', error);
     if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 });

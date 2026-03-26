@@ -22,13 +22,149 @@ body {
   color: var(--text-primary);
   line-height: 1.6;
   display: flex;
-  justify-content: center;
-  padding: 40px 20px;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
 }
 
 .container {
   width: 100%;
   max-width: 800px;
+}
+
+.app-layout {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* History Sidebar */
+.history-sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--card-bg);
+  border-right: 1px solid var(--border);
+  height: 100vh;
+  width: 320px;
+  flex-shrink: 0;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+.main-content {
+  padding: 40px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+  flex: 1;
+  min-width: 0;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-header h2 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 4px;
+  transition: color 0.2s;
+  width: auto;
+}
+
+.icon-btn:hover {
+  color: var(--text-primary);
+  transform: none;
+  background: none;
+}
+
+.history-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.history-item {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.history-item:last-child {
+  border-bottom: none;
+}
+
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.history-item.active {
+  background: rgba(59, 130, 246, 0.15);
+  border-left: 3px solid var(--accent);
+}
+
+.history-item-url {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-item-date {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.view-more-btn {
+  width: 100%;
+  padding: 16px;
+  background-color: var(--card-bg);
+  color: var(--accent);
+  border: none;
+  border-top: 1px solid var(--border);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+  margin-top: auto;
+}
+
+.view-more-btn:hover:not(:disabled) {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+.view-more-btn:disabled {
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  background-color: var(--bg-color);
+}
+
+@media (max-width: 768px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+  .history-sidebar {
+    position: static;
+    max-height: none;
+    margin-bottom: 30px;
+  }
 }
 
 header {
@@ -806,3 +942,85 @@ button:disabled {
   font-size: 0.85rem;
   color: var(--text-secondary);
 }
+
+/* History Formatting */
+.history-card {
+  margin-bottom: 20px;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+
+.history-header h2 {
+  font-size: 1.2rem;
+  color: #93c5fd;
+}
+
+.icon-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  width: auto;
+}
+
+.icon-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: var(--text-primary);
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--accent);
+}
+
+.history-item.active {
+  background: rgba(59, 130, 246, 0.15);
+  border-left: 3px solid var(--accent);
+}
+
+.history-item-url {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70%;
+}
+
+.history-item-date {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+

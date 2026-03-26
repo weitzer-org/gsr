@@ -11,7 +11,10 @@ if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
 }
 
 const storage = new Storage();
-const gcpProjectId = process.env.GOOGLE_CLOUD_PROJECT || 'weitzer-org';
+const gcpProjectId = process.env.GOOGLE_CLOUD_PROJECT;
+if (!gcpProjectId) {
+  throw new Error('GOOGLE_CLOUD_PROJECT environment variable is required.');
+}
 const bucketName = process.env.GCS_BUCKET || `gsr-eval-results-${gcpProjectId}`;
 
 export async function main(args: string[]) {

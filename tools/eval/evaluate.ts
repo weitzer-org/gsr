@@ -17,12 +17,15 @@ import { GitHubClient } from '../../adk/backend/src/github';
 async function deployStagingBranch(branch: string, githubPat: string): Promise<string> {
     console.log(`\n☁️  Triggering Cloud Build via Node SDK for branch '${branch}'...`);
     const client = new CloudBuildClient();
-    const projectId = process.env.GOOGLE_CLOUD_PROJECT || 'quacktastic-waffle';
-    const triggerId = 'gsr-eval-staging'; // Manual Trigger ID defined in GCP
+    const projectId = process.env.GOOGLE_CLOUD_PROJECT;
+    if (!projectId) {
+      throw new Error('GOOGLE_CLOUD_PROJECT environment variable is required to deploy staging branches.');
+    }
+    const triggerId = process.env.CLOUD_BUILD_TRIGGER_ID || 'gsr-eval-staging'; // Manual Trigger ID defined in GCP
     
     try {
       const [operation] = await client.runBuildTrigger({
-        name: `projects/${projectId}/locations/us-central1/triggers/gsr-eval-staging`,
+        name: `projects/${projectId}/locations/us-central1/triggers/${triggerId}`,
         source: {
           branchName: branch,
           repoName: 'gsr',
@@ -101,7 +104,10 @@ export async function runEvaluation(options: EvalOptions = {}) {
   const targetBranch = extractBranchName(targetBranchRaw);
 
   const localUrl = process.env.LOCAL_URL || 'http://localhost:8080';
-  const prodUrl = config.production_url || process.env.PRODUCTION_URL || 'https://adk-backend-gsr-595305141203.us-central1.run.app';
+  const prodUrl = process.env.PRODUCTION_URL || config.production_url;
+  if (!prodUrl && compGroup !== 'local_vs_branch') {
+     console.warn('⚠️ PRODUCTION_URL is not set.');
+  }
   
   let targetAConfig = { label: 'Local', url: localUrl, isLocal: true, isBranch: false };
   let targetBConfig = { label: 'Production', url: prodUrl, isLocal: false, isBranch: false };
@@ -113,7 +119,10 @@ export async function runEvaluation(options: EvalOptions = {}) {
   }
   
   // NOTE: In production scenario, use dynamic project ID derivation or fallback 
-  const gcpProjectId = process.env.GOOGLE_CLOUD_PROJECT || 'weitzer-org';
+  const gcpProjectId = process.env.GOOGLE_CLOUD_PROJECT;
+  if (!gcpProjectId) {
+    throw new Error('❌ GOOGLE_CLOUD_PROJECT environment variable is required.');
+  }
   const bucketName = process.env.GCS_BUCKET || `gsr-eval-results-${gcpProjectId}`;
   const patSecretName = process.env.GITHUB_PAT_SECRET || 'gsr-github-pat';
   const prs = config.sample_prs || [];

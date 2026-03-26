@@ -1,7 +1,9 @@
+require('dotenv').config();
 const { execSync } = require('child_process');
 let pat = '';
 try {
-  pat = execSync('gcloud secrets versions access latest --secret=gsr-github-pat').toString().trim();
+  const secretName = process.env.GITHUB_PAT_SECRET || 'gsr-github-pat';
+  pat = execSync(`gcloud secrets versions access latest --secret=${secretName}`).toString().trim();
 } catch (err) {
   console.error('Failed to retrieve GitHub PAT from gcloud secret manager. Exiting.');
   process.exit(1);
@@ -15,7 +17,8 @@ async function run() {
   let hasCodeBlock = 0;
 
   for (const pr of prs) {
-    const url = `https://github.com/weitzer-org/gemini-cli-fork/pull/${pr}`;
+    const targetRepo = process.env.GITHUB_TARGET_REPO || 'weitzer-org/gemini-cli-fork';
+    const url = `https://github.com/${targetRepo}/pull/${pr}`;
     try {
       const { gcaFindings } = await fetchBotComments(url, pat);
       console.log(`\n=== PR ${pr} (Findings: ${gcaFindings.length}) ===`);

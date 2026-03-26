@@ -1,14 +1,15 @@
+import 'dotenv/config';
 import { fetchBotComments } from './github-comments';
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { getSecret } from './secret-manager';
 
 async function run() {
-  const secretClient = new SecretManagerServiceClient();
-  const [patVersion] = await secretClient.accessSecretVersion({ name: 'projects/951478177587/secrets/gsr-github-pat/versions/latest' });
-  const pat = patVersion.payload?.data?.toString() || '';
+  const secretName = process.env.GITHUB_PAT_SECRET || 'gsr-github-pat';
+  const pat = await getSecret(secretName);
 
   const prs = [3, 4, 8]; 
+  const targetRepo = process.env.GITHUB_TARGET_REPO || 'weitzer-org/gemini-cli-fork';
   for (const pr of prs) {
-    const url = `https://github.com/weitzer-org/gemini-cli-fork/pull/${pr}`;
+    const url = `https://github.com/${targetRepo}/pull/${pr}`;
     console.log(`\n=== PR ${pr} ===`);
     try {
       const { gcaFindings } = await fetchBotComments(url, pat);

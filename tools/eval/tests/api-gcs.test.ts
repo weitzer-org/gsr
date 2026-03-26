@@ -37,6 +37,7 @@ describe('api-gcs script', () => {
   beforeEach(() => {
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     process.env.GOOGLE_APPLICATION_CREDENTIALS = 'fake-path.json';
+    process.env.GOOGLE_CLOUD_PROJECT = 'test-project-id';
     
     mockGetFiles.mockReset();
     mockDownload.mockReset();
@@ -61,7 +62,7 @@ describe('api-gcs script', () => {
 
       await main(['list']);
 
-      expect(mockBucket).toHaveBeenCalledWith('gsr-eval-results-weitzer-org');
+      expect(mockBucket).toHaveBeenCalledWith('gsr-eval-results-test-project-id');
       expect(mockGetFiles).toHaveBeenCalledWith({ prefix: 'eval-run_' });
       
       const expectedOutput = JSON.stringify([
@@ -80,7 +81,7 @@ describe('api-gcs script', () => {
       const testFilename = 'eval-run_my_run.json';
       await main(['get', testFilename]);
 
-      expect(mockBucket).toHaveBeenCalledWith('gsr-eval-results-weitzer-org');
+      expect(mockBucket).toHaveBeenCalledWith('gsr-eval-results-test-project-id');
       expect(mockFile).toHaveBeenCalledWith(testFilename);
       expect(mockDownload).toHaveBeenCalled();
       expect(consoleLogSpy).toHaveBeenCalledWith('{"data": "file_contents"}');

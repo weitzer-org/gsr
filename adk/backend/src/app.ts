@@ -235,7 +235,7 @@ app.get('/api/evals/results', async (req, res) => {
   try {
     const storage = getStorageInstance();
     const bucket = storage.bucket(getBucketName());
-    const [files] = await bucket.getFiles({ prefix: 'eval-run_' });
+    const [files] = await bucket.getFiles({ prefix: 'eval-run_', autoPaginate: false, maxResults: 100 });
     
     const fileList = files.map(f => ({
       name: f.name,

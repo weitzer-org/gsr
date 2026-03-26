@@ -171,7 +171,8 @@ export function initEvals() {
         metricBCalls.textContent = aggM.targetB?.calls || aggM.production?.calls || 0;
 
         if (data.aggregate_report) {
-            aggReportEl.innerHTML = marked.parse(data.aggregate_report);
+            const rawHtml = marked.parse(data.aggregate_report);
+            aggReportEl.innerHTML = window.DOMPurify ? window.DOMPurify.sanitize(rawHtml) : rawHtml;
         } else {
             aggReportEl.innerHTML = '<em>No aggregate summary generated for this run.</em>';
         }
@@ -194,7 +195,7 @@ export function initEvals() {
                     <div class="pr-content">
                         <div class="pr-llm-comparison markdown-body">
                             <h4>Targeted LLM Comparison Report</h4>
-                            ${marked.parse(r.llm_comparison_report || 'No specific comparison report generated.')}
+                            ${window.DOMPurify ? window.DOMPurify.sanitize(marked.parse(r.llm_comparison_report || 'No specific comparison report generated.')) : marked.parse(r.llm_comparison_report || 'No specific comparison report generated.')}
                         </div>
                         <div class="pr-split-pane">
                             <div class="pane local-pane">

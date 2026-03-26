@@ -89,7 +89,7 @@ describe('Evaluations API Endpoints', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual([{ name: 'eval-run_202x.json', updated: '2026', size: '10' }]);
-      expect(getFilesMock).toHaveBeenCalledWith({ prefix: 'eval-run_' });
+      expect(getFilesMock).toHaveBeenCalledWith({ prefix: 'eval-run_', autoPaginate: false, maxResults: 100 });
     });
 
     it('should return 500 when storage fetch fails', async () => {

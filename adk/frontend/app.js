@@ -256,6 +256,7 @@ export function initApp() {
                           renderReviewData(data);
                           // Refresh history to show the new run
                           setTimeout(fetchHistory, 1000);
+                          break; // Immediately exit the parsing loop. The server closed the socket correctly and reading further risks a trailing HTTP NetworkError.
                       } else if (data.type === 'error') {
                           throw new Error(data.error);
                       }

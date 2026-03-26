@@ -26,7 +26,7 @@ const sendRequest = () => {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify({
       url: 'https://github.com/expressjs/express/pull/5082',
-      pat: process.env.GITHUB_PAT || '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'
+      pat: process.env.GITHUB_PAT || ''
     });
 
     const req = http.request(
@@ -71,7 +71,7 @@ const sendRequest = () => {
 
 async function main() {
   console.log('--- Test 1: Context Caching DISABLED, Vertex AI DISABLED ---');
-  let server = await runServer({ USE_CONTEXT_CACHING: 'false', USE_VERTEX_AI: 'false', GEMINI_API_KEY: 'AIzaSyANsnSnyH8_vVtRJuc9-7fitK_JlOENmCI' });
+  let server = await runServer({ USE_CONTEXT_CACHING: 'false', USE_VERTEX_AI: 'false', GEMINI_API_KEY: process.env.GEMINI_API_KEY || '' });
   try {
     const metricsDisabled = await sendRequest();
     console.log('Metrics (Disabled):', metricsDisabled);
@@ -84,7 +84,7 @@ async function main() {
   // Wait to ensure port is freed
   await new Promise(r => setTimeout(r, 2000));
   
-  server = await runServer({ USE_CONTEXT_CACHING: 'true', USE_VERTEX_AI: 'true', GEMINI_API_KEY: 'AIzaSyANsnSnyH8_vVtRJuc9-7fitK_JlOENmCI' });
+  server = await runServer({ USE_CONTEXT_CACHING: 'true', USE_VERTEX_AI: 'true', GEMINI_API_KEY: process.env.GEMINI_API_KEY || '' });
   try {
     const metricsEnabled = await sendRequest();
     console.log('Metrics (Enabled):', metricsEnabled);

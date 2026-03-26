@@ -284,7 +284,7 @@ app.get('/api/review/history', async (req, res) => {
   try {
     const storage = getStorageInstance();
     const bucket = storage.bucket(getReviewBucketName());
-    const [files] = await bucket.getFiles({ prefix: 'review-run_' });
+    const [files] = await bucket.getFiles({ prefix: 'review-run_', autoPaginate: false, maxResults: 100 });
     
     // Sort logic relies on fast pre-populated gcs list metadata
     const fileList = files.map(f => {

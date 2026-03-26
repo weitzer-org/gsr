@@ -4,7 +4,6 @@ async function testFetchStagingUrl() {
   console.log('Testing Google Auth Library fetch payload locally...');
   try {
     const auth = new GoogleAuth({
-      keyFilename: '../../jetski-sa-key.json',
       scopes: 'https://www.googleapis.com/auth/cloud-platform'
     });
     const authClient = await auth.getClient();

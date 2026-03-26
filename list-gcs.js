@@ -1,5 +1,5 @@
 const { Storage } = require('@google-cloud/storage');
-const storage = new Storage({ keyFilename: 'jetski-sa-key.json' });
+const storage = new Storage();
 const bucketName = 'gsr-eval-results-weitzer-org';
 
 async function listFiles() {

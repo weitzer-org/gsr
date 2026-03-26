@@ -14,7 +14,7 @@ test.describe('E2E Persistent Review History', () => {
     await prInput.fill('https://github.com/benw307/logo-maker-weitzer/pull/69');
     
     const patInput = page.locator('#pat');
-    await patInput.fill('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');
+    await patInput.fill(process.env.E2E_TEST_GITHUB_PAT || '');
 
     // 4. Submit the review
     const submitBtn = page.locator('#submit-btn');

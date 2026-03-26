@@ -62,9 +62,10 @@ export class GeminiAgent implements Subagent {
            config: { systemInstruction: discoverySystemInstruction }
         });
 
+        const CONTEXT_CACHE_TOKEN_THRESHOLD = 2048;
         const tokenTotal = tokenResponse.totalTokens || 0;
-        if (tokenTotal < 2048) {
-           console.log(`[${this.name}] Bypassing Context Cache (instructions size ${tokenTotal} is under the 2048 token limit).`);
+        if (tokenTotal < CONTEXT_CACHE_TOKEN_THRESHOLD) {
+           console.log(`[${this.name}] Bypassing Context Cache (instructions size ${tokenTotal} is under the ${CONTEXT_CACHE_TOKEN_THRESHOLD} token limit).`);
         } else {
            const cache = await this.ai.caches.create({
              model: cacheModel,

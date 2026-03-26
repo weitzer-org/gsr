@@ -60,8 +60,8 @@ async function main() {
   console.log('--- Starting Backend Server ---');
   // Need to provide PAT, correct API key, and GCP credentials
   const env = { 
-    GOOGLE_APPLICATION_CREDENTIALS: '/Users/benweitzer/projects/GSR/jetski-sa-key.json',
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY || 'AIzaSyANsnSnyH8_vVtRJuc9-7fitK_JlOENmCI',
+    GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS || '',
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
     GCS_REVIEW_BUCKET: 'gsr-review-results-weitzer-org'
   };
 
@@ -87,7 +87,7 @@ async function main() {
   try {
     console.log('\n--- Triggering Review API ---');
     const prUrl = 'https://github.com/benw307/logo-maker-weitzer/pull/69';
-    const pat = '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'; // From dev_test_config.json
+    const pat = process.env.GITHUB_PAT || ''; // From dev_test_config.json
     
     const body = JSON.stringify({ url: prUrl, pat: pat });
     const output = await sendRequest('/api/review', 'POST', body);

@@ -118,7 +118,6 @@ export function initApp() {
           if (!displayUrl) {
               const urlMatch = item.name.match(/review-run_.*_(.*?)\.json/);
               displayUrl = urlMatch ? urlMatch[1] : item.name;
-              displayUrl = displayUrl.replace(/-/g, '/').replace('https///', 'https://');
           }
           
           const date = new Date(item.updated).toLocaleString();
@@ -180,7 +179,7 @@ export function initApp() {
       
       if (data.evaluation) {
           comparisonEvaluationPanel.classList.remove('hidden');
-          evaluationText.innerHTML = window.marked ? window.marked.parse(data.evaluation) : escapeHTML(data.evaluation).replace(/\n/g, '<br/>');
+          evaluationText.innerHTML = window.marked && window.DOMPurify ? window.DOMPurify.sanitize(window.marked.parse(data.evaluation)) : escapeHTML(data.evaluation).replace(/\n/g, '<br/>');
       } else {
           comparisonEvaluationPanel.classList.add('hidden');
       }

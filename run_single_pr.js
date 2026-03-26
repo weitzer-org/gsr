@@ -25,7 +25,7 @@ const sendRequest = (prUrl) => {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify({
       url: prUrl,
-      pat: process.env.GITHUB_PAT || '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'
+      pat: process.env.GITHUB_PAT || ''
     });
 
     const req = http.request(
@@ -69,7 +69,7 @@ const sendRequest = (prUrl) => {
 
 async function main() {
   console.log('--- Starting Code Review ---');
-  let server = await runServer({ USE_CONTEXT_CACHING: 'true', USE_VERTEX_AI: 'true', GEMINI_API_KEY: 'AIzaSyANsnSnyH8_vVtRJuc9-7fitK_JlOENmCI' });
+  let server = await runServer({ USE_CONTEXT_CACHING: 'true', USE_VERTEX_AI: 'true', GEMINI_API_KEY: process.env.GEMINI_API_KEY || '' });
   try {
     const findings = await sendRequest('https://github.com/weitzer-org/gsr/pull/24');
     

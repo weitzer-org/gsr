@@ -65,7 +65,7 @@ describe('Review History API Endpoints', () => {
       // Mock the file list returned from getFiles
       const mockFile = {
         name: 'review-run_2026-03-24T20-00-00-000Z_test.json',
-        getMetadata: jest.fn<any>().mockResolvedValue([{ updated: '2026-03-24T20:00:00.000Z', size: 100 }])
+        metadata: { updated: '2026-03-24T20:00:00.000Z', size: 100 }
       } as any;
       getFilesMock.mockResolvedValue([[mockFile]]);
 
@@ -77,7 +77,7 @@ describe('Review History API Endpoints', () => {
         updated: '2026-03-24T20:00:00.000Z', 
         size: 100 
       }]);
-      expect(getFilesMock).toHaveBeenCalledWith({ prefix: 'review-run_' });
+      expect(getFilesMock).toHaveBeenCalledWith({ prefix: 'review-run_', autoPaginate: false, maxResults: 100 });
     });
 
     it('should return 500 when storage fetch fails', async () => {

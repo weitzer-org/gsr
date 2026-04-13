@@ -104,4 +104,57 @@ describe('Orchestrator', () => {
         
         expect(mockDeduplicate).not.toHaveBeenCalled();
     });
+
+    it('should handle errors in legacy mode when onProgress is defined', async () => {
+        const orchestrator = new Orchestrator();
+        (orchestrator as any).useTriage = false;
+        
+        const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockRejectedValue(new Error('Legacy Error'));
+        
+        const onProgress = jest.fn();
+        orchestrator.onProgress = onProgress;
+
+        (orchestrator as any).subagents = [new GeminiAgent('Logic', 'logic.md')];
+
+        await expect(orchestrator.runReview([{ file: 'i.ts', content: 'x' }])).rejects.toThrow('Legacy Error');
+        
+        expect(onProgress).toHaveBeenCalledWith('Logic', 'i.ts', 'complete');
+    });
+
+    it('should accumulate metrics in legacy mode', async () => {
+        const orchestrator = new Orchestrator();
+        (orchestrator as any).useTriage = false;
+        
+        const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ 
+            findings: [{ file: 'i.ts', line: 1, severity: 'HIGH', summary: 'a', description: 'b', agent: 'A' }] as any,
+            usage: { promptTokenCount: 10, candidatesTokenCount: 5, totalTokenCount: 15 }
+        });
+
+        (orchestrator as any).subagents = [new GeminiAgent('Logic', 'logic.md')];
+
+        const results = await orchestrator.runReview([{ file: 'i.ts', content: 'x' }]);
+        
+        expect(results.metrics.inputTokens).toBe(10);
+        expect(results.metrics.outputTokens).toBe(5);
+    });
+
+    it('should report progress in legacy mode', async () => {
+        const orchestrator = new Orchestrator();
+        (orchestrator as any).useTriage = false;
+        
+        const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ findings: [] });
+        
+        const onProgress = jest.fn();
+        orchestrator.onProgress = onProgress;
+
+        const agent = new GeminiAgent('Cicd', 'cicd.md');
+        (orchestrator as any).subagents = [agent];
+
+        await orchestrator.runReview([{ file: 'test.ts', content: 'x' }]);
+        expect(onProgress).toHaveBeenCalledWith('Cicd', 'test.ts', 'skipped');
+
+        await orchestrator.runReview([{ file: 'Dockerfile', content: 'x' }]);
+        expect(onProgress).toHaveBeenCalledWith('Cicd', 'Dockerfile', 'start');
+        expect(onProgress).toHaveBeenCalledWith('Cicd', 'Dockerfile', 'complete');
+    });
 });

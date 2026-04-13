@@ -35,7 +35,7 @@ export class Orchestrator {
         // Fallback for test environments (e.g. Jest ESM mode)
         projectRoot = path.resolve(process.cwd(), '../../');
     }
-    const promptsDir = path.join(projectRoot, 'gemini-cli-extension', this.promptsDirName);
+    const promptsDir = path.join(projectRoot, 'adk', 'prompts', this.promptsDirName);
 
     try {
       const files = fs.readdirSync(promptsDir);
@@ -94,6 +94,16 @@ export class Orchestrator {
     if (this.useTriage) {
       // Execute all active GeminiAgents on their relevant DiffChunks based strictly on static filtering context for the deduplicator architecture
       for (const agent of this.subagents) {
+        const envVarName = `ABLATE_${agent.name.toUpperCase()}`;
+        if (process.env[envVarName] === 'true') {
+          console.log(`[Ablation] Skipping agent: ${agent.name}`);
+          if (this.onProgress) {
+            for (const chunk of chunks) {
+              this.onProgress(agent.name, chunk.file, 'skipped');
+            }
+          }
+          continue;
+        }
         const activeChunks = chunks.filter(chunk => {
           let shouldInclude = this.shouldRun(agent.name, chunk.file);
 
@@ -132,8 +142,15 @@ export class Orchestrator {
     } else {
       // Legacy fallback: File-by-File routing
       for (const chunk of chunks) {
-         for (const agent of this.subagents) {
-            if (!this.shouldRun(agent.name, chunk.file)) {
+          for (const agent of this.subagents) {
+             const envVarName = `ABLATE_${agent.name.toUpperCase()}`;
+             if (process.env[envVarName] === 'true') {
+                 if (this.onProgress) {
+                     this.onProgress(agent.name, chunk.file, 'skipped');
+                 }
+                 continue;
+             }
+             if (!this.shouldRun(agent.name, chunk.file)) {
                 if (this.onProgress) {
                     this.onProgress(agent.name, chunk.file, 'skipped');
                 }

@@ -47,7 +47,8 @@ The harness requires a few environment variables to operate. You can either `exp
 - `LOCAL_URL`: The URL of your local ADK backend (default: `http://localhost:8080`)
 - `PRODUCTION_URL`: The URL of your production Cloud Run instance.
 - `GOOGLE_CLOUD_PROJECT`: Your GCP project ID (default: `weitzer-org`).
-- `GCS_BUCKET`: The bucket name to store results (default: `gsr-eval-results-weitzer-org`).
+- `GCS_BUCKET`: The bucket name to store evaluation results (default: `gsr-eval-results-weitzer-org`).
+- `GCS_REVIEW_BUCKET`: The bucket name for review results used by the backend (default: `gsr-review-results-weitzer-org`).
 - `GITHUB_PAT_SECRET`: The name of the secret in Secret Manager (default: `gsr-github-pat`).
 
 Example `.env` file:

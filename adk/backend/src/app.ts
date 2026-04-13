@@ -8,7 +8,7 @@ import { Orchestrator } from './orchestrator';
 import { Evaluator } from './evaluator';
 import { ReviewSource } from './types';
 
-const SYSTEM_PROMPTS_DIR = 'system_prompts';
+const SYSTEM_PROMPTS_DIR = process.env.SYSTEM_PROMPTS_DIR || 'system_prompts';
 const BASIC_PROMPT_DIR = 'basic_prompt';
 
 export const app = express();

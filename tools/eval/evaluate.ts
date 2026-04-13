@@ -132,8 +132,13 @@ export async function runEvaluation(options: EvalOptions = {}) {
   }
 
   // 2. Fetch Secrets
-  console.log(`🔑 Fetching GitHub PAT from secret manager: ${patSecretName}...`);
-  const githubPat = await getSecret(patSecretName);
+  let githubPat = process.env.GITHUB_TOKEN;
+  if (!githubPat) {
+    console.log(`🔑 Fetching GitHub PAT from secret manager: ${patSecretName}...`);
+    githubPat = await getSecret(patSecretName);
+  } else {
+    console.log(`🔑 Using GitHub PAT from environment variable.`);
+  }
 
   const geminiSecretName = process.env.GEMINI_SECRET || 'gsr-gemini-api-key';
   if (!process.env.GEMINI_API_KEY) {

@@ -8,6 +8,7 @@ echo "🚀 Starting GSR ADK with Google Cloud Secret Manager..."
 # Load config from .env if it exists
 if [ -f backend/.env ]; then
     SECRET_CONFIG=$(grep '^SECRET_MANAGER_SECRET_NAME=' backend/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" || true)
+    ENV_PROJECT_ID=$(grep '^GOOGLE_CLOUD_PROJECT=' backend/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" || true)
 fi
 
 SECRET_NAME=${SECRET_CONFIG:-${1:-"gsr-gemini-api-key"}}
@@ -65,7 +66,7 @@ if [ -z "$ACTIVE_ACCOUNT" ]; then
 fi
 
 # Get active project
-PROJECT_ID=$(gcloud config get-value project 2>/dev/null || true)
+PROJECT_ID=${ENV_PROJECT_ID:-${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}}
 if [ -z "$PROJECT_ID" ]; then
   echo "❌ Error: No active Google Cloud project configured."
   echo "Please run: gcloud config set project YOUR_PROJECT_ID"
@@ -74,7 +75,7 @@ fi
 
 echo "Using GCP Project: $PROJECT_ID"
 
-if SECRET_VALUE=$(gcloud secrets versions access latest --secret="$SECRET_NAME" 2>/dev/null); then
+if SECRET_VALUE=$(gcloud secrets versions access latest --secret="$SECRET_NAME" --project="$PROJECT_ID" 2>/dev/null); then
   echo "✅ Successfully fetched GEMINI_API_KEY from Secret Manager."
   export GEMINI_API_KEY="$SECRET_VALUE"
 else

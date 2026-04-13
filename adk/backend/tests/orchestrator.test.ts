@@ -118,7 +118,7 @@ describe('Orchestrator', () => {
 
         await expect(orchestrator.runReview([{ file: 'i.ts', content: 'x' }])).rejects.toThrow('Legacy Error');
         
-        expect(onProgress).toHaveBeenCalledWith('Logic', 'i.ts', 'complete');
+        expect(onProgress).toHaveBeenCalledWith('Logic', 'i.ts', 'failed');
     });
 
     it('should accumulate metrics in legacy mode', async () => {

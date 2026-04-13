@@ -171,7 +171,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
 
   // 4.5 Start Local Server
   let serverProcess: any = null;
-  if (targetAConfig.isLocal || targetBConfig.isLocal) {
+  if (process.env.SKIP_SERVER_START !== 'true' && (targetAConfig.isLocal || targetBConfig.isLocal)) {
     console.log('🚀 Starting local backend server...');
     const { spawn } = require('child_process');
     

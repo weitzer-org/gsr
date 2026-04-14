@@ -2,6 +2,14 @@
   "production_url": "https://gsr-code-review-710019748844.us-central1.run.app",
   "sample_prs": [
     "https://github.com/weitzer-org/gemini-cli-fork/pull/3",
-    "https://github.com/weitzer-org/gemini-cli-fork/pull/9"
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/4",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/5",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/6",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/7",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/8",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/9",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/10",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/11",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/12"
   ]
 }

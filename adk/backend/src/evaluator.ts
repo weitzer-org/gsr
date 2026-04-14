@@ -37,7 +37,7 @@ Format your output in professional Markdown. Keep it under 250 words and be high
       console.log(`[Evaluator] Starting Gemini API call for comparison evaluation...`);
       
       const response = await this.ai.models.generateContent({
-         model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
+         model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
          contents: prompt,
       });
       

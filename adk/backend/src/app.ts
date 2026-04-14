@@ -23,7 +23,7 @@ app.use((req, res, next) => {
 
 app.get('/api/status', (req, res) => {
   const isConnected = !!process.env.GEMINI_API_KEY;
-  const modelStr = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+  const modelStr = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
   
   res.json({
     status: 'success',

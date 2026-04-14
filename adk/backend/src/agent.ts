@@ -58,8 +58,7 @@ export class GeminiAgent implements Subagent {
         
         const tokenResponse = await this.ai.models.countTokens({
            model: envModel,
-           contents: "",
-           config: { systemInstruction: discoverySystemInstruction }
+           contents: discoverySystemInstruction,
         });
 
         const CONTEXT_CACHE_TOKEN_THRESHOLD = 2048;

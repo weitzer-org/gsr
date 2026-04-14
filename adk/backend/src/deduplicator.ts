@@ -3,6 +3,7 @@ import { CandidateFinding } from './types.js';
 
 export class DeduplicatorAgent {
   private ai: GoogleGenAI;
+  private static lock: Promise<void> = Promise.resolve();
 
   constructor() {
     const useVertex = process.env.USE_VERTEX_AI === 'true';
@@ -20,6 +21,10 @@ export class DeduplicatorAgent {
     if (process.env.USE_DEDUPLICATOR === 'false') {
        return findings;
     }
+
+    await DeduplicatorAgent.lock;
+    let resolveLock: () => void;
+    DeduplicatorAgent.lock = new Promise((resolve) => { resolveLock = resolve; });
 
     try {
       console.log(`[Deduplicator] Starting deduplication of ${findings.length} findings...`);
@@ -41,6 +46,9 @@ Follow this step-by-step process:
 Your final output MUST match the schema of an array of CandidateFinding objects.
 CRITICAL: You MUST retain the 'agent' field for every single finding. Without this, the UI breaks.`;
 
+      const startTime = Date.now();
+      console.log(`[Deduplicator] Sending request to Gemini...`);
+      
       const request = this.ai.models.generateContent({
         model: process.env.DEDUPLICATOR_MODEL || 'gemini-3.1-pro-preview',
         contents: JSON.stringify(findings),
@@ -67,13 +75,18 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
         }
       });
 
-      const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '180000', 10);
+      const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '300000', 10);
+      console.log(`[Deduplicator] Timeout set to ${timeoutMs}ms`);
+      
       let timeoutId: NodeJS.Timeout | undefined;
       const timeoutPromise = new Promise<any>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Deduplicator fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
       });
 
       const response = await Promise.race([request, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+      
+      const duration = Date.now() - startTime;
+      console.log(`[Deduplicator] Response received in ${duration}ms`);
       
       if (response.usageMetadata) {
          console.log(`[Deduplicator] Tokens used - Prompt: ${response.usageMetadata.promptTokenCount}, Candidates: ${response.usageMetadata.candidatesTokenCount}`);
@@ -91,6 +104,8 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
     } catch (e) {
       console.error("[Deduplicator] Failed to deduplicate findings:", e);
       return findings;
+    } finally {
+      resolveLock!();
     }
   }
 }

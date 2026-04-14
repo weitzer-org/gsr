@@ -97,4 +97,27 @@ describe('GeminiAgent', () => {
         // But Generate content was called exactly twice iteratively for the retry!
         expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     });
+
+    it('should perform legacy analysis when USE_TRIAGE_AGENT is false', async () => {
+        process.env.USE_TRIAGE_AGENT = 'false';
+        const agent = new GeminiAgent('Logic', 'logic.md');
+        
+        const mockGenerateContent = jest.fn<any>().mockResolvedValueOnce({
+            text: JSON.stringify([
+              { file: 'app.ts', line: 10, severity: 'MEDIUM', summary: 'Sum', description: 'Desc', suggestion: 'Fixed' }
+            ]),
+            usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50, totalTokenCount: 150 }
+        });
+
+        agent['ai'] = { models: { generateContent: mockGenerateContent } } as any;
+
+        const result = await agent.analyze([{ file: 'app.ts', content: '+ app' }]);
+        
+        expect(result.findings).toHaveLength(1);
+        expect(result.findings[0]).toEqual(expect.objectContaining({ 
+          file: 'app.ts', severity: 'MEDIUM', description: 'Desc', agent: 'Logic' 
+        }));
+        expect(result.usage?.promptTokenCount).toBe(100);
+        expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
 });

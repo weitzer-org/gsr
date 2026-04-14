@@ -8,7 +8,7 @@ import * as path from 'path';
 export class Orchestrator {
   private subagents: Subagent[] = [];
   private maxConcurrency: number;
-  public onProgress?: (agentName: string, file: string, status: 'start' | 'complete' | 'skipped') => void;
+  public onProgress?: (agentName: string, file: string, status: 'start' | 'complete' | 'skipped' | 'failed') => void;
 
   private promptsDirName: string;
   private deduplicator: DeduplicatorAgent;
@@ -16,7 +16,7 @@ export class Orchestrator {
 
   constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useTriage: boolean = true) {
     this.maxConcurrency = maxConcurrency;
-    this.promptsDirName = path.basename(promptsDirName);
+    this.promptsDirName = promptsDirName;
     this.deduplicator = new DeduplicatorAgent();
     this.useTriage = useTriage;
     this.initializeAgents();
@@ -35,7 +35,14 @@ export class Orchestrator {
         // Fallback for test environments (e.g. Jest ESM mode)
         projectRoot = path.resolve(process.cwd(), '../../');
     }
-    const promptsDir = path.join(projectRoot, 'gemini-cli-extension', this.promptsDirName);
+    const promptsDir = path.join(projectRoot, 'adk', 'prompts', this.promptsDirName);
+    
+    // Path traversal check
+    const resolvedPromptsDir = path.resolve(promptsDir);
+    const baseDir = path.resolve(projectRoot, 'adk', 'prompts');
+    if (!resolvedPromptsDir.startsWith(baseDir)) {
+        throw new Error(`Path traversal detected: ${resolvedPromptsDir} is outside of ${baseDir}`);
+    }
 
     try {
       const files = fs.readdirSync(promptsDir);
@@ -94,6 +101,16 @@ export class Orchestrator {
     if (this.useTriage) {
       // Execute all active GeminiAgents on their relevant DiffChunks based strictly on static filtering context for the deduplicator architecture
       for (const agent of this.subagents) {
+        const envVarName = `ABLATE_${agent.name.toUpperCase()}`;
+        if (process.env[envVarName] === 'true') {
+          console.log(`[Ablation] Skipping agent: ${agent.name}`);
+          if (this.onProgress) {
+            for (const chunk of chunks) {
+              this.onProgress(agent.name, chunk.file, 'skipped');
+            }
+          }
+          continue;
+        }
         const activeChunks = chunks.filter(chunk => {
           let shouldInclude = this.shouldRun(agent.name, chunk.file);
 
@@ -123,7 +140,7 @@ export class Orchestrator {
                 return res;
             } catch (err) {
                 if (this.onProgress) {
-                    this.onProgress(agent.name, progressFileName, 'complete');
+                    this.onProgress(agent.name, progressFileName, 'failed');
                 }
                 throw err;
             }
@@ -132,8 +149,15 @@ export class Orchestrator {
     } else {
       // Legacy fallback: File-by-File routing
       for (const chunk of chunks) {
-         for (const agent of this.subagents) {
-            if (!this.shouldRun(agent.name, chunk.file)) {
+          for (const agent of this.subagents) {
+             const envVarName = `ABLATE_${agent.name.toUpperCase()}`;
+             if (process.env[envVarName] === 'true') {
+                 if (this.onProgress) {
+                     this.onProgress(agent.name, chunk.file, 'skipped');
+                 }
+                 continue;
+             }
+             if (!this.shouldRun(agent.name, chunk.file)) {
                 if (this.onProgress) {
                     this.onProgress(agent.name, chunk.file, 'skipped');
                 }
@@ -152,7 +176,7 @@ export class Orchestrator {
                     return res;
                 } catch (err) {
                     if (this.onProgress) {
-                        this.onProgress(agent.name, chunk.file, 'complete');
+                        this.onProgress(agent.name, chunk.file, 'failed');
                     }
                     throw err;
                 }

@@ -28,8 +28,9 @@ COPY --from=builder /app/backend/dist ./backend/dist
 COPY adk/frontend/ ./frontend/
 
 # Copy system prompts for orchestrator
-COPY gemini-cli-extension/system_prompts/ /gemini-cli-extension/system_prompts/
-COPY gemini-cli-extension/basic_prompt/ /gemini-cli-extension/basic_prompt/
+COPY adk/prompts/system_prompts/ /adk/prompts/system_prompts/
+COPY adk/prompts/system_prompts_v2/ /adk/prompts/system_prompts_v2/
+COPY adk/prompts/basic_prompt/ /adk/prompts/basic_prompt/
 
 # Set working directory to backend so process.cwd() points to /app/backend
 WORKDIR /app/backend

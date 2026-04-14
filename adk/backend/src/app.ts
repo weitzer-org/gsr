@@ -8,7 +8,7 @@ import { Orchestrator } from './orchestrator';
 import { Evaluator } from './evaluator';
 import { ReviewSource } from './types';
 
-const SYSTEM_PROMPTS_DIR = 'system_prompts';
+const SYSTEM_PROMPTS_DIR = process.env.SYSTEM_PROMPTS_DIR || 'system_prompts';
 const BASIC_PROMPT_DIR = 'basic_prompt';
 
 export const app = express();
@@ -23,7 +23,7 @@ app.use((req, res, next) => {
 
 app.get('/api/status', (req, res) => {
   const isConnected = !!process.env.GEMINI_API_KEY;
-  const modelStr = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+  const modelStr = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
   
   res.json({
     status: 'success',

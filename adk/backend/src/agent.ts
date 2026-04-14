@@ -53,13 +53,12 @@ export class GeminiAgent implements Subagent {
         // Note: GoogleGenAI caches.create defaults exactly
         const discoverySystemInstruction = `You are the ${this.name} discovery agent.\nYour ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.\nEnsure you return your response in the strictly required JSON format.\nCRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. \nIf you skip a file, the system will fail.\n${this.promptContent}`;
         
-        const envModel = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+        const envModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
         const cacheModel = envModel.startsWith('models/') ? envModel : `models/${envModel}`;
         
         const tokenResponse = await this.ai.models.countTokens({
            model: envModel,
-           contents: "",
-           config: { systemInstruction: discoverySystemInstruction }
+           contents: discoverySystemInstruction,
         });
 
         const CONTEXT_CACHE_TOKEN_THRESHOLD = 2048;
@@ -97,7 +96,7 @@ export class GeminiAgent implements Subagent {
         const promptPayload = this.buildDiscoveryPrompt(chunksToProcess);
         
         const requestArgs: any = {
-           model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
+           model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
            contents: promptPayload.contents,
            config: {
              responseMimeType: 'application/json',
@@ -183,7 +182,7 @@ export class GeminiAgent implements Subagent {
       // Not cached because it uses a different short-lived prompt focused tightly on synthesizing solutions
       const remediationPayload = this.buildRemediationPrompt(chunks, discoveryIssues);
       const remediationRequest = this.ai.models.generateContent({
-           model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
+           model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
            contents: remediationPayload.contents,
            config: {
              systemInstruction: remediationPayload.systemInstruction,
@@ -257,7 +256,7 @@ ${chunk.content}
       console.log(`[${this.name}] Starting Baseline Gemini API call for ${chunk.file}...`);
       
       const response = await this.ai.models.generateContent({
-         model: process.env.GEMINI_MODEL || 'gemini-2.5-pro',
+         model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
          contents: prompt,
          config: {
            responseMimeType: 'application/json',

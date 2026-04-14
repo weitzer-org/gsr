@@ -34,3 +34,5 @@
 34. **Thinking Budget Config:** Add a configuration mechanism (e.g., `GEMINI_THINKING_BUDGET`) to optionally supply a token "thinking budget" to the Gemini SDK (`thinkingConfig`) to enable and scale advanced reasoning capabilities during the review process.
 35. **Basic Agent Catch-All:** Have the basic agent run as a catch-all as part of the agent swarm to catch broad logic bugs that specialized agents might miss.
 ~~36. **Security Remediation:** Migrate embedded configuration and credentials to secure environment variables across the testing suite.~~
+37. **Explore Advisor Strategy:** Evaluate and potentially implement the Advisor Strategy to reduce noise and cost in the multi-agent review flow (see [advisor-strategy-options.md](advisor-strategy-options.md)).
+38. **Managerial Feedback Agent:** Add a sub-agent to give managerial feedback on the PR (high-level impact, risk assessment, adherence to guidelines).

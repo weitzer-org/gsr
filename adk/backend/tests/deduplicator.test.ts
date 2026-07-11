@@ -6,7 +6,6 @@ describe('DeduplicatorAgent', () => {
 
     beforeEach(async () => {
         jest.resetModules();
-        process.env.USE_VERTEX_AI = 'false';
         process.env.USE_DEDUPLICATOR = 'true';
         process.env.GEMINI_API_KEY = 'test-key';
 

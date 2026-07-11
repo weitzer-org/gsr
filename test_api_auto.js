@@ -58,30 +58,16 @@ const sendRequest = (path, method, body = null) => {
 
 async function main() {
   console.log('--- Starting Backend Server ---');
-  // Need to provide PAT, correct API key, and GCP credentials
-  const env = { 
-    GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS || '',
+  // Need to provide PAT, Gemini key, and S3-compatible storage credentials
+  // (point S3_ENDPOINT at your local MinIO or Cloudflare R2 bucket).
+  const env = {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
-    GCS_REVIEW_BUCKET: 'gsr-review-results-weitzer-org'
+    S3_ENDPOINT: process.env.S3_ENDPOINT || '',
+    S3_ACCESS_KEY_ID: process.env.S3_ACCESS_KEY_ID || '',
+    S3_SECRET_ACCESS_KEY: process.env.S3_SECRET_ACCESS_KEY || '',
+    S3_REVIEW_BUCKET: process.env.S3_REVIEW_BUCKET || 'gsr-review-results'
   };
 
-  try {
-    const path = require('path');
-    const storageModule = require(path.join(__dirname, 'adk/backend/node_modules/@google-cloud/storage'));
-    const storage = new storageModule.Storage({ keyFilename: env.GOOGLE_APPLICATION_CREDENTIALS });
-    const bucket = storage.bucket(env.GCS_REVIEW_BUCKET);
-    const [exists] = await bucket.exists();
-    if (!exists) {
-      console.log(`Bucket ${env.GCS_REVIEW_BUCKET} does not exist, creating it...`);
-      await storage.createBucket(env.GCS_REVIEW_BUCKET, { location: 'US' });
-      console.log('Bucket created!');
-    } else {
-      console.log(`Bucket ${env.GCS_REVIEW_BUCKET} already exists.`);
-    }
-  } catch(e) { 
-      console.error('Bucket creation check failed', e.message); 
-  }
-  
   let server = await runServer(env);
   
   try {
@@ -99,19 +85,19 @@ async function main() {
        console.log("Review stream completed successfully!");
     }
     
-    // Give GCS upload a second to complete asynchronously
-    console.log("\nWaiting 2 seconds for GCS async upload...");
+    // Give the storage upload a second to complete asynchronously
+    console.log("\nWaiting 2 seconds for the async storage upload...");
     await new Promise(r => setTimeout(r, 2000));
-    
+
     console.log('\n--- Fetching History List ---');
     const historyOutput = await sendRequest('/api/review/history', 'GET');
-    
+
     const historyList = JSON.parse(historyOutput);
     console.log(`Found ${historyList.length} reviews in history bucket.`);
     if (historyList.length > 0) {
        console.log("Latest review document:", historyList[0]);
     } else {
-       console.log("No history records found in GCS.");
+       console.log("No history records found in storage.");
     }
     
   } catch (e) {

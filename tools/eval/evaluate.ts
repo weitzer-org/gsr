@@ -2,58 +2,30 @@ import * as fs from 'fs';
 import * as path from 'path';
 import 'dotenv/config';
 
-import { getSecret } from './secret-manager';
 import { runReview, CombinedResult } from './api-client';
 import { compareResultsWithLLM, generateAggregateReport } from './llm-comparator';
-import { uploadResultsToGCS, ensureBucketExists } from './gcs-storage';
+import { uploadResultsToGCS, ensureBucketExists } from './storage';
 import { buildRunMetadata } from './version-tracker';
 
-import { CloudBuildClient } from '@google-cloud/cloudbuild';
 import { fetchBotComments } from './github-comments';
 import { validateFindingsAgainstDiff } from './validation';
 import { compareResultsWithLLMV2, generateAggregateReportV2, V2ComparisonMetrics } from './llm-comparator-v2';
 import { GitHubClient } from '../../adk/backend/src/github';
 
-async function deployStagingBranch(branch: string, githubPat: string): Promise<string> {
-    console.log(`\n☁️  Triggering Cloud Build via Node SDK for branch '${branch}'...`);
-    const client = new CloudBuildClient();
-    const projectId = process.env.GOOGLE_CLOUD_PROJECT;
-    if (!projectId) {
-      throw new Error('GOOGLE_CLOUD_PROJECT environment variable is required to deploy staging branches.');
+// Cloud Build auto-deploy of staging branches was removed as part of the
+// Fly.io migration — there's no Fly-native equivalent to "trigger a build
+// from a branch and get back an ephemeral URL". Deploy the branch manually
+// (e.g. `fly deploy -a gsr-code-review-staging` from that branch) and point
+// STAGING_URL at the result.
+async function deployStagingBranch(branch: string): Promise<string> {
+    const stagingUrl = process.env.STAGING_URL;
+    if (!stagingUrl) {
+      throw new Error(
+        `Branch comparison requires a deployed staging URL. Deploy branch '${branch}' manually ` +
+        `(e.g. 'fly deploy -a gsr-code-review-staging' from that branch) and set STAGING_URL to its address.`
+      );
     }
-    const triggerId = process.env.CLOUD_BUILD_TRIGGER_ID || 'gsr-eval-staging'; // Manual Trigger ID defined in GCP
-    
-    try {
-      const [operation] = await client.runBuildTrigger({
-        name: `projects/${projectId}/locations/us-central1/triggers/${triggerId}`,
-        source: {
-          branchName: branch,
-          repoName: 'gsr',
-          projectId
-        }
-      });
-      
-      console.log('☁️  Build trigger started. Waiting for pipeline to finish (this may take a few minutes)...');
-      const [buildResult] = await operation.promise();
-      
-      if (buildResult.status !== 'SUCCESS' && buildResult.status !== 3) {
-         throw new Error(`Cloud Build failed with status: ${buildResult.status}`);
-      }
-      
-      console.log('☁️  Build successful! Fetching staging URL...');
-      const { GoogleAuth } = require('google-auth-library');
-      const auth = new GoogleAuth({ scopes: 'https://www.googleapis.com/auth/cloud-platform' });
-      const authClient = await auth.getClient();
-      const res = await authClient.request({
-        url: `https://run.googleapis.com/v1/projects/${projectId}/locations/us-central1/services/gsr-code-review-staging`
-      });
-      if (!res.data || !res.data.status || !res.data.status.url) {
-        throw new Error('Could not extract Cloud Run URL from GCP API response.');
-      }
-      return res.data.status.url;
-    } catch (err: any) {
-      throw new Error(`Failed to deploy staging branch: ${err.message}`);
-    }
+    return stagingUrl;
 }
 
 export interface EvalOptions {
@@ -64,15 +36,6 @@ export interface EvalOptions {
 
 export async function runEvaluation(options: EvalOptions = {}) {
   console.log('🚀 Starting GSR Evaluation Harness...');
-
-  // Auto-load Service Account Key for Jetski environments
-  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    const saPath = path.join(__dirname, '../../jetski-sa-key.json');
-    if (fs.existsSync(saPath)) {
-      console.log('🔑 Auto-loading jetski-sa-key.json for GCP authentication...');
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = saPath;
-    }
-  }
 
   // Parse basic arguments / environment
   const configPath = process.argv.includes('--config') 
@@ -118,51 +81,35 @@ export async function runEvaluation(options: EvalOptions = {}) {
      targetAConfig = { label: `Branch '${targetBranch}'`, url: '', isLocal: false, isBranch: true };
   }
   
-  // NOTE: In production scenario, use dynamic project ID derivation or fallback 
-  const gcpProjectId = process.env.GOOGLE_CLOUD_PROJECT;
-  if (!gcpProjectId) {
-    throw new Error('❌ GOOGLE_CLOUD_PROJECT environment variable is required.');
-  }
-  const bucketName = process.env.GCS_BUCKET || `gsr-eval-results-${gcpProjectId}`;
-  const patSecretName = process.env.GITHUB_PAT_SECRET || 'gsr-github-pat';
+  const bucketName = process.env.S3_BUCKET || 'gsr-eval-results';
   const prs = config.sample_prs || [];
 
   if (!prs.length) {
     throw new Error(`❌ No PRs defined in config file.`);
   }
 
-  // 2. Fetch Secrets
-  let githubPat = process.env.GITHUB_TOKEN;
+  // 2. Resolve credentials from the environment
+  const githubPat = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT;
   if (!githubPat) {
-    console.log(`🔑 Fetching GitHub PAT from secret manager: ${patSecretName}...`);
-    githubPat = await getSecret(patSecretName);
-  } else {
-    console.log(`🔑 Using GitHub PAT from environment variable.`);
+    throw new Error('❌ GITHUB_TOKEN (or GITHUB_PAT) environment variable is required.');
   }
 
-  const geminiSecretName = process.env.GEMINI_SECRET || 'gsr-gemini-api-key';
   if (!process.env.GEMINI_API_KEY) {
-    console.log(`🔑 Fetching Gemini API Key from secret manager: ${geminiSecretName}...`);
-    try {
-      const gKey = await getSecret(geminiSecretName);
-      process.env.GEMINI_API_KEY = gKey; // Export it globally for llm-comparator
-    } catch (e: any) {
-      console.warn(`⚠️ Failed to fetch Gemini API key: ${e.message}`);
-    }
+    console.warn('⚠️ GEMINI_API_KEY is not set. LLM comparison steps will be skipped.');
   }
 
-  // 3. Ensure GCS bucket exists
+  // 3. Ensure the results bucket exists
   await ensureBucketExists(bucketName);
 
   // 3.5. Branch deployments if required
-  if (targetAConfig.isBranch) targetAConfig.url = await deployStagingBranch(targetBranch, githubPat);
-  if (targetBConfig.isBranch) targetBConfig.url = await deployStagingBranch(targetBranch, githubPat);
+  if (targetAConfig.isBranch) targetAConfig.url = await deployStagingBranch(targetBranch);
+  if (targetBConfig.isBranch) targetBConfig.url = await deployStagingBranch(targetBranch);
 
   // 4. Initialize Metadata
-  const isCloudRun = !!process.env.K_SERVICE;
+  const isDeployed = !!process.env.FLY_APP_NAME;
   const runPayload: any = {
     ...buildRunMetadata(prodUrl),
-    execution_environment: isCloudRun ? `Server: gsr-evaluator Cloud Run` : `Server: Localhost CLI`,
+    execution_environment: isDeployed ? `Server: gsr-evaluator (Fly.io: ${process.env.FLY_APP_NAME})` : `Server: Localhost CLI`,
     prs_tested: prs,
     targetA_label: targetAConfig.label,
     targetB_label: targetBConfig.label,

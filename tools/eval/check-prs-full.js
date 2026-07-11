@@ -1,14 +1,10 @@
-const { Storage } = require('@google-cloud/storage');
-const path = require('path');
-
-process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(__dirname, '../../jetski-sa-key.json');
-const storage = new Storage({ projectId: 'weitzer-org' });
+const { downloadFile } = require('./s3-debug-client');
 
 async function checkPRs(file) {
-  const [contents] = await storage.bucket('gsr-eval-results-weitzer-org').file(file).download();
+  const contents = await downloadFile(file);
   const data = JSON.parse(contents);
   console.log(`\n\n=== Evals from ${file} ===\n`);
-  
+
   const relevantPrs = [
     'https://github.com/weitzer-org/gemini-cli-fork/pull/3',
     'https://github.com/weitzer-org/gemini-cli-fork/pull/4',

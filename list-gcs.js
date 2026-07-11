@@ -1,10 +1,8 @@
-const { Storage } = require('@google-cloud/storage');
-const storage = new Storage();
-const bucketName = 'gsr-eval-results-weitzer-org';
+const { listFiles } = require('./tools/eval/s3-debug-client');
 
-async function listFiles() {
+async function main() {
   try {
-    const [files] = await storage.bucket(bucketName).getFiles();
+    const files = await listFiles();
     console.log('Files:');
     files.forEach(file => {
       console.log(file.name);
@@ -13,4 +11,4 @@ async function listFiles() {
     console.error('ERROR:', err);
   }
 }
-listFiles();
+main();

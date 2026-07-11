@@ -9,24 +9,14 @@ jest.unstable_mockModule('../src/cmd.js', () => ({
   exec: execMock
 }));
 
-const getFilesMock = jest.fn<any>();
-const createReadStreamMock = jest.fn<any>();
-const saveMock = jest.fn<any>();
-const getMetadataMock = jest.fn<any>();
+const listFilesMock = jest.fn<any>();
+const getFileStreamMock = jest.fn<any>();
+const uploadJsonMock = jest.fn<any>();
 
-const bucketMock = jest.fn<any>(() => ({
-  getFiles: getFilesMock,
-  file: jest.fn(() => ({
-    createReadStream: createReadStreamMock,
-    save: saveMock,
-    getMetadata: getMetadataMock
-  }))
-}));
-
-jest.unstable_mockModule('@google-cloud/storage', () => ({
-  Storage: jest.fn(() => ({
-    bucket: bucketMock
-  }))
+jest.unstable_mockModule('../src/storage.js', () => ({
+  uploadJson: uploadJsonMock,
+  listFiles: listFilesMock,
+  getFileStream: getFileStreamMock
 }));
 
 class MockStream {
@@ -47,10 +37,9 @@ describe('Review History API Endpoints', () => {
 
   beforeEach(async () => {
     jest.resetModules();
-    getFilesMock.mockReset();
-    createReadStreamMock.mockReset();
-    saveMock.mockReset();
-    getMetadataMock.mockReset();
+    listFilesMock.mockReset();
+    getFileStreamMock.mockReset();
+    uploadJsonMock.mockReset();
 
     const mod = await import('../src/app.js');
     app = mod.app;
@@ -61,27 +50,28 @@ describe('Review History API Endpoints', () => {
   });
 
   describe('GET /api/review/history', () => {
-    it('should return a JSON list of GCS files', async () => {
-      // Mock the file list returned from getFiles
+    it('should return a JSON list of stored review files', async () => {
       const mockFile = {
         name: 'review-run_2026-03-24T20-00-00-000Z_test.json',
-        metadata: { updated: '2026-03-24T20:00:00.000Z', size: 100 }
+        updated: '2026-03-24T20:00:00.000Z',
+        size: 100,
+        metadata: { originalUrl: undefined }
       } as any;
-      getFilesMock.mockResolvedValue([[mockFile]]);
+      listFilesMock.mockResolvedValue([mockFile]);
 
       const response = await request(app).get('/api/review/history');
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual([{ 
-        name: 'review-run_2026-03-24T20-00-00-000Z_test.json', 
-        updated: '2026-03-24T20:00:00.000Z', 
-        size: 100 
+      expect(response.body).toEqual([{
+        name: 'review-run_2026-03-24T20-00-00-000Z_test.json',
+        updated: '2026-03-24T20:00:00.000Z',
+        size: 100
       }]);
-      expect(getFilesMock).toHaveBeenCalledWith({ prefix: 'review-run_', autoPaginate: false, maxResults: 100 });
+      expect(listFilesMock).toHaveBeenCalledWith('gsr-review-results', 'review-run_', { maxResults: 100, includeMetadata: true });
     });
 
     it('should return 500 when storage fetch fails', async () => {
-      getFilesMock.mockRejectedValue(new Error('Storage failure'));
+      listFilesMock.mockRejectedValue(new Error('Storage failure'));
       const response = await request(app).get('/api/review/history');
       expect(response.status).toBe(500);
     });
@@ -92,7 +82,7 @@ describe('Review History API Endpoints', () => {
     const fileId = 'review-run_2024-03-20.json';
 
     it('should return a specific review object stream when valid', async () => {
-       createReadStreamMock.mockReturnValue(new MockStream(JSON.stringify(mockReport)));
+       getFileStreamMock.mockResolvedValue(new MockStream(JSON.stringify(mockReport)));
 
       const response = await request(app).get(`/api/review/history/${fileId}`);
 

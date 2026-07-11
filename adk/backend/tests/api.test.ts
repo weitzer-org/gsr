@@ -4,17 +4,12 @@ import { GitHubClient } from '../src/github';
 import { Orchestrator } from '../src/orchestrator';
 import { Evaluator } from '../src/evaluator';
 
-const saveMock = jest.fn<any>();
-const bucketMock = jest.fn<any>(() => ({
-  file: jest.fn(() => ({
-    save: saveMock
-  }))
-}));
+const uploadJsonMock = jest.fn<any>();
 
-jest.unstable_mockModule('@google-cloud/storage', () => ({
-  Storage: jest.fn(() => ({
-    bucket: bucketMock
-  }))
+jest.unstable_mockModule('../src/storage.js', () => ({
+  uploadJson: uploadJsonMock,
+  listFiles: jest.fn(),
+  getFileStream: jest.fn()
 }));
 
 describe('GET /api/status', () => {

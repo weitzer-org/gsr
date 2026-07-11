@@ -27,7 +27,7 @@ To ensure our agent prompts are effective and not regressing, we use a custom **
 *   **Ablation Testing**: The harness can run reviews with specific agents disabled to measure their impact.
 *   **Comparison (Local vs Production)**: It runs reviews against both the local development server and the deployed production server simultaneously.
 *   **Auto-Evaluation**: An independent Gemini instance reviews the findings from both targets and generates a detailed comparison report on accuracy, actionability, and noise.
-*   **Persistence**: Results are automatically archived and uploaded to a Google Cloud Storage bucket.
+*   **Persistence**: Results are automatically archived and uploaded to an S3-compatible object storage bucket (Cloudflare R2 in production).
 
 ---
 

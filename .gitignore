@@ -12,7 +12,6 @@ test-results/
 *results*
 
 # Secrets & Keys
-jetski-sa-key.json
 *-key.json
 *.key
 dev_test_config.json

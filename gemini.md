@@ -5,9 +5,9 @@ This document (`gemini.md`) provides essential context, architectural outlines, 
 ## 📌 Project Overview
 GSR (Gemini Subagent Reviewer) is an AI-powered code review tool designed to analyze code and provide rich feedback utilizing Gemini subagents.
 
-The project consists of the **GSR ADK Cloud Run Prototype (`/adk`)**:
+The project consists of the **GSR ADK (`/adk`)**:
 - A decoupled client/server web application that analyzes live GitHub Pull Requests directly in the browser via an API.
-- Designed for deployment on Google Cloud Run.
+- Designed for deployment on Fly.io (see the root `fly.toml`).
 
 ## 🛠 Tech Stack
 - **Languages**: TypeScript (Backend / CLI), JavaScript (Frontend)
@@ -21,7 +21,7 @@ The project consists of the **GSR ADK Cloud Run Prototype (`/adk`)**:
 
 ## 🚀 Architectural & Environmental Context
 - **Module Systems**: Be aware of the varying module systems. `adk/frontend` uses `"type": "module"` (ESM), whereas `adk/backend` defaults to CommonJS (`"type": "commonjs"`). Always use the appropriate import/export syntax for the respective directory.
-- **Secrets Management**: The project heavily utilizes Google Cloud Secret Manager (especially in the Jetski environment) to fetch sensitive keys (e.g., `GEMINI_API_KEY`). Rely on the established scripts (like `start_sm.sh`) and do not hardcode secrets or assume `.env` files are always present in production.
+- **Secrets Management**: Sensitive keys (e.g., `GEMINI_API_KEY`) are read directly from environment variables — `.env` locally (see `.env.example`), `fly secrets set` in production. Do not hardcode secrets or assume `.env` files are always present in production.
 - **Concurrent Subagents**: Central to the application is running concurrent subagents that analyze code and return streamable or aggregated NDJSON findings. 
 
 ## 🧪 Testing & Evaluation

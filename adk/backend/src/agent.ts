@@ -19,12 +19,7 @@ export class GeminiAgent implements Subagent {
   constructor(name: string, promptContent: string) {
     this.name = name;
     this.promptContent = promptContent;
-    const useVertex = process.env.USE_VERTEX_AI === 'true';
-    if (useVertex) {
-      this.ai = new GoogleGenAI({});
-    } else {
-      this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    }
+    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   }
 
   async analyze(chunks: DiffChunk[]): Promise<AnalyzeResult> {

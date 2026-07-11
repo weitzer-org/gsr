@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { Storage } from '@google-cloud/storage';
+import { uploadJson, listFiles, getFileStream } from './storage';
 import path from 'path';
 import { spawn, exec } from './cmd.js';
 import { GitHubClient } from './github';
@@ -140,24 +140,14 @@ app.post('/api/review', async (req, res) => {
     res.write(JSON.stringify(finalPayload) + '\n');
     res.end();
 
-    // Upload to GCS asynchronously
+    // Upload to object storage asynchronously
     try {
-      const storage = getStorageInstance();
-      const bucket = storage.bucket(getReviewBucketName());
       const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '-');
       const filename = `review-run_${currentTimestamp.replace(/[:.]/g, '-')}_${safeUrl}.json`;
-      const file = bucket.file(filename);
-      await file.save(JSON.stringify(finalPayload), {
-        contentType: 'application/json',
-        metadata: {
-          metadata: {
-            originalUrl: url
-          }
-        }
-      });
-      console.log(`Successfully uploaded review history to GCS: ${filename}`);
+      await uploadJson(getReviewBucketName(), filename, finalPayload, { originalUrl: url });
+      console.log(`Successfully uploaded review history to storage: ${filename}`);
     } catch (uploadError) {
-      console.error('Failed to upload review history to GCS:', uploadError);
+      console.error('Failed to upload review history to storage:', uploadError);
     }
 
   } catch (error: any) {
@@ -181,11 +171,11 @@ app.post('/api/evals/start', (req, res, next) => {
     }
 
     if (evalRunner === 'production') {
-      const prodUrl = process.env.EVALUATOR_SERVICE_URL || 'https://gsr-evaluator-710019748844.us-central1.run.app';
+      const prodUrl = process.env.EVALUATOR_SERVICE_URL;
       if (!prodUrl) {
          return res.status(400).json({ error: 'Production evaluation requires EVALUATOR_SERVICE_URL environment variable.' });
       }
-      console.log(`[Backend API] Triggering remote evaluation harness on Cloud Run...`);
+      console.log(`[Backend API] Triggering remote evaluation harness at ${prodUrl}...`);
       
       // Fire-and-forget remote fetch
       fetch(`${prodUrl.replace(/\/$/, '')}/api/evaluate`, {
@@ -227,54 +217,43 @@ app.post('/api/evals/start', (req, res, next) => {
   }
 });
 
-const getStorageInstance = () => new Storage();
-const getBucketName = () => process.env.GCS_BUCKET || `gsr-eval-results-${process.env.GOOGLE_CLOUD_PROJECT || 'weitzer-org'}`;
-const getReviewBucketName = () => process.env.GCS_REVIEW_BUCKET || `gsr-review-results-${process.env.GOOGLE_CLOUD_PROJECT || 'weitzer-org'}`;
+const getBucketName = () => process.env.S3_BUCKET || 'gsr-eval-results';
+const getReviewBucketName = () => process.env.S3_REVIEW_BUCKET || 'gsr-review-results';
 
 app.get('/api/evals/results', async (req, res) => {
   try {
-    const storage = getStorageInstance();
-    const bucket = storage.bucket(getBucketName());
-    const [files] = await bucket.getFiles({ prefix: 'eval-run_', autoPaginate: false, maxResults: 100 });
-    
-    const fileList = files.map(f => ({
-      name: f.name,
-      updated: f.metadata.updated,
-      size: f.metadata.size
-    }));
-    
+    const files = await listFiles(getBucketName(), 'eval-run_', { maxResults: 100 });
+
     // Sort by updated descending
-    fileList.sort((a, b) => new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime());
-    
-    res.json(fileList);
+    files.sort((a, b) => new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime());
+
+    res.json(files);
   } catch (error: any) {
-    console.error('Error fetching GCS list:', error);
+    console.error('Error fetching eval results list:', error);
     if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 });
 
-app.get('/api/evals/results/:id', (req, res) => {
+app.get('/api/evals/results/:id', async (req, res) => {
   const fileId = req.params.id;
-  
+
   // Defense-in-depth: Strict regex sanitization to prevent Path Traversal
   if (!/^[a-zA-Z0-9_.-]+$/.test(fileId) || fileId.includes('..') || !fileId.startsWith('eval-run_')) {
     return res.status(400).json({ error: 'Invalid file ID format.' });
   }
 
   try {
-    const storage = getStorageInstance();
-    const bucket = storage.bucket(getBucketName());
-    const file = bucket.file(fileId);
-    
+    const stream = await getFileStream(getBucketName(), fileId);
+
     res.setHeader('Content-Type', 'application/json');
-    file.createReadStream()
-      .on('error', (error) => {
-        console.error('Error streaming GCS file:', error);
+    stream
+      .on('error', (error: Error) => {
+        console.error('Error streaming eval result file:', error);
         if (!res.headersSent) res.status(500).json({ error: error.message });
       })
       .pipe(res);
   } catch (error: any) {
-    console.error('Error initializing GCS stream:', error);
+    console.error('Error initializing eval result stream:', error);
     if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 });
@@ -282,22 +261,17 @@ app.get('/api/evals/results/:id', (req, res) => {
 // --- Review History API ---
 app.get('/api/review/history', async (req, res) => {
   try {
-    const storage = getStorageInstance();
-    const bucket = storage.bucket(getReviewBucketName());
-    const [files] = await bucket.getFiles({ prefix: 'review-run_', autoPaginate: false, maxResults: 100 });
-    
-    // Sort logic relies on fast pre-populated gcs list metadata
-    const fileList = files.map(f => {
-      return {
-        name: f.name,
-        updated: f.metadata.updated,
-        size: f.metadata.size,
-        originalUrl: f.metadata?.metadata?.originalUrl
-      };
-    });
-    
+    const files = await listFiles(getReviewBucketName(), 'review-run_', { maxResults: 100, includeMetadata: true });
+
+    const fileList = files.map(f => ({
+      name: f.name,
+      updated: f.updated,
+      size: f.size,
+      originalUrl: f.metadata?.originalUrl
+    }));
+
     fileList.sort((a, b) => new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime());
-    
+
     res.json(fileList);
   } catch (error: any) {
     console.error('Error fetching review history list:', error);
@@ -305,27 +279,25 @@ app.get('/api/review/history', async (req, res) => {
   }
 });
 
-app.get('/api/review/history/:id', (req, res) => {
+app.get('/api/review/history/:id', async (req, res) => {
   const fileId = req.params.id;
-  
+
   if (!/^[a-zA-Z0-9_.-]+$/.test(fileId) || fileId.includes('..')) {
     return res.status(400).json({ error: 'Invalid file ID format.' });
   }
 
   try {
-    const storage = getStorageInstance();
-    const bucket = storage.bucket(getReviewBucketName());
-    const file = bucket.file(fileId);
-    
+    const stream = await getFileStream(getReviewBucketName(), fileId);
+
     res.setHeader('Content-Type', 'application/json');
-    file.createReadStream()
-      .on('error', (error) => {
-        console.error('Error streaming review GCS file:', error);
+    stream
+      .on('error', (error: Error) => {
+        console.error('Error streaming review history file:', error);
         if (!res.headersSent) res.status(500).json({ error: error.message });
       })
       .pipe(res);
   } catch (error: any) {
-    console.error('Error initializing review GCS stream:', error);
+    console.error('Error initializing review history stream:', error);
     if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 });

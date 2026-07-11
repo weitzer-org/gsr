@@ -69,7 +69,7 @@ const sendRequest = (prUrl) => {
 
 async function main() {
   console.log('--- Starting Code Review ---');
-  let server = await runServer({ USE_CONTEXT_CACHING: 'true', USE_VERTEX_AI: 'true', GEMINI_API_KEY: process.env.GEMINI_API_KEY || '' });
+  let server = await runServer({ USE_CONTEXT_CACHING: 'true', GEMINI_API_KEY: process.env.GEMINI_API_KEY || '' });
   try {
     const findings = await sendRequest('https://github.com/weitzer-org/gsr/pull/24');
     

@@ -70,8 +70,8 @@ const sendRequest = () => {
 };
 
 async function main() {
-  console.log('--- Test 1: Context Caching DISABLED, Vertex AI DISABLED ---');
-  let server = await runServer({ USE_CONTEXT_CACHING: 'false', USE_VERTEX_AI: 'false', GEMINI_API_KEY: process.env.GEMINI_API_KEY || '' });
+  console.log('--- Test 1: Context Caching DISABLED ---');
+  let server = await runServer({ USE_CONTEXT_CACHING: 'false', GEMINI_API_KEY: process.env.GEMINI_API_KEY || '' });
   try {
     const metricsDisabled = await sendRequest();
     console.log('Metrics (Disabled):', metricsDisabled);
@@ -80,11 +80,11 @@ async function main() {
   }
   server.kill();
 
-  console.log('\n--- Test 2: Context Caching ENABLED, Vertex AI ENABLED ---');
+  console.log('\n--- Test 2: Context Caching ENABLED ---');
   // Wait to ensure port is freed
   await new Promise(r => setTimeout(r, 2000));
-  
-  server = await runServer({ USE_CONTEXT_CACHING: 'true', USE_VERTEX_AI: 'true', GEMINI_API_KEY: process.env.GEMINI_API_KEY || '' });
+
+  server = await runServer({ USE_CONTEXT_CACHING: 'true', GEMINI_API_KEY: process.env.GEMINI_API_KEY || '' });
   try {
     const metricsEnabled = await sendRequest();
     console.log('Metrics (Enabled):', metricsEnabled);

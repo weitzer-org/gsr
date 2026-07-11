@@ -6,12 +6,7 @@ export class DeduplicatorAgent {
   private static lock: Promise<void> = Promise.resolve();
 
   constructor() {
-    const useVertex = process.env.USE_VERTEX_AI === 'true';
-    if (useVertex) {
-      this.ai = new GoogleGenAI({});
-    } else {
-      this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    }
+    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   }
 
   async deduplicate(findings: CandidateFinding[]): Promise<CandidateFinding[]> {

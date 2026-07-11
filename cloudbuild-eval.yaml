@@ -1,86 +1,25 @@
-# cloudbuild-eval.yaml
-# CI/CD pipeline to build and deploy the standalone GSR Evaluation API to Cloud Run.
-
-substitutions:
-  _REGION: 'us-central1'
-  _ARTIFACT_REGISTRY_REPO_NAME: 'gsr-code-review'
-  _CLOUD_RUN_SERVICE_NAME: 'gsr-evaluator'
-  _IMAGE_TAG: $COMMIT_SHA
-
+# ⚠️  Cloud Build DEPLOY is intentionally DISABLED.
+#
+# The real production deploy config was moved to `cloudbuild-eval.gcp.yaml`
+# (preserved untouched for a future return to Google Cloud). This file is a
+# harmless no-op so that a lingering Cloud Build trigger which references
+# "cloudbuild-eval.yaml" CANNOT deploy to the retired GCP project on merge.
+#
+# The evaluator now deploys to Fly.io — see `fly.eval.toml` and
+# `.github/workflows/deploy.yml`.
+#
+# ► To fully stop the trigger from firing at all: in GitHub, remove the
+#   "Google Cloud Build" GitHub App's access to this repository (repo/org
+#   Settings → GitHub Apps → Google Cloud Build → Configure → remove this
+#   repo).
+#
+# ► To RE-ENABLE GCP deploys later: rename `cloudbuild-eval.gcp.yaml` back to
+#   `cloudbuild-eval.yaml`.
+steps:
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'echo "cloudbuild-eval.yaml is disabled in-repo — the evaluator now deploys via Fly.io. See cloudbuild-eval.gcp.yaml."'
 options:
   logging: CLOUD_LOGGING_ONLY
-
-steps:
-# =============================================================================
-# STAGE 1: Build Container Images
-# =============================================================================
-- name: 'gcr.io/cloud-builders/docker'
-  id: 'build-evaluator'
-  args: [
-    'build',
-    '-f', 'tools/eval/Dockerfile',
-    '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator:$_IMAGE_TAG',
-    '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator:latest',
-    '.'
-  ]
-
-# =============================================================================
-# STAGE 2: Push Container Images
-# =============================================================================
-- name: 'gcr.io/cloud-builders/docker'
-  id: 'push-evaluator'
-  args: [
-    'push',
-    '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator',
-    '--all-tags'
-  ]
-  waitFor: ['build-evaluator']
-
-# =============================================================================
-# STAGE 3: Deploy Application
-# =============================================================================
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'deploy-evaluator'
-  entrypoint: 'bash'
-  args:
-  - '-c'
-  - |
-    gcloud run deploy $_CLOUD_RUN_SERVICE_NAME \
-      --image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator:$_IMAGE_TAG \
-      --region=$_REGION \
-      --timeout=3600 \
-      --allow-unauthenticated \
-      --set-env-vars="USE_CONTEXT_CACHING=true,USE_VERTEX_AI=true" \
-      --set-secrets="GEMINI_API_KEY=gsr-gemini-api-key:latest,GITHUB_PAT=gsr-github-pat:latest"
-    
-    echo "✅ Evaluator Application deployed successfully"
-  waitFor: ['push-evaluator']
-
-# =============================================================================
-# STAGE 4: Health Check
-# =============================================================================
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
-  id: 'health-check'
-  entrypoint: 'sh'
-  args:
-  - '-c'
-  - |
-    APP_URL=$$(gcloud run services describe $_CLOUD_RUN_SERVICE_NAME \
-      --platform managed \
-      --region $_REGION \
-      --format='value(status.url)' 2>&1)
-
-    if [ -z "$$APP_URL" ]; then
-      echo "WARNING: Could not retrieve Cloud Run Application URL"
-      exit 1
-    fi
-
-    echo "Application health check at $$APP_URL/api/status"
-    curl --fail --retry 10 --retry-delay 5 "$$APP_URL/api/status"
-
-    echo "✅ Evaluator health check completed"
-  waitFor: ['deploy-evaluator']
-
-images:
-  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator:$_IMAGE_TAG'
-  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator:latest'

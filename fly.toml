@@ -1,0 +1,39 @@
+# Fly.io deployment for the GSR code review backend (adk/backend).
+#
+# First time:  fly launch --no-deploy   (creates the app; may rename it)
+# Deploy:      fly deploy
+#
+# Build context is the repo root (adk/Dockerfile COPYs from adk/backend and
+# adk/frontend), so always run `fly deploy` from the repo root, not from adk/.
+#
+# Secrets are NOT stored in this file — set them with `fly secrets set`:
+#   fly secrets set \
+#     GEMINI_API_KEY=... \
+#     S3_ACCESS_KEY_ID=... \
+#     S3_SECRET_ACCESS_KEY=... \
+#     S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com \
+#     S3_BUCKET=gsr-review-results \
+#     S3_REVIEW_BUCKET=gsr-review-results \
+#     EVALUATOR_SERVICE_URL=https://gsr-evaluator.fly.dev
+
+app = "gsr-code-review"
+primary_region = "iad"
+
+[build]
+  dockerfile = "adk/Dockerfile"
+
+[env]
+  PORT = "8080"
+  S3_REGION = "auto"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Scale to zero when idle; wake in ~1-2s on the next request.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

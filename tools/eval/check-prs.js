@@ -1,11 +1,7 @@
-const { Storage } = require('@google-cloud/storage');
-const path = require('path');
-
-process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(__dirname, '../../jetski-sa-key.json');
-const storage = new Storage({ projectId: 'weitzer-org' });
+const { downloadFile } = require('./s3-debug-client');
 
 async function checkPRs(file) {
-  const [contents] = await storage.bucket('gsr-eval-results-weitzer-org').file(file).download();
+  const contents = await downloadFile(file);
   const data = JSON.parse(contents);
   console.log(`\n\n=== ${file} ===\n`);
   data.results.slice(0, 3).forEach((r, i) => { // Just look at first 3 PRs as a sample for verification

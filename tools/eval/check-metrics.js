@@ -1,13 +1,9 @@
-const { Storage } = require('@google-cloud/storage');
-const path = require('path');
-
-process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(__dirname, '../../jetski-sa-key.json');
-const storage = new Storage({ projectId: 'weitzer-org' });
+const { downloadFile } = require('./s3-debug-client');
 
 async function getStats(fileList) {
   for (const label of Object.keys(fileList)) {
     const file = fileList[label];
-    const [contents] = await storage.bucket('gsr-eval-results-weitzer-org').file(file).download();
+    const contents = await downloadFile(file);
     const data = JSON.parse(contents);
     console.log(`\n\n=== ${label} (${file}) ===`);
     console.log(JSON.stringify(data.aggregate_metrics, null, 2));

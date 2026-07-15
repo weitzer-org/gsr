@@ -1,7 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import { runEvaluation } from './evaluate';
-import { isValidInternalKey } from './internalAuth';
+import { isValidInternalKey, assertProductionSecretConfigured } from './internalAuth';
+
+assertProductionSecretConfigured();
 
 const app = express();
 app.use(cors());

@@ -7,6 +7,7 @@ import {
     requireAuth,
     handleLogin,
     handleLogout,
+    assertProductionAuthConfigured,
     SESSION_COOKIE_NAME,
 } from '../src/auth';
 
@@ -66,6 +67,34 @@ describe('signSession / verifySession', () => {
         const token = signSession('correct-horse');
         const [expiry] = token.split('.');
         expect(verifySession(`${expiry}.tampered-signature`, 'correct-horse')).toBe(false);
+    });
+});
+
+describe('SESSION_SECRET decoupling', () => {
+    const originalSecret = process.env.SESSION_SECRET;
+    afterEach(() => {
+        process.env.SESSION_SECRET = originalSecret;
+    });
+
+    it('falls back to the password as the signing key when unset', () => {
+        delete process.env.SESSION_SECRET;
+        const token = signSession('correct-horse');
+        expect(verifySession(token, 'correct-horse')).toBe(true);
+    });
+
+    it('when set, a token signed under one password is invalid under a different password (same SESSION_SECRET)', () => {
+        process.env.SESSION_SECRET = 'shared-signing-key';
+        const token = signSession('password-a');
+        // Verification only cares about SESSION_SECRET now, not the password passed in —
+        // demonstrating the two are decoupled once SESSION_SECRET is configured.
+        expect(verifySession(token, 'password-b')).toBe(true);
+    });
+
+    it('when set, tokens are invalid if SESSION_SECRET changes between sign and verify', () => {
+        process.env.SESSION_SECRET = 'key-one';
+        const token = signSession('correct-horse');
+        process.env.SESSION_SECRET = 'key-two';
+        expect(verifySession(token, 'correct-horse')).toBe(false);
     });
 });
 
@@ -192,5 +221,41 @@ describe('handleLogout', () => {
         expect(res.clearCookie.mock.calls[0][0]).toBe(SESSION_COOKIE_NAME);
         expect(res.clearCookie.mock.calls[0][1]).toMatchObject({ httpOnly: true, sameSite: 'lax', path: '/' });
         expect(res.json).toHaveBeenCalledWith({ status: 'success' });
+    });
+});
+
+describe('assertProductionAuthConfigured', () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalUiPassword = process.env.UI_PASSWORD;
+    const originalEvalSecret = process.env.EVALUATOR_SHARED_SECRET;
+
+    afterEach(() => {
+        process.env.NODE_ENV = originalNodeEnv;
+        process.env.UI_PASSWORD = originalUiPassword;
+        process.env.EVALUATOR_SHARED_SECRET = originalEvalSecret;
+    });
+
+    it('is a no-op outside production', () => {
+        process.env.NODE_ENV = 'development';
+        delete process.env.UI_PASSWORD;
+        expect(() => assertProductionAuthConfigured()).not.toThrow();
+    });
+
+    it('throws in production when UI_PASSWORD is unset', () => {
+        process.env.NODE_ENV = 'production';
+        delete process.env.UI_PASSWORD;
+        expect(() => assertProductionAuthConfigured()).toThrow(/UI_PASSWORD is not set/);
+    });
+
+    it('does not throw in production when UI_PASSWORD is set, even without EVALUATOR_SHARED_SECRET', () => {
+        process.env.NODE_ENV = 'production';
+        process.env.UI_PASSWORD = 'secret';
+        delete process.env.EVALUATOR_SHARED_SECRET;
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        expect(() => assertProductionAuthConfigured()).not.toThrow();
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('EVALUATOR_SHARED_SECRET'));
+
+        warnSpy.mockRestore();
     });
 });

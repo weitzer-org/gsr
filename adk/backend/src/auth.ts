@@ -14,8 +14,14 @@ const SESSION_COOKIE_OPTIONS = {
   path: '/',
 };
 
+// SESSION_SECRET is optional and independent of UI_PASSWORD (falls back to
+// the password if unset, preserving prior behavior for existing
+// deployments). Setting it decouples the two: a captured session token no
+// longer lets an attacker brute-force the login password offline, since the
+// HMAC key isn't the password itself.
 function sign(expiry: number, password: string): string {
-  return crypto.createHmac('sha256', password).update(String(expiry)).digest('base64url');
+  const key = process.env.SESSION_SECRET || password;
+  return crypto.createHmac('sha256', key).update(String(expiry)).digest('base64url');
 }
 
 function timingSafeStringEqual(a: string, b: string): boolean {
@@ -105,4 +111,33 @@ export function handleLogin(req: Request, res: Response) {
 export function handleLogout(req: Request, res: Response) {
   res.clearCookie(SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS);
   res.json({ status: 'success' });
+}
+
+/**
+ * Called once at server startup. UI_PASSWORD's "no-op when unset" convention
+ * is deliberate for local dev/test, but the same silent-fail-open in
+ * production is exactly the gap this app was previously deployed with
+ * (public URL, zero auth) — so production refuses to start without it,
+ * rather than quietly serving unauthenticated. EVALUATOR_SHARED_SECRET only
+ * warns here: it's the *evaluator's* job to hard-enforce its own secret
+ * (see tools/eval/internalAuth.ts) since that's the boundary that actually
+ * protects it; this app just attaches the header when calling out.
+ */
+export function assertProductionAuthConfigured(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  if (!process.env.UI_PASSWORD) {
+    throw new Error(
+      'UI_PASSWORD is not set. Refusing to start in production without it — ' +
+      'this app was previously deployed with no auth at all, and that is the ' +
+      'gap this check exists to prevent. Set it with `fly secrets set`.'
+    );
+  }
+  if (!process.env.EVALUATOR_SHARED_SECRET) {
+    console.warn(
+      '[Auth] EVALUATOR_SHARED_SECRET is not set — the remote evaluation ' +
+      'trigger (POST /api/evals/start with evalRunner=production) will call ' +
+      'the evaluator with no auth header attached.'
+    );
+  }
 }

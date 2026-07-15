@@ -59,15 +59,26 @@ just guessable. Two independent gates now cover this:
   sound-profile-builder pattern — `UI_PASSWORD` env var, stateless signed
   cookie session (`adk/backend/src/auth.ts`, no server-side session store).
   `requireAuth` gates everything except `/api/status`, `GET/POST /login`,
-  and `POST /logout`. **A no-op if `UI_PASSWORD` isn't set** (local dev /
-  test convenience) — set it via `fly secrets set` to actually lock down a
-  deployment; forgetting to set it there means the app stays open.
+  and `POST /logout`. Signing key is `SESSION_SECRET` if set, else falls
+  back to `UI_PASSWORD` — set `SESSION_SECRET` to decouple the two, so a
+  captured session token can't be used to brute-force the login password.
 - `tools/eval` (server-to-server only, no browser UI of its own): shared
   secret checked via `X-Internal-Key` header on `/api/evaluate`
   (`tools/eval/internalAuth.ts`), value = `EVALUATOR_SHARED_SECRET`. The
   main backend attaches this header when it triggers a remote eval run
   (`/api/evals/start` → `EVALUATOR_SERVICE_URL/api/evaluate`); both apps'
   Fly secrets must hold the same value.
+- **Both `UI_PASSWORD` and `EVALUATOR_SHARED_SECRET` are no-ops when unset**
+  (local dev / test convenience, same convention as this repo's other
+  optional secrets) — **except in production** (`NODE_ENV=production`,
+  set by both Dockerfiles): each app's entrypoint
+  (`adk/backend/src/index.ts`, `tools/eval/server.ts`) calls a startup guard
+  that refuses to boot without its own required secret
+  (`assertProductionAuthConfigured` / `assertProductionSecretConfigured`),
+  so a missing secret fails loudly (deploy/health-check failure) instead of
+  silently re-opening the app. `adk/backend` only *warns* if
+  `EVALUATOR_SHARED_SECRET` is missing, since that's a supplementary
+  outbound-call feature, not its primary protection (`UI_PASSWORD` is).
 
 ## Tests
 - `cd adk/backend && npm test` — Jest + Supertest (mocks `storage.ts` and

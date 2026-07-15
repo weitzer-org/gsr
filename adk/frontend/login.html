@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSR - Sign in</title>
+    <style>
+        body {
+            font-family: -apple-system, 'Inter', system-ui, sans-serif;
+            background: #0f1115;
+            color: #e6e6e6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .login-card {
+            background: #1a1d23;
+            padding: 2.5rem;
+            border-radius: 12px;
+            width: 320px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+        h1 {
+            font-size: 1.25rem;
+            margin: 0 0 1.5rem;
+        }
+        input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 0.65rem 0.8rem;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background: #0f1115;
+            color: #fff;
+            margin-bottom: 1rem;
+            font-size: 0.95rem;
+        }
+        button {
+            width: 100%;
+            padding: 0.65rem;
+            border: none;
+            border-radius: 8px;
+            background: #4f7cff;
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.95rem;
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        #login-error {
+            color: #ff6b6b;
+            font-size: 0.85rem;
+            margin-top: 0.75rem;
+            min-height: 1em;
+        }
+    </style>
+</head>
+<body>
+    <form class="login-card" id="login-form">
+        <h1>GSR &mdash; Sign in</h1>
+        <input type="password" id="password" name="password" placeholder="Password" required autofocus autocomplete="current-password">
+        <button type="submit" id="login-btn">Log In</button>
+        <div id="login-error"></div>
+    </form>
+    <script type="module">
+        const form = document.getElementById('login-form');
+        const btn = document.getElementById('login-btn');
+        const errorEl = document.getElementById('login-error');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            btn.disabled = true;
+            errorEl.textContent = '';
+            const password = document.getElementById('password').value;
+
+            try {
+                const res = await fetch('/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                if (res.ok) {
+                    window.location.href = '/';
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    errorEl.textContent = data.error || 'Invalid password.';
+                }
+            } catch (err) {
+                errorEl.textContent = 'Network error, please try again.';
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

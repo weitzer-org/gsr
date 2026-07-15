@@ -7,9 +7,11 @@ import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
 import { Evaluator } from './evaluator';
 import { ReviewSource } from './types';
+import { requireAuth, handleLogin, handleLogout } from './auth';
 
 const SYSTEM_PROMPTS_DIR = process.env.SYSTEM_PROMPTS_DIR || 'system_prompts';
 const BASIC_PROMPT_DIR = 'basic_prompt';
+const frontendPath = path.join(process.cwd(), '../frontend');
 
 export const app = express();
 app.use(cors());
@@ -24,13 +26,21 @@ app.use((req, res, next) => {
 app.get('/api/status', (req, res) => {
   const isConnected = !!process.env.GEMINI_API_KEY;
   const modelStr = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
-  
+
   res.json({
     status: 'success',
     geminiConnected: isConnected,
     model: modelStr
   });
 });
+
+// --- Auth (defined before the requireAuth gate below, so these stay public) ---
+app.get('/login', (req, res) => res.sendFile(path.join(frontendPath, 'login.html')));
+app.post('/login', handleLogin);
+app.post('/logout', handleLogout);
+
+// Everything below this point requires a valid session when UI_PASSWORD is set.
+app.use(requireAuth);
 
 app.post('/api/review', async (req, res) => {
   const { url, pat } = req.body;
@@ -180,7 +190,10 @@ app.post('/api/evals/start', (req, res, next) => {
       // Fire-and-forget remote fetch
       fetch(`${prodUrl.replace(/\/$/, '')}/api/evaluate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(process.env.EVALUATOR_SHARED_SECRET ? { 'X-Internal-Key': process.env.EVALUATOR_SHARED_SECRET } : {})
+        },
         body: JSON.stringify({ comparisonGroup, targetBranch: branchName, useNewMetrics: evalVersion === 'v2' })
       }).catch(err => console.error('Cloud Run Evaluator Trigger Failed:', err));
 
@@ -303,7 +316,6 @@ app.get('/api/review/history/:id', async (req, res) => {
 });
 
 // Serve frontend static files
-const frontendPath = path.join(process.cwd(), '../frontend');
 app.use(express.static(frontendPath));
 
 // Fallback to index.html for SPA routing (ignore static asset extensions to allow 404s)

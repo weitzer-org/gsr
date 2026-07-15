@@ -1,7 +1,11 @@
-// 
+//
 // Handles fetching GCS eval data, kicking off runs, and populating the UI.
 
+import { authFetch, wireLogoutLink } from './utils.js';
+
 export function initEvals() {
+    wireLogoutLink();
+
     const runEvalBtn = document.getElementById('run-eval-btn');
     const statusNotice = document.getElementById('run-status-notice');
     const runList = document.getElementById('run-list');
@@ -76,7 +80,7 @@ export function initEvals() {
         }
 
         try {
-            const res = await fetch('/api/evals/start', {
+            const res = await authFetch('/api/evals/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ comparisonGroup, branchName, evalVersion, evalRunner })
@@ -98,7 +102,7 @@ export function initEvals() {
 
     async function fetchRuns() {
         try {
-            const res = await fetch('/api/evals/results');
+            const res = await authFetch('/api/evals/results');
             if (!res.ok) throw new Error('Failed to fetch run list');
             const data = await res.json();
             renderRunList(data);
@@ -139,7 +143,7 @@ export function initEvals() {
         prAccordion.innerHTML = '';
 
         try {
-            const res = await fetch(`/api/evals/results/${encodeURIComponent(fileName)}`);
+            const res = await authFetch(`/api/evals/results/${encodeURIComponent(fileName)}`);
             if (!res.ok) throw new Error('Failed to fetch specific run data');
             const data = await res.json();
             

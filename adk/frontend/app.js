@@ -1,6 +1,8 @@
-import { escapeHTML, parseStreamChunk } from './utils.js';
+import { escapeHTML, parseStreamChunk, authFetch, wireLogoutLink } from './utils.js';
 
 export function initApp() {
+
+  wireLogoutLink();
 
   const form = document.getElementById('review-form');
   const submitBtn = document.getElementById('submit-btn');
@@ -85,7 +87,7 @@ export function initApp() {
 
   async function fetchHistory() {
       try {
-          const response = await fetch('/api/review/history');
+          const response = await authFetch('/api/review/history');
           const data = await response.json();
           if (data && data.length > 0) {
               fullHistoryData = data;
@@ -151,7 +153,7 @@ export function initApp() {
   async function loadHistoricalReview(id) {
       try {
           resultsContainer.classList.add('hidden');
-          const response = await fetch(`/api/review/history/${id}`);
+          const response = await authFetch(`/api/review/history/${id}`);
           if (!response.ok) throw new Error("Failed to fetch review data");
           const data = await response.json();
           renderReviewData(data);
@@ -218,7 +220,7 @@ export function initApp() {
       const agentTasks = new Map();
 
       try {
-          const response = await fetch(API_URL, {
+          const response = await authFetch(API_URL, {
               method: 'POST',
               headers: {
                   'Content-Type': 'application/json',

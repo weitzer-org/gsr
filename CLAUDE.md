@@ -50,6 +50,25 @@ Secrets are plain env vars — `.env` locally (git-ignored, never commit it),
 path anymore (removed in the Fly.io migration); don't reintroduce
 `GOOGLE_APPLICATION_CREDENTIALS`-style auto-loading.
 
+## Auth
+Both Fly apps were originally deployed with zero auth on their public URLs
+— `fly.toml`'s `app = 'gsr-code-review'` is public in this repo, so the
+default `https://gsr-code-review.fly.dev` URL is directly discoverable, not
+just guessable. Two independent gates now cover this:
+- `adk/backend` (browser UI + API): password login, mirroring the
+  sound-profile-builder pattern — `UI_PASSWORD` env var, stateless signed
+  cookie session (`adk/backend/src/auth.ts`, no server-side session store).
+  `requireAuth` gates everything except `/api/status`, `GET/POST /login`,
+  and `POST /logout`. **A no-op if `UI_PASSWORD` isn't set** (local dev /
+  test convenience) — set it via `fly secrets set` to actually lock down a
+  deployment; forgetting to set it there means the app stays open.
+- `tools/eval` (server-to-server only, no browser UI of its own): shared
+  secret checked via `X-Internal-Key` header on `/api/evaluate`
+  (`tools/eval/internalAuth.ts`), value = `EVALUATOR_SHARED_SECRET`. The
+  main backend attaches this header when it triggers a remote eval run
+  (`/api/evals/start` → `EVALUATOR_SERVICE_URL/api/evaluate`); both apps'
+  Fly secrets must hold the same value.
+
 ## Tests
 - `cd adk/backend && npm test` — Jest + Supertest (mocks `storage.ts` and
   the Gemini SDK; never hits real object storage or the network).

@@ -1,0 +1,97 @@
+import * as crypto from 'crypto';
+import { Request, Response, NextFunction } from 'express';
+
+export const SESSION_COOKIE_NAME = 'gsr_auth_session';
+export const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function sign(expiry: number, password: string): string {
+  return crypto.createHmac('sha256', password).update(String(expiry)).digest('base64url');
+}
+
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  return aBuf.length === bBuf.length && crypto.timingSafeEqual(aBuf, bBuf);
+}
+
+/** Stateless signed session token: "<expiryMs>.<hmac(expiryMs, password)>". No server-side session store. */
+export function signSession(password: string): string {
+  const expiry = Date.now() + SESSION_DURATION_MS;
+  return `${expiry}.${sign(expiry, password)}`;
+}
+
+export function verifySession(token: string | undefined, password: string): boolean {
+  if (!token) return false;
+  const dotIndex = token.indexOf('.');
+  if (dotIndex === -1) return false;
+
+  const expiry = Number(token.slice(0, dotIndex));
+  const signature = token.slice(dotIndex + 1);
+  if (!Number.isFinite(expiry) || Date.now() > expiry || !signature) return false;
+
+  return timingSafeStringEqual(signature, sign(expiry, password));
+}
+
+export function verifyPassword(submitted: string | undefined, password: string): boolean {
+  return typeof submitted === 'string' && submitted.length > 0 && timingSafeStringEqual(submitted, password);
+}
+
+export function parseCookie(cookieHeader: string | undefined, name: string): string | undefined {
+  if (!cookieHeader) return undefined;
+  for (const part of cookieHeader.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) {
+      return decodeURIComponent(part.slice(eq + 1).trim());
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Gates every route it's mounted after. Auth is intentionally a no-op when
+ * UI_PASSWORD isn't set (local dev / test convenience, same convention as
+ * this repo's other optional secrets) — set it via `fly secrets set` to
+ * actually lock down a deployment.
+ */
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const password = process.env.UI_PASSWORD;
+  if (!password) {
+    return next();
+  }
+
+  const token = parseCookie(req.headers.cookie, SESSION_COOKIE_NAME);
+  if (verifySession(token, password)) {
+    return next();
+  }
+
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  res.redirect('/login');
+}
+
+export function handleLogin(req: Request, res: Response) {
+  const password = process.env.UI_PASSWORD;
+  if (!password) {
+    return res.status(503).json({ error: 'UI_PASSWORD is not configured on the server.' });
+  }
+
+  if (!verifyPassword(req.body?.password, password)) {
+    return res.status(401).json({ error: 'Invalid password.' });
+  }
+
+  res.cookie(SESSION_COOKIE_NAME, signSession(password), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: SESSION_DURATION_MS,
+  });
+  res.json({ status: 'success' });
+}
+
+export function handleLogout(req: Request, res: Response) {
+  res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+  res.json({ status: 'success' });
+}

@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { runEvaluation } from './evaluate';
+import { isValidInternalKey } from './internalAuth';
 
 const app = express();
 app.use(cors());
@@ -8,6 +9,10 @@ app.use(express.json());
 
 // Main Evaluation Trigger Endpoint
 app.post('/api/evaluate', async (req, res) => {
+  if (!isValidInternalKey(req.header('X-Internal-Key'), process.env.EVALUATOR_SHARED_SECRET)) {
+    return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+  }
+
   const { comparisonGroup, targetBranch, useNewMetrics } = req.body;
 
   try {

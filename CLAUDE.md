@@ -14,8 +14,9 @@ store standing in for Cloudflare R2 — no cloud accounts required.
 cp .env.example .env   # first time; set a real GEMINI_API_KEY
 ./run.sh                # builds + starts app + MinIO via docker compose
 ```
-- App: http://localhost:8080
-- MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`)
+- App: http://localhost:8090 (host port shifted from the default 8080 so it
+  doesn't collide with the sound-profile-builder project's local stack)
+- MinIO console: http://localhost:9011 (`minioadmin` / `minioadmin`)
 - Stop: `docker compose down` (add `-v` to also wipe the MinIO volume)
 
 Without Docker: `cd adk/backend && npm install && npm run dev` (reads
@@ -64,19 +65,46 @@ and gates the Fly.io deploy on them passing — but tests don't catch design,
 security, or simplification issues, so review before merging is still the
 main quality gate.
 
-- Before opening/merging a PR, run **`/code-review low`** or
-  **`/code-review medium`** against the branch diff — always pass the effort
-  level explicitly. Bare `/code-review` (no args) defaults to `high`, which
-  spawns 8 parallel finder agents plus verification passes; that's the
-  expensive tier, not the routine one.
-- Small/low-risk diffs (docs, config, prompt wording): `/code-review low` is
-  enough.
-- Larger or risky changes (agent orchestration, storage/secrets, auth):
-  `/code-review high`.
+**Cost policy (Claude quota is a real constraint on this project).** The
+bundled `/code-review` spawns 8 finder agents plus up to 8 verifiers at
+`high` — the single largest discretionary expense in the workflow. So it is
+**not** the default. The default pre-merge review is the project's own
+**`/quick-review`** (`.claude/skills/quick-review/`): one inline pass, no
+sub-agents, ~1 call. CodeRabbit reviews every PR automatically at zero Claude
+quota and is the automated second opinion that makes a cheaper local pass
+acceptable, on top of the CI test gate above.
+
+- **Default — every PR:** run **`/quick-review`** against the branch diff,
+  then let CodeRabbit backstop it on the open PR.
+- **Escalate to the multi-agent `/code-review medium`/`high`** only for large
+  or architecturally risky changes (agent orchestration, storage/secrets,
+  auth) where the fan-out's extra recall is worth the extra calls. Always
+  pass the effort level explicitly.
 - Reserve `/code-review ultra` (multi-agent cloud review) for substantial
   features before merge — it's billed separately, so don't run it routinely.
 - `/code-review --fix` applies the findings directly if you want them
   auto-fixed instead of just reported.
+- If a diff feels too big or risky for a single `/quick-review` pass, say so
+  and let the user decide whether to budget for the full fan-out — don't
+  quietly spawn sub-agents to compensate.
+
+### Security review
+The standard review lenses (correctness, cleanup, altitude, conventions) are
+not a substitute for an explicit security pass — they check whether a change
+does what it intends, not whether an adversary can bend it. This repo's
+finding-rendering path (`adk/frontend/app.js`'s `renderFindings`) escapes some
+LLM/diff-derived fields but not others, and PR diff filenames flowing into
+that path are attacker-controlled — the kind of gap that only surfaces with
+that specific adversarial lens.
+
+- Run **`/security-review`** (project skill, `.claude/skills/security-review/`)
+  as an optional, additive pass — not a replacement for `/quick-review` —
+  whenever a diff touches agent orchestration, storage/secrets, auth, or how
+  externally-influenced content (PR diffs, Gemini/LLM output) gets rendered,
+  parsed, or escaped. It runs adversarial angles (injection, auth/authz,
+  secrets handling, supply chain) the standard lenses don't cover, as a
+  single inline pass (no sub-agents, ~1 call) — same quota profile as
+  `/quick-review`.
 
 ## Deployment
 - **Fly.io** (current runtime): `fly.toml` (main backend, app

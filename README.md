@@ -45,3 +45,11 @@ To ensure our agent prompts are effective and not regressing, we use a custom **
 
 Please see the **[ADK README](./adk/README.md)** for detailed instructions on setting up the environment and running the servers locally.
 
+---
+
+## 🤖 GitHub Action
+
+GSR can also run as a **GitHub Action** on your own pull requests — see
+**[ACTION.md](./ACTION.md)** for setup and configuration (choose between
+`subagent` and `basic` review modes).
+

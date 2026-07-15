@@ -1,5 +1,12 @@
 import { Octokit } from '@octokit/rest';
-import { DiffChunk } from './types.js';
+import { CandidateFinding, DiffChunk } from './types.js';
+
+const SEVERITY_EMOJI: Record<string, string> = {
+  CRITICAL: '🔴',
+  HIGH: '🟠',
+  MEDIUM: '🟡',
+  LOW: '🔵'
+};
 
 export class GitHubClient {
   private octokit: Octokit;
@@ -67,6 +74,75 @@ export class GitHubClient {
     } catch (error: any) {
       console.error("Failed to fetch PR diff:", error);
       throw new Error(`Failed to fetch PR diff: ${error.message}`);
+    }
+  }
+
+  private formatFindingBody(finding: CandidateFinding): string {
+    const emoji = SEVERITY_EMOJI[finding.severity] || '';
+    let body = `${emoji} **${finding.severity}**${finding.agent ? ` · ${finding.agent}` : ''} — ${finding.summary}\n\n${finding.description}`;
+    if (finding.suggestion) {
+      body += `\n\n${finding.suggestion}`;
+    }
+    return body;
+  }
+
+  /**
+   * Submits findings as a single GitHub PR review with inline comments. The
+   * Reviews API rejects the whole batch if any comment's line isn't part of
+   * the diff, so on failure we fall back to posting comments one at a time
+   * (skipping only the ones GitHub rejects) plus a summary issue comment.
+   */
+  public async postReviewComments(url: string, findings: CandidateFinding[]): Promise<{ posted: number; skipped: number }> {
+    const { owner, repo, pull_number } = this.parsePRUrl(url);
+    const summary = findings.length === 0
+      ? '**GSR Review** — no issues found.'
+      : `**GSR Review** — ${findings.length} finding(s).`;
+
+    if (findings.length === 0) {
+      await this.octokit.rest.pulls.createReview({ owner, repo, pull_number, event: 'COMMENT', body: summary });
+      return { posted: 0, skipped: 0 };
+    }
+
+    const comments = findings.map(f => ({
+      path: f.file,
+      line: f.line,
+      side: 'RIGHT' as const,
+      body: this.formatFindingBody(f)
+    }));
+
+    try {
+      await this.octokit.rest.pulls.createReview({ owner, repo, pull_number, event: 'COMMENT', body: summary, comments });
+      return { posted: comments.length, skipped: 0 };
+    } catch (error: any) {
+      console.warn(`Batched review submission failed (${error.message}); falling back to posting comments individually.`);
+
+      const pr = await this.octokit.rest.pulls.get({ owner, repo, pull_number });
+      const commit_id = pr.data.head.sha;
+
+      let posted = 0;
+      let skipped = 0;
+      for (const comment of comments) {
+        try {
+          await this.octokit.rest.pulls.createReviewComment({
+            owner, repo, pull_number, commit_id,
+            path: comment.path,
+            line: comment.line,
+            side: comment.side,
+            body: comment.body
+          });
+          posted++;
+        } catch (commentError: any) {
+          console.warn(`Skipping comment on ${comment.path}:${comment.line} (${commentError.message})`);
+          skipped++;
+        }
+      }
+
+      const fallbackSummary = summary + (skipped > 0
+        ? `\n\n_(${skipped} finding(s) could not be placed inline on the diff and were omitted; see workflow logs.)_`
+        : '');
+      await this.octokit.rest.issues.createComment({ owner, repo, issue_number: pull_number, body: fallbackSummary });
+
+      return { posted, skipped };
     }
   }
 }

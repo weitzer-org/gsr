@@ -26,7 +26,9 @@ COPY --from=builder /app/backend/dist ./backend/dist
 COPY adk/prompts/system_prompts/ /adk/prompts/system_prompts/
 COPY adk/prompts/basic_prompt/ /adk/prompts/basic_prompt/
 
-WORKDIR /app/backend
 ENV NODE_ENV=production
 
-ENTRYPOINT ["node", "dist/src/action-entrypoint.js"]
+# GitHub Actions always runs container actions with `docker run --workdir
+# /github/workspace` (the consumer's checkout), overriding this image's own
+# WORKDIR — so the entrypoint path must be absolute, not relative to cwd.
+ENTRYPOINT ["node", "/app/backend/dist/src/action-entrypoint.js"]

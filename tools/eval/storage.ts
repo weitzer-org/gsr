@@ -48,7 +48,10 @@ export async function ensureBucketExists(bucketName: string): Promise<void> {
   try {
     await getClient().send(new HeadBucketCommand({ Bucket: bucketName }));
     console.log(`ℹ️ Bucket ${bucketName} already exists.`);
-  } catch (error) {
+  } catch (error: any) {
+    if (error.$metadata?.httpStatusCode !== 404 && error.name !== 'NotFound') {
+      throw error;
+    }
     console.log(`Bucket ${bucketName} does not exist. Creating it...`);
     await getClient().send(new CreateBucketCommand({ Bucket: bucketName }));
     console.log(`✅ Created bucket ${bucketName}.`);

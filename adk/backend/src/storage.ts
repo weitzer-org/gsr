@@ -61,8 +61,13 @@ export async function listFiles(bucket: string, prefix: string, options?: { maxR
   }
 
   return Promise.all(files.map(async (file) => {
-    const head = await getClient().send(new HeadObjectCommand({ Bucket: bucket, Key: file.name }));
-    return { ...file, metadata: head.Metadata };
+    try {
+      const head = await getClient().send(new HeadObjectCommand({ Bucket: bucket, Key: file.name }));
+      return { ...file, metadata: head.Metadata };
+    } catch (error) {
+      console.error(`Failed to fetch metadata for ${file.name}:`, error);
+      return file;
+    }
   }));
 }
 

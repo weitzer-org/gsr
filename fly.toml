@@ -30,6 +30,13 @@ primary_region = 'iad'
   internal_port = 8080
   force_https = true
   # Scale to zero when idle; wake in ~1-2s on the next request.
+  #
+  # Known accepted risk: /api/review holds one HTTP connection open for the
+  # whole multi-agent swarm run (can be 1-2+ min). If a review runs long
+  # enough to trip Fly's proxy/idle handling with min_machines_running=0,
+  # the machine could stop mid-review. Revisit (e.g. min_machines_running=1,
+  # or streaming progress to keep the connection warm) if reviews start
+  # actually getting killed mid-run in practice.
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0

@@ -30,14 +30,23 @@ docker compose up -d --build "$@"
 # Wait for the app to actually be reachable so the URL below isn't buried
 # under build/startup logs.
 echo -n "Waiting for the app to come up..."
+ready=0
 for i in $(seq 1 60); do
   if curl -sf "$APP_URL/api/status" >/dev/null 2>&1; then
     echo " ready!"
+    ready=1
     break
   fi
   echo -n "."
   sleep 1
 done
+
+if [ "$ready" -eq 0 ]; then
+  echo " failed!" >&2
+  echo "ERROR: app did not become ready within 60s. Check the logs:" >&2
+  echo "       docker compose logs" >&2
+  exit 1
+fi
 
 echo "=================================================="
 echo " GSR is running:"

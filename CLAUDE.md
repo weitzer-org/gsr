@@ -70,12 +70,12 @@ bundled `/code-review` spawns 8 finder agents plus up to 8 verifiers at
 `high` — the single largest discretionary expense in the workflow. So it is
 **not** the default. The default pre-merge review is the project's own
 **`/quick-review`** (`.claude/skills/quick-review/`): one inline pass, no
-sub-agents, ~1 call. CodeRabbit reviews every PR automatically at zero Claude
-quota and is the automated second opinion that makes a cheaper local pass
-acceptable, on top of the CI test gate above.
+sub-agents, ~1 call. CodeRabbit and gemini-code-assist both review every PR
+automatically at zero Claude quota and are the automated second opinion that
+makes a cheaper local pass acceptable, on top of the CI test gate above.
 
 - **Default — every PR:** run **`/quick-review`** against the branch diff,
-  then let CodeRabbit backstop it on the open PR.
+  then let CodeRabbit and gemini-code-assist backstop it on the open PR.
 - **Escalate to the multi-agent `/code-review medium`/`high`** only for large
   or architecturally risky changes (agent orchestration, storage/secrets,
   auth) where the fan-out's extra recall is worth the extra calls. Always

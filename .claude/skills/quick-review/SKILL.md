@@ -14,10 +14,10 @@ core job in **one inline pass, spawning no agents at all**.
 That tradeoff is deliberate and real: a single pass finds fewer issues than 8
 specialized angles. It's affordable *because* this repo already has two other
 safety nets: `.github/workflows/deploy.yml` runs the full Jest/Supertest suite
-on every push and gates the Fly.io deploy on it passing, and CodeRabbit
-reviews every PR automatically at zero Claude quota. Neither catches design,
-security, or simplification issues on its own — this skill is the local first
-pass; CI and the bot are the backstop.
+on every push and gates the Fly.io deploy on it passing, and CodeRabbit and
+gemini-code-assist both review every PR automatically at zero Claude quota.
+None of these catch design, security, or simplification issues on their
+own — this skill is the local first pass; CI and those bots are the backstop.
 
 **Do not spawn sub-agents while running this skill.** If you find yourself
 wanting to, that's the signal to stop and tell the user this diff warrants a
@@ -103,9 +103,9 @@ summary, and a concrete failure scenario. Cap at ~8. If nothing survives
 verification, say so plainly rather than padding.
 
 Then state, in one line, what this pass did **not** cover — so the user knows
-what CI/CodeRabbit still need to catch. For example: "Single-pass only; no
-dedicated security/injection angle — `/security-review` (also a single-pass
-skill) or CodeRabbit remain the check for that."
+what CI/CodeRabbit/gemini-code-assist still need to catch. For example:
+"Single-pass only; no dedicated security/injection angle — `/security-review`
+(also a single-pass skill) or the PR bots remain the check for that."
 
 ## When to escalate instead
 

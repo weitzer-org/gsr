@@ -44,6 +44,7 @@ async function main() {
   }
 
   const failOnSeverity = process.env.FAIL_ON_SEVERITY || 'none';
+  shouldFailOnSeverity([], failOnSeverity); // validates the threshold up front; throws before we burn a review on a typo
 
   const url = resolvePullRequestUrl();
   const ghClient = new GitHubClient(githubToken);

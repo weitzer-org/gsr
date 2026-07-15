@@ -9,9 +9,10 @@ description: Optional, single-pass adversarial security review for this repo. Ru
 change does what it intends — not whether an adversary can bend it. That gap
 is not hypothetical here: this repo's finding-rendering path
 (`adk/frontend/app.js`'s `renderFindings`) escapes `severity`/`description` via
-`escapeHTML` but has let `agent`/`file` through raw into `innerHTML` and a raw
-`title="${file}"` attribute — and `file` comes straight from PR diff filenames
-(`github.ts`), which are fully attacker-controlled in a malicious/crafted PR.
+`escapeHTML` but has let `agent`/`file` through raw into `innerHTML` (a
+separate raw `title="${file}"` sink also exists in the progress-card render,
+same file) — and `file` comes straight from PR diff filenames (`github.ts`),
+which are fully attacker-controlled in a malicious/crafted PR.
 That's a real stored-XSS vector reachable by opening a PR with a crafted
 filename, not a theoretical one — the same shape of bug as the sound-profile-
 builder project's hand-rolled HTML sanitizer that shipped with XSS bypasses.
@@ -20,10 +21,10 @@ builder project's hand-rolled HTML sanitizer that shipped with XSS bypasses.
 sub-agents** — deliberately, because a multi-agent fan-out (the bundled
 `/code-review`) is the largest discretionary Claude-quota expense in this
 project's workflow. The tradeoff is that one focused pass finds less than
-several parallel angles; that's acceptable here *because* CodeRabbit reviews
-every PR automatically at zero Claude quota and CI (`deploy.yml`) gates
-deploy on the test suite passing. This skill is the local adversarial pass;
-CI and CodeRabbit are the backstop.
+several parallel angles; that's acceptable here *because* CodeRabbit and
+gemini-code-assist both review every PR automatically at zero Claude quota
+and CI (`deploy.yml`) gates deploy on the test suite passing. This skill is
+the local adversarial pass; CI and those two bots are the backstop.
 
 **Do not spawn Agent-tool sub-agents while running it** — if the diff feels
 too big or dangerous for one pass, say so and recommend the user budget for a
@@ -139,4 +140,4 @@ the same `file` / `line` / `summary` / `failure_scenario` fields.
 
 Finally, because this is one pass rather than a fan-out, state plainly what
 you did **not** get to (e.g. "did not audit the full GitHub Action permission
-model end-to-end") so the user knows what CI/CodeRabbit still need to cover.
+model end-to-end") so the user knows what CI/CodeRabbit/gemini-code-assist still need to cover.

@@ -17,23 +17,23 @@
 #     S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com \
 #     S3_BUCKET=gsr-eval-results
 
-app = "gsr-evaluator"
-primary_region = "iad"
+app = 'gsr-evaluator'
+primary_region = 'iad'
 
 [build]
-  dockerfile = "tools/eval/Dockerfile"
+  dockerfile = 'tools/eval/Dockerfile'
 
 [env]
-  PORT = "8080"
-  S3_REGION = "auto"
+  PORT = '8080'
+  S3_REGION = 'auto'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  size = 'shared-cpu-1x'
+  memory = '512mb'

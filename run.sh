@@ -16,10 +16,35 @@ if [ -z "$KEY" ] || printf '%s' "$KEY" | grep -q 'replace-with'; then
   exit 1
 fi
 
+APP_URL="http://localhost:8090"
+MINIO_URL="http://localhost:9011"
+
 echo "=================================================="
-echo " GSR — local dev"
-echo " App:           http://localhost:8080"
-echo " MinIO console: http://localhost:9001 (minioadmin/minioadmin)"
+echo " GSR — local dev (building...)"
+echo " App:           $APP_URL"
+echo " MinIO console: $MINIO_URL (minioadmin/minioadmin)"
 echo "=================================================="
 
-exec docker compose up --build "$@"
+docker compose up -d --build "$@"
+
+# Wait for the app to actually be reachable so the URL below isn't buried
+# under build/startup logs.
+echo -n "Waiting for the app to come up..."
+for i in $(seq 1 60); do
+  if curl -sf "$APP_URL/api/status" >/dev/null 2>&1; then
+    echo " ready!"
+    break
+  fi
+  echo -n "."
+  sleep 1
+done
+
+echo "=================================================="
+echo " GSR is running:"
+echo "   App:           $APP_URL"
+echo "   MinIO console: $MINIO_URL (minioadmin/minioadmin)"
+echo " Logs:  docker compose logs -f"
+echo " Stop:  docker compose down"
+echo "=================================================="
+
+exec docker compose logs -f

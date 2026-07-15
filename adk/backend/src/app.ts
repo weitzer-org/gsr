@@ -267,7 +267,7 @@ app.get('/api/review/history', async (req, res) => {
       name: f.name,
       updated: f.updated,
       size: f.size,
-      originalUrl: f.metadata?.originalUrl
+      originalUrl: f.metadata?.originalUrl || f.metadata?.originalurl
     }));
 
     fileList.sort((a, b) => new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime());

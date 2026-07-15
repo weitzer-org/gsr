@@ -17,5 +17,5 @@ export function shouldFailOnSeverity(findings: CandidateFinding[], threshold: st
     throw new Error(`Invalid fail-on-severity value "${threshold}" — must be one of: none, low, medium, high, critical.`);
   }
 
-  return findings.some(f => (SEVERITY_SCORES[f.severity.toUpperCase()] || 0) >= minScore);
+  return findings.some(f => (SEVERITY_SCORES[f.severity?.toUpperCase()] || 0) >= minScore);
 }

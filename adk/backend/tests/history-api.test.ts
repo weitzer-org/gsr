@@ -75,6 +75,23 @@ describe('Review History API Endpoints', () => {
       const response = await request(app).get('/api/review/history');
       expect(response.status).toBe(500);
     });
+
+    it('should recover originalUrl when the store lowercases the metadata key', async () => {
+      // S3-compatible stores (R2, MinIO) normalize custom metadata keys to
+      // lowercase on the wire, even though it was uploaded as `originalUrl`.
+      const mockFile = {
+        name: 'review-run_2026-03-24T20-00-00-000Z_test.json',
+        updated: '2026-03-24T20:00:00.000Z',
+        size: 100,
+        metadata: { originalurl: 'https://github.com/org/repo/pull/1' }
+      } as any;
+      listFilesMock.mockResolvedValue([mockFile]);
+
+      const response = await request(app).get('/api/review/history');
+
+      expect(response.status).toBe(200);
+      expect(response.body[0].originalUrl).toBe('https://github.com/org/repo/pull/1');
+    });
   });
 
   describe('GET /api/review/history/:id', () => {

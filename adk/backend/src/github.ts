@@ -121,6 +121,7 @@ export class GitHubClient {
 
       let posted = 0;
       let skipped = 0;
+      const skippedComments: string[] = [];
       for (const comment of comments) {
         try {
           await this.octokit.rest.pulls.createReviewComment({
@@ -133,12 +134,13 @@ export class GitHubClient {
           posted++;
         } catch (commentError: any) {
           console.warn(`Skipping comment on ${comment.path}:${comment.line} (${commentError.message})`);
+          skippedComments.push(`<details>\n<summary><b>${comment.path}:${comment.line}</b></summary>\n\n${comment.body}\n</details>`);
           skipped++;
         }
       }
 
       const fallbackSummary = summary + (skipped > 0
-        ? `\n\n_(${skipped} finding(s) could not be placed inline on the diff and were omitted; see workflow logs.)_`
+        ? `\n\n### Findings that couldn't be placed inline\n_(line no longer part of the diff, or otherwise rejected — shown here instead)_\n\n${skippedComments.join('\n\n')}`
         : '');
       await this.octokit.rest.issues.createComment({ owner, repo, issue_number: pull_number, body: fallbackSummary });
 

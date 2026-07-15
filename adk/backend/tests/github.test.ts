@@ -137,7 +137,11 @@ index e69de29..d95f3ad 100644
             expect(createReviewComment).toHaveBeenCalledTimes(2);
             expect(createReviewComment.mock.calls[0][0]).toMatchObject({ commit_id: 'abc123', path: 'src/a.ts', line: 10 });
             expect(createComment).toHaveBeenCalledTimes(1);
-            expect(createComment.mock.calls[0][0].body).toContain('1 finding(s) could not be placed inline');
+            const fallbackBody = createComment.mock.calls[0][0].body;
+            expect(fallbackBody).toContain("couldn't be placed inline");
+            expect(fallbackBody).toContain('src/b.ts:999');
+            expect(fallbackBody).toContain('issue B');
+            expect(fallbackBody).toContain('desc B');
             expect(result).toEqual({ posted: 1, skipped: 1 });
         });
     });

@@ -30,4 +30,11 @@ describe('shouldFailOnSeverity', () => {
     it('throws on an invalid threshold', () => {
         expect(() => shouldFailOnSeverity(findings, 'bogus')).toThrow('Invalid fail-on-severity value');
     });
+
+    it('does not crash on a finding with a missing/malformed severity', () => {
+        const malformed: any = [{ file: 'c.ts', line: 3, summary: 's', description: 'd' }];
+        expect(() => shouldFailOnSeverity(malformed, 'low')).not.toThrow();
+        expect(shouldFailOnSeverity(malformed, 'low')).toBe(false);
+        expect(shouldFailOnSeverity([...malformed, ...findings], 'high')).toBe(true);
+    });
 });

@@ -52,9 +52,13 @@ so the action's `GITHUB_TOKEN` can post review comments.
 - Only triggers meaningfully on `pull_request` / `pull_request_target`
   events — the action reads `GITHUB_EVENT_PATH` for the PR number.
 - If a finding's line can't be mapped onto the diff, the batched review
-  submission is retried comment-by-comment and any that still fail are
-  dropped (noted in the summary comment and the workflow log) rather than
-  failing the whole review.
+  submission is retried comment-by-comment; any that still fail are folded
+  into the summary comment (with their full content, so nothing is lost)
+  instead of failing the whole review.
 - This action is unrelated to the Fly.io-hosted `gsr-code-review` app or the
   `tools/eval` harness — it packages `adk/backend`'s orchestrator/agent code
   directly (see `action.yml` / `action.Dockerfile`).
+- The repo is public and the action is open to anyone — no access
+  restriction is enforced (a source-level allowlist was considered but
+  rejected as unenforceable against a fork; see git history if that
+  tradeoff needs revisiting later).

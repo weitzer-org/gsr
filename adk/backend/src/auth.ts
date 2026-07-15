@@ -4,6 +4,16 @@ import { Request, Response, NextFunction } from 'express';
 export const SESSION_COOKIE_NAME = 'gsr_auth_session';
 export const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+// Shared between set (login) and clear (logout) — browsers key cookie
+// identity on path/secure/sameSite too, so a mismatch can leave the cookie
+// un-clearable in some browsers.
+const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+};
+
 function sign(expiry: number, password: string): string {
   return crypto.createHmac('sha256', password).update(String(expiry)).digest('base64url');
 }
@@ -42,7 +52,11 @@ export function parseCookie(cookieHeader: string | undefined, name: string): str
     const eq = part.indexOf('=');
     if (eq === -1) continue;
     if (part.slice(0, eq).trim() === name) {
-      return decodeURIComponent(part.slice(eq + 1).trim());
+      try {
+        return decodeURIComponent(part.slice(eq + 1).trim());
+      } catch {
+        return undefined; // malformed percent-encoding — treat as no cookie, not a crash
+      }
     }
   }
   return undefined;
@@ -82,16 +96,13 @@ export function handleLogin(req: Request, res: Response) {
   }
 
   res.cookie(SESSION_COOKIE_NAME, signSession(password), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
+    ...SESSION_COOKIE_OPTIONS,
     maxAge: SESSION_DURATION_MS,
   });
   res.json({ status: 'success' });
 }
 
 export function handleLogout(req: Request, res: Response) {
-  res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+  res.clearCookie(SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS);
   res.json({ status: 'success' });
 }

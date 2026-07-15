@@ -32,6 +32,12 @@ describe('parseCookie', () => {
     it('returns undefined for an empty header', () => {
         expect(parseCookie(undefined, 'gsr_auth_session')).toBeUndefined();
     });
+
+    it('returns undefined instead of throwing on malformed percent-encoding', () => {
+        expect(() => parseCookie('gsr_auth_session=abc%zzdef', 'gsr_auth_session')).not.toThrow();
+        expect(parseCookie('gsr_auth_session=abc%zzdef', 'gsr_auth_session')).toBeUndefined();
+        expect(parseCookie('gsr_auth_session=%', 'gsr_auth_session')).toBeUndefined();
+    });
 });
 
 describe('signSession / verifySession', () => {
@@ -176,13 +182,15 @@ describe('handleLogin', () => {
 });
 
 describe('handleLogout', () => {
-    it('clears the session cookie', () => {
+    it('clears the session cookie with the same attributes it was set with', () => {
         const req: any = {};
         const res = mockRes();
 
         handleLogout(req, res);
 
-        expect(res.clearCookie).toHaveBeenCalledWith(SESSION_COOKIE_NAME, { path: '/' });
+        expect(res.clearCookie).toHaveBeenCalledTimes(1);
+        expect(res.clearCookie.mock.calls[0][0]).toBe(SESSION_COOKIE_NAME);
+        expect(res.clearCookie.mock.calls[0][1]).toMatchObject({ httpOnly: true, sameSite: 'lax', path: '/' });
         expect(res.json).toHaveBeenCalledWith({ status: 'success' });
     });
 });

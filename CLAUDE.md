@@ -116,6 +116,12 @@ that specific adversarial lens.
   `cloudbuild.yaml`/`cloudbuild-eval.yaml` are intentionally disabled stubs.
 - Deploy from the repo root (both Dockerfiles COPY across `adk/` and
   `tools/eval/`, so the build context must be root, not the subdirectory).
+- **Never merge a PR or push directly to `main`, even a trivial one** —
+  merges to `main` auto-deploy via `deploy.yml`, and a self-merge has no
+  human review behind it. Open the PR and hand it to the user; only a human
+  merges. (The harness backstops this — `gh pr merge` on a self-authored PR
+  gets blocked as a self-merge-without-review — but don't attempt to work
+  around that block, and don't rely on it instead of just not trying.)
 
 ## Conventions
 - Storage is accessed only through `storage.ts`'s exported functions in each

@@ -1,0 +1,45 @@
+# Fly.io deployment for the GSR standalone evaluation harness (tools/eval),
+# invoked remotely by the main backend's "evaluate on production" button.
+#
+# First time:  fly launch --config fly.eval.toml --no-deploy
+# Deploy:      fly deploy --config fly.eval.toml
+#
+# Build context is the repo root (tools/eval/Dockerfile COPYs from
+# adk/backend as well as tools/eval), so always run `fly deploy` from the
+# repo root, not from tools/eval/.
+#
+# Secrets are NOT stored in this file — set them with `fly secrets set`:
+#   fly secrets set --config fly.eval.toml \
+#     GEMINI_API_KEY=... \
+#     GITHUB_TOKEN=... \
+#     S3_ACCESS_KEY_ID=... \
+#     S3_SECRET_ACCESS_KEY=... \
+#     S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com \
+#     S3_BUCKET=gsr-eval-results
+
+app = 'gsr-evaluator'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'tools/eval/Dockerfile'
+
+[env]
+  PORT = '8080'
+  S3_REGION = 'auto'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Known accepted risk: /api/evaluate (tools/eval/server.ts) awaits the full
+  # eval run on one HTTP connection, which can take several minutes. With
+  # min_machines_running=0 the machine could stop mid-run if that trips
+  # Fly's proxy/idle handling. Revisit (e.g. min_machines_running=1, or
+  # making the eval trigger async like the main backend's /api/evals/start)
+  # if runs start actually getting killed mid-flight in practice.
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'

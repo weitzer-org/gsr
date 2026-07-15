@@ -1,0 +1,48 @@
+name: 'GSR Code Review'
+description: 'Multi-agent Gemini-powered code review that posts inline findings on a pull request.'
+author: 'weitzer-org'
+branding:
+  icon: 'search'
+  color: 'blue'
+
+inputs:
+  gemini-api-key:
+    description: 'Gemini API key used to run the review. Store as a repo/org secret.'
+    required: true
+  github-token:
+    description: 'Token used to read the PR diff and post review comments.'
+    required: false
+    default: ${{ github.token }}
+  mode:
+    description: >
+      Review strategy: "subagent" runs the full swarm of specialized agents
+      (Architecture, Logic, Security, TechDebt, Testing, ...) plus a
+      deduplication pass and finds more issues but costs more tokens/time.
+      "basic" runs a single general-purpose review pass, faster and cheaper.
+    required: false
+    default: 'subagent'
+  fail-on-severity:
+    description: >
+      Fail the workflow if a finding at or above this severity is reported:
+      one of "critical", "high", "medium", "low", or "none" to never fail.
+    required: false
+    default: 'none'
+  gemini-model:
+    description: 'Override the Gemini model used for review.'
+    required: false
+    default: ''
+  max-review-files:
+    description: 'Maximum number of changed files to review before truncating.'
+    required: false
+    default: '300'
+
+runs:
+  using: 'docker'
+  image: 'action.Dockerfile'
+  env:
+    GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
+    GITHUB_TOKEN: ${{ inputs.github-token }}
+    REVIEW_MODE: ${{ inputs.mode }}
+    FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
+    GEMINI_MODEL: ${{ inputs.gemini-model }}
+    MAX_REVIEW_FILES: ${{ inputs.max-review-files }}

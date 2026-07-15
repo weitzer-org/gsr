@@ -1,10 +1,10 @@
 # Gemini Subagent Reviewer (GSR) - ADK
 
-The ADK is a decoupled backend and frontend architecture for running concurrent LLM code reviews against GitHub Pull Requests. It is designed to be hosted in Google Cloud Run.
+The ADK is a decoupled backend and frontend architecture for running concurrent LLM code reviews against GitHub Pull Requests. It is designed to be hosted on Fly.io (see the root `fly.toml`).
 
 ## Architecture
 The project is split into two standalone Node.js services:
-1. **`backend`**: An Express server running on port `8080`. It handles GitHub authentication, diff fetching, and orchestrating the Vertex AI subagents concurrently.
+1. **`backend`**: An Express server running on port `8080`. It handles GitHub authentication, diff fetching, and orchestrating the Gemini subagents concurrently (via the Gemini API — no GCP project required).
 2. **`frontend`**: An Express server running on port `3000`. It serves the Vanilla Web UI that allows developers to request reviews and visualize the results.
 
 ---

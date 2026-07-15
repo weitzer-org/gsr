@@ -9,19 +9,13 @@ jest.unstable_mockModule('../src/cmd.js', () => ({
   exec: execMock
 }));
 
-const getFilesMock = jest.fn<any>();
-const createReadStreamMock = jest.fn<any>();
-const bucketMock = jest.fn<any>(() => ({
-  getFiles: getFilesMock,
-  file: jest.fn(() => ({
-    createReadStream: createReadStreamMock
-  }))
-}));
+const listFilesMock = jest.fn<any>();
+const getFileStreamMock = jest.fn<any>();
 
-jest.unstable_mockModule('@google-cloud/storage', () => ({
-  Storage: jest.fn(() => ({
-    bucket: bucketMock
-  }))
+jest.unstable_mockModule('../src/storage.js', () => ({
+  uploadJson: jest.fn(),
+  listFiles: listFilesMock,
+  getFileStream: getFileStreamMock
 }));
 
 class MockStream {
@@ -43,8 +37,8 @@ describe('Evaluations API Endpoints', () => {
     jest.resetModules();
     spawnMock.mockReset();
     execMock.mockReset();
-    getFilesMock.mockReset();
-    createReadStreamMock.mockReset();
+    listFilesMock.mockReset();
+    getFileStreamMock.mockReset();
 
     const mod = await import('../src/app.js');
     app = mod.app;
@@ -78,22 +72,20 @@ describe('Evaluations API Endpoints', () => {
   });
 
   describe('GET /api/evals/results', () => {
-    it('should return a JSON list of GCS files', async () => {
-      getFilesMock.mockResolvedValue([
-        [
-          { name: 'eval-run_202x.json', metadata: { updated: '2026', size: '10' } }
-        ]
+    it('should return a JSON list of stored eval files', async () => {
+      listFilesMock.mockResolvedValue([
+        { name: 'eval-run_202x.json', updated: '2026', size: '10' }
       ]);
 
       const response = await request(app).get('/api/evals/results');
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual([{ name: 'eval-run_202x.json', updated: '2026', size: '10' }]);
-      expect(getFilesMock).toHaveBeenCalledWith({ prefix: 'eval-run_', autoPaginate: false, maxResults: 100 });
+      expect(listFilesMock).toHaveBeenCalledWith('gsr-eval-results', 'eval-run_', { maxResults: 100 });
     });
 
     it('should return 500 when storage fetch fails', async () => {
-      getFilesMock.mockRejectedValue(new Error('Storage failure'));
+      listFilesMock.mockRejectedValue(new Error('Storage failure'));
       const response = await request(app).get('/api/evals/results');
       expect(response.status).toBe(500);
     });
@@ -104,7 +96,7 @@ describe('Evaluations API Endpoints', () => {
     const fileId = 'eval-run_2024-03-20.json';
 
     it('should return a specific eval object stream when valid', async () => {
-       createReadStreamMock.mockReturnValue(new MockStream(JSON.stringify(mockReport)));
+       getFileStreamMock.mockResolvedValue(new MockStream(JSON.stringify(mockReport)));
 
       const response = await request(app).get(`/api/evals/results/${fileId}`);
 

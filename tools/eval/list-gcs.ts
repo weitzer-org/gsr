@@ -1,19 +1,18 @@
-import { Storage } from '@google-cloud/storage';
+import { listFiles, downloadFile } from './storage';
 
-const storage = new Storage();
-const bucketName = 'gsr-eval-results-weitzer-org';
+const bucketName = process.env.S3_BUCKET || 'gsr-eval-results';
 
 async function listAndFetch() {
   try {
-    const [files] = await storage.bucket(bucketName).getFiles();
+    const files = await listFiles(bucketName, '');
     // Sort by updated time, get last 4
-    files.sort((a, b) => new Date(a.metadata.updated || 0).getTime() - new Date(b.metadata.updated || 0).getTime());
+    files.sort((a, b) => new Date(a.updated || 0).getTime() - new Date(b.updated || 0).getTime());
     const recent = files.slice(-4);
-    
+
     for (const file of recent) {
       console.log(`\n============== File: ${file.name} ==============`);
-      const [contents] = await file.download();
-      const data = JSON.parse(contents.toString());
+      const contents = await downloadFile(bucketName, file.name);
+      const data = JSON.parse(contents);
       console.log(`Duration: ${data.durationSeconds}s`);
       console.log(`Settings: cache=${data.metadata?.contextCaching}, vertex=${data.metadata?.vertexAi}, env=${data.metadata?.evaluationEnv}`);
       console.log(`Files Processed: ${data.metrics?.totalFilesProcessed}`);

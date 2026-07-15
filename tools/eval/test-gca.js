@@ -1,11 +1,7 @@
 require('dotenv').config();
-const { execSync } = require('child_process');
-let pat = '';
-try {
-  const secretName = process.env.GITHUB_PAT_SECRET || 'gsr-github-pat';
-  pat = execSync(`gcloud secrets versions access latest --secret=${secretName}`).toString().trim();
-} catch (err) {
-  console.error('Failed to retrieve GitHub PAT from gcloud secret manager. Exiting.');
+const pat = process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
+if (!pat) {
+  console.error('GITHUB_PAT (or GITHUB_TOKEN) environment variable is required. Exiting.');
   process.exit(1);
 }
 const { fetchBotComments } = require('./github-comments');

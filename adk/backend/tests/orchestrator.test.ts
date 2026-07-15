@@ -91,6 +91,25 @@ describe('Orchestrator', () => {
         expect(results.findings[0].severity).toBe('HIGH');
     });
 
+    it('should not crash filtering a finding with a missing severity', async () => {
+        jest.spyOn(GeminiAgent.prototype, 'analyze')
+            .mockResolvedValue({
+                findings: [
+                    { file: 'test.ts', line: 1, summary: 'No severity field', description: 'Desc', agent: 'Logic' } as any,
+                    { file: 'test.ts', line: 2, severity: 'HIGH', summary: 'High issue', description: 'Desc', agent: 'Logic' }
+                ]
+            });
+
+        const orchestrator = new Orchestrator(1);
+        (orchestrator as any).subagents = [new GeminiAgent('Logic', 'logic.md')];
+
+        const chunks = [{ file: 'test.ts', content: '+ new code' }];
+        const results = await orchestrator.runReview(chunks);
+
+        expect(results.findings).toHaveLength(1);
+        expect(results.findings[0].severity).toBe('HIGH');
+    });
+
     it('should break deduplicator when useTriage is false', async () => {
         const orchestrator = new Orchestrator();
         (orchestrator as any).useTriage = false;

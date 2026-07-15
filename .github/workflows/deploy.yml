@@ -1,0 +1,73 @@
+name: Test and Deploy to Fly.io
+
+# Runs the test suites on every push/PR, then deploys both Fly apps on every
+# push to main (i.e. when a PR is merged).
+# Requires a repository secret FLY_API_TOKEN — create one with:
+#   fly tokens create deploy -x 999999h
+# then add it under GitHub → Settings → Secrets and variables → Actions.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: deploy-fly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-backend:
+    name: Test adk/backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: adk/backend
+      - run: npm test
+        working-directory: adk/backend
+
+  test-frontend:
+    name: Test adk/frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: adk/frontend
+      - run: npm test
+        working-directory: adk/frontend
+
+  test-eval:
+    name: Test tools/eval
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: tools/eval
+      - run: npm test
+        working-directory: tools/eval
+
+  deploy:
+    name: Deploy to Fly.io
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [test-backend, test-frontend, test-eval]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only --config fly.toml
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - run: flyctl deploy --remote-only --config fly.eval.toml
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

@@ -227,7 +227,7 @@ export class Orchestrator {
       const minScore = severityScores[minSeverity.toUpperCase()] || 1;
 
       return findings.filter(f => {
-          const score = severityScores[f.severity.toUpperCase()] || 0;
+          const score = severityScores[f.severity?.toUpperCase()] || 0;
           return score >= minScore;
       });
   }

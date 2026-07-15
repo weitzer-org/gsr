@@ -73,5 +73,78 @@ index e69de29..d95f3ad 100644
         console.error = originalConsoleError;
     });
 
+    describe('postReviewComments', () => {
+        const url = 'https://github.com/GoogleCloudPlatform/scion/pull/123';
+
+        it('posts a no-findings summary review when there are no findings', async () => {
+            const createReview = (jest.fn() as any).mockResolvedValue({});
+            (client as any).octokit = { rest: { pulls: { createReview } } };
+
+            const result = await client.postReviewComments(url, []);
+
+            expect(createReview).toHaveBeenCalledTimes(1);
+            expect(createReview.mock.calls[0][0]).toMatchObject({ event: 'COMMENT' });
+            expect(createReview.mock.calls[0][0].body).toContain('no issues found');
+            expect(result).toEqual({ posted: 0, skipped: 0 });
+        });
+
+        it('submits all findings as a single batched review on success', async () => {
+            const createReview = (jest.fn() as any).mockResolvedValue({});
+            (client as any).octokit = { rest: { pulls: { createReview } } };
+
+            const findings: any = [
+                { file: 'src/a.ts', line: 10, severity: 'HIGH', summary: 'issue A', description: 'desc A' },
+                { file: 'src/b.ts', line: 20, severity: 'LOW', summary: 'issue B', description: 'desc B' }
+            ];
+
+            const result = await client.postReviewComments(url, findings);
+
+            expect(createReview).toHaveBeenCalledTimes(1);
+            const call = createReview.mock.calls[0][0];
+            expect(call.comments).toHaveLength(2);
+            expect(call.comments[0]).toMatchObject({ path: 'src/a.ts', line: 10, side: 'RIGHT' });
+            expect(result).toEqual({ posted: 2, skipped: 0 });
+        });
+
+        it('falls back to per-comment posting when the batched review is rejected', async () => {
+            const createReview = (jest.fn() as any).mockRejectedValue(new Error('line must be part of the diff'));
+            const get = (jest.fn() as any).mockResolvedValue({ data: { head: { sha: 'abc123' } } });
+            const createReviewComment = (jest.fn() as any)
+                .mockResolvedValueOnce({})
+                .mockRejectedValueOnce(new Error('not part of the diff'));
+            const createComment = (jest.fn() as any).mockResolvedValue({});
+
+            (client as any).octokit = {
+                rest: {
+                    pulls: { createReview, get, createReviewComment },
+                    issues: { createComment }
+                }
+            };
+
+            const originalWarn = console.warn;
+            console.warn = jest.fn();
+
+            const findings: any = [
+                { file: 'src/a.ts', line: 10, severity: 'HIGH', summary: 'issue A', description: 'desc A' },
+                { file: 'src/b.ts', line: 999, severity: 'LOW', summary: 'issue B', description: 'desc B' }
+            ];
+
+            const result = await client.postReviewComments(url, findings);
+
+            console.warn = originalWarn;
+
+            expect(get).toHaveBeenCalledTimes(1);
+            expect(createReviewComment).toHaveBeenCalledTimes(2);
+            expect(createReviewComment.mock.calls[0][0]).toMatchObject({ commit_id: 'abc123', path: 'src/a.ts', line: 10 });
+            expect(createComment).toHaveBeenCalledTimes(1);
+            const fallbackBody = createComment.mock.calls[0][0].body;
+            expect(fallbackBody).toContain("couldn't be placed inline");
+            expect(fallbackBody).toContain('src/b.ts:999');
+            expect(fallbackBody).toContain('issue B');
+            expect(fallbackBody).toContain('desc B');
+            expect(result).toEqual({ posted: 1, skipped: 1 });
+        });
+    });
+
 });
 

@@ -1,30 +1,12 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { Storage } from '@google-cloud/storage';
+import { listFiles, downloadFile } from './storage';
 
-// Auto-load Service Account Key for Jetski environments if not set
-if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  const saPath = path.join(__dirname, '../../jetski-sa-key.json');
-  if (fs.existsSync(saPath)) {
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = saPath;
-  }
-}
-
-const storage = new Storage();
-const bucketName = 'gsr-eval-results-weitzer-org';
+const bucketName = process.env.S3_BUCKET || 'gsr-eval-results';
 
 async function main() {
-  const bucket = storage.bucket(bucketName);
-  const [files] = await bucket.getFiles({ prefix: 'eval-run_' });
-  
-  const fileList = files.map(f => ({
-    name: f.name,
-    updated: f.metadata.updated,
-    size: f.metadata.size
-  }));
-  
+  const fileList = await listFiles(bucketName, 'eval-run_');
+
   fileList.sort((a, b) => new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime());
-  
+
   // The first 4 files
   const top4 = fileList.slice(0, 4);
 
@@ -40,9 +22,8 @@ async function main() {
     console.log(`\n=================== ${testMap[i]} ===================`);
     console.log(`File: ${f.name} (${f.updated})`);
 
-    const file = bucket.file(f.name);
-    const [contents] = await file.download();
-    const data = JSON.parse(contents.toString('utf-8'));
+    const contents = await downloadFile(bucketName, f.name);
+    const data = JSON.parse(contents);
 
     console.log(`\n### Comparison Group: ${data.comparisonGroup}`);
     console.log(`### Vertex/Context Caching: ${data.useVertexAi}`);

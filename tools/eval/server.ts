@@ -12,12 +12,10 @@ app.post('/api/evaluate', async (req, res) => {
 
   try {
     console.log(`[EVALUATOR] Triggering evaluation run...`);
-    // Run asynchronously or await. For Cloud Run with potentially long execution, a background task approach
-    // or long-polling is needed. For simplicity, we'll await if it finishes within 30-60 mins timeout limits,
-    // but the evaluation process might take multiple minutes.
-    
-    // Cloud Run HTTP requests typically timeout after 60 mins max, or 5 mins by default.
-    // We will await it directly.
+    // Run asynchronously or await. For a long-running deployment with potentially long execution,
+    // a background task approach or long-polling is needed. For simplicity, we'll await if it
+    // finishes within the platform's request timeout, but the evaluation process might take
+    // multiple minutes, so this assumes a generous timeout is configured on the host.
     const result = await runEvaluation({
       compGroup: comparisonGroup,
       targetBranch: targetBranch,
@@ -31,7 +29,7 @@ app.post('/api/evaluate', async (req, res) => {
   }
 });
 
-// Health check endpoint for Cloud Run
+// Health check endpoint
 app.get('/api/status', (req, res) => {
   res.json({ status: 'healthy', service: 'gsr-evaluator' });
 });

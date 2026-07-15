@@ -1,10 +1,11 @@
 import 'dotenv/config';
 import { fetchBotComments } from './github-comments';
-import { getSecret } from './secret-manager';
 
 async function run() {
-  const secretName = process.env.GITHUB_PAT_SECRET || 'gsr-github-pat';
-  const pat = await getSecret(secretName);
+  const pat = process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
+  if (!pat) {
+    throw new Error('GITHUB_PAT (or GITHUB_TOKEN) environment variable is required.');
+  }
 
   const prs = [3, 4, 8]; 
   const targetRepo = process.env.GITHUB_TARGET_REPO || 'weitzer-org/gemini-cli-fork';

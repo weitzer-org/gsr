@@ -1,0 +1,86 @@
+# cloudbuild-eval.yaml
+# CI/CD pipeline to build and deploy the standalone GSR Evaluation API to Cloud Run.
+
+substitutions:
+  _REGION: 'us-central1'
+  _ARTIFACT_REGISTRY_REPO_NAME: 'gsr-code-review'
+  _CLOUD_RUN_SERVICE_NAME: 'gsr-evaluator'
+  _IMAGE_TAG: $COMMIT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+# =============================================================================
+# STAGE 1: Build Container Images
+# =============================================================================
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'build-evaluator'
+  args: [
+    'build',
+    '-f', 'tools/eval/Dockerfile',
+    '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator:$_IMAGE_TAG',
+    '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator:latest',
+    '.'
+  ]
+
+# =============================================================================
+# STAGE 2: Push Container Images
+# =============================================================================
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'push-evaluator'
+  args: [
+    'push',
+    '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator',
+    '--all-tags'
+  ]
+  waitFor: ['build-evaluator']
+
+# =============================================================================
+# STAGE 3: Deploy Application
+# =============================================================================
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: 'deploy-evaluator'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    gcloud run deploy $_CLOUD_RUN_SERVICE_NAME \
+      --image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator:$_IMAGE_TAG \
+      --region=$_REGION \
+      --timeout=3600 \
+      --allow-unauthenticated \
+      --set-env-vars="USE_CONTEXT_CACHING=true,USE_VERTEX_AI=true" \
+      --set-secrets="GEMINI_API_KEY=gsr-gemini-api-key:latest,GITHUB_PAT=gsr-github-pat:latest"
+    
+    echo "✅ Evaluator Application deployed successfully"
+  waitFor: ['push-evaluator']
+
+# =============================================================================
+# STAGE 4: Health Check
+# =============================================================================
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
+  id: 'health-check'
+  entrypoint: 'sh'
+  args:
+  - '-c'
+  - |
+    APP_URL=$$(gcloud run services describe $_CLOUD_RUN_SERVICE_NAME \
+      --platform managed \
+      --region $_REGION \
+      --format='value(status.url)' 2>&1)
+
+    if [ -z "$$APP_URL" ]; then
+      echo "WARNING: Could not retrieve Cloud Run Application URL"
+      exit 1
+    fi
+
+    echo "Application health check at $$APP_URL/api/status"
+    curl --fail --retry 10 --retry-delay 5 "$$APP_URL/api/status"
+
+    echo "✅ Evaluator health check completed"
+  waitFor: ['deploy-evaluator']
+
+images:
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator:$_IMAGE_TAG'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_ARTIFACT_REGISTRY_REPO_NAME/evaluator:latest'

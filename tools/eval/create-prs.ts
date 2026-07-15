@@ -1,11 +1,8 @@
-import { getSecret } from './secret-manager';
-
 async function main() {
-  const patSecretName = process.env.GITHUB_PAT_SECRET || 'gsr-github-pat';
-  // set SA key
-  process.env.GOOGLE_APPLICATION_CREDENTIALS = '../../jetski-sa-key.json';
-  
-  const githubPat = await getSecret(patSecretName);
+  const githubPat = process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
+  if (!githubPat) {
+    throw new Error('GITHUB_PAT (or GITHUB_TOKEN) environment variable is required.');
+  }
   
   const branches = [
     { head: 'evals/cli-input-loop-bug', title: 'fix: Why pressing Enter does nothing', body: 'Fixes CLI input blocking bug' },

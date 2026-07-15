@@ -28,13 +28,13 @@ You can run ablation tests using the evaluation harness located in `tools/eval`.
 
 ### Prerequisites
 
-Ensure you have the correct environment variables set for authentication and project context:
+Ensure you have the correct environment variables set (see `tools/eval/.env.example`):
 
 ```bash
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-key.json
-export GOOGLE_CLOUD_PROJECT=your-gcp-project-id
-export GCS_REVIEW_BUCKET=gsr-review-results-weitzer-org
-export GEMINI_SECRET=your-gemini-api-key-secret-name (optional, defaults to gsr-gemini-api-key)
+export GEMINI_API_KEY=your-gemini-api-key
+export S3_REVIEW_BUCKET=gsr-review-results
+export S3_ACCESS_KEY_ID=minioadmin
+export S3_SECRET_ACCESS_KEY=minioadmin
 ```
 
 ### Running the Evaluation
@@ -45,14 +45,14 @@ Prefix the evaluation command with the desired ablation environment variables.
 
 ```bash
 cd tools/eval
-GCS_REVIEW_BUCKET=gsr-review-results-weitzer-org ABLATE_SECURITY=true npm run eval -- --config eval-config-ablation.json
+S3_REVIEW_BUCKET=gsr-review-results ABLATE_SECURITY=true npm run eval -- --config eval-config-ablation.json
 ```
 
 This command will:
 1.  Start the local backend server with `ABLATE_SECURITY=true`.
 2.  Run the evaluation harness against the PRs specified in `eval-config-ablation.json`.
 3.  Compare the results against the Production baseline.
-4.  Upload the comparison report to GCS.
+4.  Upload the comparison report to object storage.
 
 ## Configuration
 

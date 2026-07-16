@@ -1,0 +1,47 @@
+name: GSR Self-Review
+
+# Dogfoods the GSR action on its own PRs: runs both the swarm ("subagent")
+# and single-pass ("basic") review modes against this repo's own diffs,
+# posting inline findings as PR review comments. Purely additive/advisory —
+# fail-on-severity is "none" so it never blocks the deploy.yml test gate;
+# CodeRabbit and gemini-code-assist remain the automated backstop, and
+# /quick-review or /code-review is still the human-triggered pre-merge gate.
+#
+# Requires a repository secret GEMINI_API_KEY (same one used by the deployed
+# apps). Runs on pull_request (not pull_request_target), so it only has
+# access to that secret for PRs opened from this repo, not forks.
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: gsr-self-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  self-review-swarm:
+    name: GSR self-review (swarm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+          mode: subagent
+          fail-on-severity: none
+
+  self-review-basic:
+    name: GSR self-review (basic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+          mode: basic
+          fail-on-severity: none

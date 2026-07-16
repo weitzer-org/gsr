@@ -48,17 +48,30 @@ describe('Orchestrator', () => {
         expect(ids.every(id => id === id.toLowerCase())).toBe(true);
     });
 
+    it('listAgents should return ids paired with display names matching the loaded agent names', () => {
+        const agents = Orchestrator.listAgents('system_prompts');
+        const logicEntry = agents.find(a => a.id === 'logic');
+        expect(logicEntry).toEqual({ id: 'logic', displayName: 'Logic' });
+
+        const orchestrator = new Orchestrator();
+        const loadedNames = (orchestrator as any).subagents.map((a: GeminiAgent) => a.name).sort();
+        const listedDisplayNames = agents.map(a => a.displayName).sort();
+        expect(listedDisplayNames).toEqual(loadedNames);
+    });
+
     it('should compose selection with ablation: only non-ablated selected agents run', async () => {
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ findings: [] });
         process.env.ABLATE_LOGIC = 'true';
 
-        const orchestrator = new Orchestrator(5, 'system_prompts', true, ['logic', 'security']);
-        await orchestrator.runReview([{ file: 'index.ts', content: 'x' }]);
+        try {
+            const orchestrator = new Orchestrator(5, 'system_prompts', true, ['logic', 'security']);
+            await orchestrator.runReview([{ file: 'index.ts', content: 'x' }]);
 
-        const calledAgentNames = mockAnalyze.mock.contexts.map((ctx: any) => ctx.name.toLowerCase());
-        expect(calledAgentNames).toEqual(['security']);
-
-        delete process.env.ABLATE_LOGIC;
+            const calledAgentNames = mockAnalyze.mock.contexts.map((ctx: any) => ctx.name.toLowerCase());
+            expect(calledAgentNames).toEqual(['security']);
+        } finally {
+            delete process.env.ABLATE_LOGIC;
+        }
     });
 
     it('should filter chunks based on shouldRun rules for specific agents', async () => {

@@ -42,25 +42,37 @@ export class Orchestrator {
     }
     const promptsDir = path.join(projectRoot, 'adk', 'prompts', promptsDirName);
 
-    // Path traversal check
+    // Path traversal check — require an exact directory-boundary match, not just a
+    // string prefix, so a sibling like "prompts-evil" can't slip past a startsWith("prompts") check.
     const resolvedPromptsDir = path.resolve(promptsDir);
     const baseDir = path.resolve(projectRoot, 'adk', 'prompts');
-    if (!resolvedPromptsDir.startsWith(baseDir)) {
+    if (resolvedPromptsDir !== baseDir && !resolvedPromptsDir.startsWith(baseDir + path.sep)) {
         throw new Error(`Path traversal detected: ${resolvedPromptsDir} is outside of ${baseDir}`);
     }
 
     return resolvedPromptsDir;
   }
 
-  // Lists the available agent IDs (lowercase filename stems, e.g. "logic", "security")
-  // for a given prompts directory, without reading prompt file contents. Used to
-  // validate/populate agent-selection requests without constructing a full Orchestrator.
-  public static listAgentIds(promptsDirName: string = 'system_prompts'): string[] {
+  // Lists available agents (id = lowercase filename stem for case-insensitive wire
+  // matching, displayName = capitalized original stem) for a given prompts directory,
+  // without reading prompt file contents. Used to validate/populate agent-selection
+  // requests without constructing a full Orchestrator.
+  public static listAgents(promptsDirName: string = 'system_prompts'): { id: string; displayName: string }[] {
     const promptsDir = Orchestrator.resolvePromptsDir(promptsDirName);
     const files = fs.readdirSync(promptsDir);
     return files
       .filter((f: string) => f.endsWith('.md'))
-      .map((f: string) => f.replace('.md', '').toLowerCase());
+      .map((f: string) => {
+        const stem = f.replace('.md', '');
+        return {
+          id: stem.toLowerCase(),
+          displayName: stem.charAt(0).toUpperCase() + stem.slice(1)
+        };
+      });
+  }
+
+  public static listAgentIds(promptsDirName: string = 'system_prompts'): string[] {
+    return Orchestrator.listAgents(promptsDirName).map(a => a.id);
   }
 
   private initializeAgents() {
@@ -68,29 +80,27 @@ export class Orchestrator {
 
     try {
       const files = fs.readdirSync(promptsDir);
-
-      let loadedAgents = files
-        .filter((f: string) => f.endsWith('.md'))
-        .map((f: string) => {
-            const name = f.replace('.md', '');
-            // Capitalize for user display
-            const displayName = name.charAt(0).toUpperCase() + name.slice(1);
-            const promptPath = path.join(promptsDir, f);
-            let promptContent = '';
-            try {
-              promptContent = fs.readFileSync(promptPath, 'utf8');
-            } catch (e) {
-              console.error(`Could not read prompt file for ${displayName}: ${promptPath}`);
-            }
-            return new GeminiAgent(displayName, promptContent);
-        });
+      let agentFiles = files.filter((f: string) => f.endsWith('.md'));
 
       if (this.selectedAgents) {
         const selectedIds = new Set(this.selectedAgents.map(id => id.toLowerCase()));
-        loadedAgents = loadedAgents.filter(agent => selectedIds.has(agent.name.toLowerCase()));
+        agentFiles = agentFiles.filter(f => selectedIds.has(f.replace('.md', '').toLowerCase()));
       }
 
-      this.subagents = loadedAgents;
+      this.subagents = agentFiles.map((f: string) => {
+          const name = f.replace('.md', '');
+          // Capitalize for user display
+          const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+          const promptPath = path.join(promptsDir, f);
+          let promptContent = '';
+          try {
+            promptContent = fs.readFileSync(promptPath, 'utf8');
+          } catch (e) {
+            console.error(`Could not read prompt file for ${displayName}: ${promptPath}`);
+          }
+          return new GeminiAgent(displayName, promptContent);
+      });
+
       console.log(`Loaded ${this.subagents.length} agents from ${promptsDir}`);
     } catch (e) {
       console.error("Failed to load subagents from prompts directory: " + promptsDir, e);

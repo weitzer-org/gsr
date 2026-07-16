@@ -232,6 +232,66 @@ small {
   font-size: 0.85rem;
 }
 
+.agent-selector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.agent-selector-header label {
+  margin-bottom: 0;
+}
+
+.link-btn {
+  width: auto;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  border: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  background: none;
+  text-decoration: underline;
+}
+
+.agent-checkbox-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.agent-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.agent-checkbox-item input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.agent-checkbox-item.checked {
+  border-color: var(--accent);
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+.error-text {
+  color: var(--error);
+}
+
 button {
   width: 100%;
   padding: 14px;

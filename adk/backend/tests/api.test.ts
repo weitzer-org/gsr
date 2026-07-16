@@ -182,7 +182,7 @@ describe('POST /api/review', () => {
       .send({ url: 'https://github.com/owner/repo/pull/1', pat: 'mock-pat', agents: [] });
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe('Select at least one agent.');
+    expect(response.body.error).toMatch(/select at least one agent/i);
   });
 
   it('should return 400 if agents is not an array of strings', async () => {

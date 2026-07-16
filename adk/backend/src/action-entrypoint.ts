@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
 import { shouldFailOnSeverity } from './severityGate';
-import { parseAgentSelection } from './agentSelection';
+import { resolveAgentSelectionForMode } from './agentSelection';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -47,11 +47,10 @@ async function main() {
   const failOnSeverity = process.env.FAIL_ON_SEVERITY || 'none';
   shouldFailOnSeverity([], failOnSeverity); // validates the threshold up front; throws before we burn a review on a typo
 
-  let selectedAgents: string[] | undefined;
-  if (mode === 'subagent') {
-    selectedAgents = parseAgentSelection(process.env.REVIEW_AGENTS, Orchestrator.listAgentIds(modeConfig.promptsDir));
-  } else if (process.env.REVIEW_AGENTS && process.env.REVIEW_AGENTS.trim().toLowerCase() !== 'all') {
-    console.warn(`[GSR Action] "agents" input is ignored in mode "basic" (basic mode uses a single fixed prompt).`);
+  const availableIds = mode === 'subagent' ? Orchestrator.listAgentIds(modeConfig.promptsDir) : [];
+  const { selectedAgents, warning } = resolveAgentSelectionForMode(mode, process.env.REVIEW_AGENTS, availableIds);
+  if (warning) {
+    console.warn(warning);
   }
 
   const url = resolvePullRequestUrl();

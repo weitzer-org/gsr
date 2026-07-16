@@ -19,3 +19,22 @@ export function parseAgentSelection(raw: string | undefined, availableIds: strin
 
   return requested;
 }
+
+export interface AgentSelectionForMode {
+  selectedAgents?: string[];
+  warning?: string;
+}
+
+// Only "subagent" mode has a selectable agent set — "basic" mode always runs its
+// single fixed prompt, so a supplied "agents" input there is a no-op worth warning about.
+export function resolveAgentSelectionForMode(mode: string, reviewAgentsEnv: string | undefined, availableIds: string[]): AgentSelectionForMode {
+  if (mode !== 'subagent') {
+    const trimmed = (reviewAgentsEnv || '').trim();
+    if (trimmed && trimmed.toLowerCase() !== 'all') {
+      return { warning: `[GSR Action] "agents" input is ignored in mode "${mode}" (basic mode uses a single fixed prompt).` };
+    }
+    return {};
+  }
+
+  return { selectedAgents: parseAgentSelection(reviewAgentsEnv, availableIds) };
+}

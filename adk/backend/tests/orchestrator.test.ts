@@ -71,6 +71,7 @@ describe('Orchestrator', () => {
             expect(calledAgentNames).toEqual(['security']);
         } finally {
             delete process.env.ABLATE_LOGIC;
+            mockAnalyze.mockRestore();
         }
     });
 

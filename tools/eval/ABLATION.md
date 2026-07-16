@@ -8,6 +8,8 @@ Ablation is driven by environment variables. The `Orchestrator` in `adk/backend/
 
 If the variable is set to `true`, the agent execution is skipped.
 
+This is independent from the per-request/per-run **agent selection** feature (the `agents` field on `POST /api/review` and the Action's `agents` input): selection controls which agents are loaded into the `Orchestrator` at all, while ablation skips agents at run time via env vars checked against whatever agents were loaded. The two compose — an agent runs only if it's both selected (or no selection was made) and not ablated — and ablation's behavior is unaffected by selection since ablated agents are checked from within whatever subset was already loaded.
+
 ### Supported Agents
 
 The following environment variables can be used to ablate agents:

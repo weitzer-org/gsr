@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
 import { shouldFailOnSeverity } from './severityGate';
+import { resolveAgentSelectionForMode } from './agentSelection';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -46,6 +47,12 @@ async function main() {
   const failOnSeverity = process.env.FAIL_ON_SEVERITY || 'none';
   shouldFailOnSeverity([], failOnSeverity); // validates the threshold up front; throws before we burn a review on a typo
 
+  const availableIds = mode === 'subagent' ? Orchestrator.listAgentIds(modeConfig.promptsDir) : [];
+  const { selectedAgents, warning } = resolveAgentSelectionForMode(mode, process.env.REVIEW_AGENTS, availableIds);
+  if (warning) {
+    console.warn(warning);
+  }
+
   const url = resolvePullRequestUrl();
   const ghClient = new GitHubClient(githubToken);
 
@@ -64,7 +71,7 @@ async function main() {
     console.warn(`[GSR Action] PR has ${chunks.length} files; truncating to ${maxFiles}.`);
   }
 
-  const orchestrator = new Orchestrator(5, modeConfig.promptsDir, modeConfig.useDedup);
+  const orchestrator = new Orchestrator(5, modeConfig.promptsDir, modeConfig.useDedup, selectedAgents);
   orchestrator.onProgress = (agentName, file, status) => {
     console.log(`[GSR Action][${agentName}] ${file} — ${status}`);
   };

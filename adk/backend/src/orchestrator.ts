@@ -13,55 +13,94 @@ export class Orchestrator {
   private promptsDirName: string;
   private deduplicator: DeduplicatorAgent;
   private useTriage: boolean; // Keeping the parameter name for backwards compatibility, but it refers to grouping logic now
+  private selectedAgents?: string[]; // Agent IDs (lowercase filename stems) to run; undefined = run all
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useTriage: boolean = true) {
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useTriage: boolean = true, selectedAgents?: string[]) {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = promptsDirName;
     this.deduplicator = new DeduplicatorAgent();
     this.useTriage = useTriage;
+    this.selectedAgents = selectedAgents;
     this.initializeAgents();
   }
 
-  private initializeAgents() {
+  // Resolves & validates the on-disk prompts directory for a given prompts dir name.
+  // Shared by initializeAgents() (instance) and listAgentIds() (static) so both walk
+  // the same path-traversal-checked location.
+  private static resolvePromptsDir(promptsDirName: string): string {
     const currentDir = typeof __dirname !== 'undefined' ? __dirname : undefined;
     let projectRoot: string;
 
     if (currentDir) {
         const isCompiled = currentDir.includes(path.join('dist', 'src'));
-        projectRoot = isCompiled 
-            ? path.resolve(currentDir, '../../../../') 
+        projectRoot = isCompiled
+            ? path.resolve(currentDir, '../../../../')
             : path.resolve(currentDir, '../../../');
     } else {
         // Fallback for test environments (e.g. Jest ESM mode)
         projectRoot = path.resolve(process.cwd(), '../../');
     }
-    const promptsDir = path.join(projectRoot, 'adk', 'prompts', this.promptsDirName);
-    
-    // Path traversal check
+    const promptsDir = path.join(projectRoot, 'adk', 'prompts', promptsDirName);
+
+    // Path traversal check — require an exact directory-boundary match, not just a
+    // string prefix, so a sibling like "prompts-evil" can't slip past a startsWith("prompts") check.
     const resolvedPromptsDir = path.resolve(promptsDir);
     const baseDir = path.resolve(projectRoot, 'adk', 'prompts');
-    if (!resolvedPromptsDir.startsWith(baseDir)) {
+    if (resolvedPromptsDir !== baseDir && !resolvedPromptsDir.startsWith(baseDir + path.sep)) {
         throw new Error(`Path traversal detected: ${resolvedPromptsDir} is outside of ${baseDir}`);
     }
 
+    return resolvedPromptsDir;
+  }
+
+  // Lists available agents (id = lowercase filename stem for case-insensitive wire
+  // matching, displayName = capitalized original stem) for a given prompts directory,
+  // without reading prompt file contents. Used to validate/populate agent-selection
+  // requests without constructing a full Orchestrator.
+  public static listAgents(promptsDirName: string = 'system_prompts'): { id: string; displayName: string }[] {
+    const promptsDir = Orchestrator.resolvePromptsDir(promptsDirName);
+    const files = fs.readdirSync(promptsDir);
+    return files
+      .filter((f: string) => f.endsWith('.md'))
+      .map((f: string) => {
+        const stem = f.replace('.md', '');
+        return {
+          id: stem.toLowerCase(),
+          displayName: stem.charAt(0).toUpperCase() + stem.slice(1)
+        };
+      });
+  }
+
+  public static listAgentIds(promptsDirName: string = 'system_prompts'): string[] {
+    return Orchestrator.listAgents(promptsDirName).map(a => a.id);
+  }
+
+  private initializeAgents() {
+    const promptsDir = Orchestrator.resolvePromptsDir(this.promptsDirName);
+
     try {
       const files = fs.readdirSync(promptsDir);
+      let agentFiles = files.filter((f: string) => f.endsWith('.md'));
 
-      this.subagents = files
-        .filter((f: string) => f.endsWith('.md'))
-        .map((f: string) => {
-            const name = f.replace('.md', '');
-            // Capitalize for user display
-            const displayName = name.charAt(0).toUpperCase() + name.slice(1);
-            const promptPath = path.join(promptsDir, f);
-            let promptContent = '';
-            try {
-              promptContent = fs.readFileSync(promptPath, 'utf8');
-            } catch (e) {
-              console.error(`Could not read prompt file for ${displayName}: ${promptPath}`);
-            }
-            return new GeminiAgent(displayName, promptContent);
-        });
+      if (this.selectedAgents) {
+        const selectedIds = new Set(this.selectedAgents.map(id => id.toLowerCase()));
+        agentFiles = agentFiles.filter(f => selectedIds.has(f.replace('.md', '').toLowerCase()));
+      }
+
+      this.subagents = agentFiles.map((f: string) => {
+          const name = f.replace('.md', '');
+          // Capitalize for user display
+          const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+          const promptPath = path.join(promptsDir, f);
+          let promptContent = '';
+          try {
+            promptContent = fs.readFileSync(promptPath, 'utf8');
+          } catch (e) {
+            console.error(`Could not read prompt file for ${displayName}: ${promptPath}`);
+          }
+          return new GeminiAgent(displayName, promptContent);
+      });
+
       console.log(`Loaded ${this.subagents.length} agents from ${promptsDir}`);
     } catch (e) {
       console.error("Failed to load subagents from prompts directory: " + promptsDir, e);

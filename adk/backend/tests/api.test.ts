@@ -166,5 +166,72 @@ describe('POST /api/review', () => {
     expect(lastLine.type).toBe('done');
     expect(lastLine.findings).toEqual([]);
   });
+
+  it('should return 400 for an unknown agent id', async () => {
+    const response = await request(app)
+      .post('/api/review')
+      .send({ url: 'https://github.com/owner/repo/pull/1', pat: 'mock-pat', agents: ['not-a-real-agent'] });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain('not-a-real-agent');
+  });
+
+  it('should return 400 for an empty agents array', async () => {
+    const response = await request(app)
+      .post('/api/review')
+      .send({ url: 'https://github.com/owner/repo/pull/1', pat: 'mock-pat', agents: [] });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('Select at least one agent.');
+  });
+
+  it('should return 400 if agents is not an array of strings', async () => {
+    const response = await request(app)
+      .post('/api/review')
+      .send({ url: 'https://github.com/owner/repo/pull/1', pat: 'mock-pat', agents: [123] });
+
+    expect(response.status).toBe(400);
+  });
+
+  it('should accept a valid, mixed-case agent selection and complete the review', async () => {
+    const githubModule = await import('../src/github.js');
+    const orchestratorModule = await import('../src/orchestrator.js');
+    const evaluatorModule = await import('../src/evaluator.js');
+    const mockChunks = [{ file: 'test.js', content: 'diff' }];
+
+    jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
+    const runReviewSpy = jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockResolvedValue({ findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } });
+    jest.spyOn(evaluatorModule.Evaluator.prototype, 'evaluateComparison').mockResolvedValue('Mock evaluation');
+
+    const response = await request(app)
+      .post('/api/review')
+      .send({ url: 'https://github.com/owner/repo/pull/1', pat: 'mock-pat', agents: ['LOGIC', 'Security'] });
+
+    expect(response.status).toBe(200);
+    expect(runReviewSpy).toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/agents', () => {
+  let app: any;
+
+  beforeEach(async () => {
+    jest.resetModules();
+    jest.restoreAllMocks();
+    process.env.GEMINI_API_KEY = 'fake-key';
+    const mod = await import('../src/app.js');
+    app = mod.app;
+  });
+
+  it('should return the available agent ids and display names', async () => {
+    const response = await request(app).get('/api/agents');
+
+    expect(response.status).toBe(200);
+    expect(Array.isArray(response.body.agents)).toBe(true);
+    expect(response.body.agents.length).toBeGreaterThan(0);
+    expect(response.body.agents).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'logic', displayName: 'Logic' })])
+    );
+  });
 });
 

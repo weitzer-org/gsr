@@ -42,11 +42,42 @@ app.post('/logout', handleLogout);
 // Everything below this point requires a valid session when UI_PASSWORD is set.
 app.use(requireAuth);
 
+app.get('/api/agents', (req, res) => {
+  try {
+    const ids = Orchestrator.listAgentIds(SYSTEM_PROMPTS_DIR);
+    const agents = ids.map(id => ({
+      id,
+      displayName: id.charAt(0).toUpperCase() + id.slice(1)
+    }));
+    res.json({ agents });
+  } catch (error: any) {
+    console.error('Error listing agents:', error);
+    res.status(500).json({ error: error.message || 'Failed to list agents' });
+  }
+});
+
 app.post('/api/review', async (req, res) => {
-  const { url, pat } = req.body;
+  const { url, pat, agents } = req.body;
 
   if (!url || !pat) {
     return res.status(400).json({ error: 'GitHub PR URL and PAT are required.' });
+  }
+
+  let selectedAgents: string[] | undefined;
+  if (agents !== undefined) {
+    if (!Array.isArray(agents) || agents.some((a: unknown) => typeof a !== 'string')) {
+      return res.status(400).json({ error: '"agents" must be an array of agent ID strings.' });
+    }
+    const normalized = Array.from(new Set(agents.map((a: string) => a.toLowerCase())));
+    if (normalized.length === 0) {
+      return res.status(400).json({ error: 'Select at least one agent.' });
+    }
+    const availableIds = new Set(Orchestrator.listAgentIds(SYSTEM_PROMPTS_DIR));
+    const unknown = normalized.filter(id => !availableIds.has(id));
+    if (unknown.length > 0) {
+      return res.status(400).json({ error: `Unknown agent id(s): ${unknown.join(', ')}` });
+    }
+    selectedAgents = normalized;
   }
 
   console.log(`Received review request for: ${url}`);
@@ -54,7 +85,7 @@ app.post('/api/review', async (req, res) => {
   try {
     const ghClient = new GitHubClient(pat);
     const useDeduplicator = process.env.USE_DEDUPLICATOR !== 'false';
-    const subagentOrchestrator = new Orchestrator(5, SYSTEM_PROMPTS_DIR, useDeduplicator);
+    const subagentOrchestrator = new Orchestrator(5, SYSTEM_PROMPTS_DIR, useDeduplicator, selectedAgents);
     const basicOrchestrator = new Orchestrator(5, BASIC_PROMPT_DIR, false); // Basic orchestrator shouldn't deduplicate
 
     console.log(`Fetching diff for ${url}...`);

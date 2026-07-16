@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
 import { shouldFailOnSeverity } from './severityGate';
+import { parseAgentSelection } from './agentSelection';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -46,6 +47,13 @@ async function main() {
   const failOnSeverity = process.env.FAIL_ON_SEVERITY || 'none';
   shouldFailOnSeverity([], failOnSeverity); // validates the threshold up front; throws before we burn a review on a typo
 
+  let selectedAgents: string[] | undefined;
+  if (mode === 'subagent') {
+    selectedAgents = parseAgentSelection(process.env.REVIEW_AGENTS, Orchestrator.listAgentIds(modeConfig.promptsDir));
+  } else if (process.env.REVIEW_AGENTS && process.env.REVIEW_AGENTS.trim().toLowerCase() !== 'all') {
+    console.warn(`[GSR Action] "agents" input is ignored in mode "basic" (basic mode uses a single fixed prompt).`);
+  }
+
   const url = resolvePullRequestUrl();
   const ghClient = new GitHubClient(githubToken);
 
@@ -64,7 +72,7 @@ async function main() {
     console.warn(`[GSR Action] PR has ${chunks.length} files; truncating to ${maxFiles}.`);
   }
 
-  const orchestrator = new Orchestrator(5, modeConfig.promptsDir, modeConfig.useDedup);
+  const orchestrator = new Orchestrator(5, modeConfig.promptsDir, modeConfig.useDedup, selectedAgents);
   orchestrator.onProgress = (agentName, file, status) => {
     console.log(`[GSR Action][${agentName}] ${file} — ${status}`);
   };

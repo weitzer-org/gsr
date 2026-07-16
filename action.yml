@@ -35,6 +35,13 @@ inputs:
     description: 'Maximum number of changed files to review before truncating.'
     required: false
     default: '300'
+  agents:
+    description: >
+      Comma-separated list of subagent IDs to run (e.g. "logic,security"),
+      or "all" to run every agent. Only applies when mode is "subagent";
+      ignored (with a warning) when mode is "basic". Defaults to "all".
+    required: false
+    default: 'all'
 
 runs:
   using: 'docker'
@@ -46,3 +53,4 @@ runs:
     FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
     GEMINI_MODEL: ${{ inputs.gemini-model }}
     MAX_REVIEW_FILES: ${{ inputs.max-review-files }}
+    REVIEW_AGENTS: ${{ inputs.agents }}

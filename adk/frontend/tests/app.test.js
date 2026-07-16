@@ -1,7 +1,17 @@
 import { jest } from '@jest/globals';
+import { TextDecoder } from 'util';
+
+// jsdom's test environment doesn't expose TextDecoder globally; app.js needs it
+// to read the review-stream response body.
+if (typeof global.TextDecoder === 'undefined') {
+    global.TextDecoder = TextDecoder;
+}
 
 const FIXTURE_HTML = `
-    <form id="review-form"></form>
+    <form id="review-form">
+        <input id="pr-url" value="https://github.com/owner/repo/pull/1">
+        <input id="pat" value="mock-pat">
+    </form>
     <button id="submit-btn"></button>
     <span class="btn-text"></span>
     <div class="spinner"></div>
@@ -10,8 +20,11 @@ const FIXTURE_HTML = `
     <div class="tab-content" id="tab1"></div>
     <ul id="subagent-findings-list"></ul>
     <ul id="basic-findings-list"></ul>
-    <tbody id="comparison-table-body"></tbody>
-    <table id="comparison-table"></table>
+    <div id="progress-container" class="hidden"><div id="progress-grid"></div></div>
+    <div id="warning-container" class="hidden"></div>
+    <table id="comparison-table">
+        <tbody id="comparison-table-body"></tbody>
+    </table>
     <div id="comparison-evaluation"></div>
     <div id="evaluation-text"></div>
     <div id="connection-status"><span class="status-text"></span></div>
@@ -171,6 +184,62 @@ describe('App frontend logic (app.js)', () => {
             expect(document.querySelectorAll('#agent-checkbox-list input[type="checkbox"]').length).toBe(0);
             expect(document.getElementById('submit-btn').disabled).toBe(false);
             expect(document.getElementById('agent-selection-error').classList.contains('hidden')).toBe(true);
+        });
+
+        it('does not re-enable submit when a checkbox changes while a review is in flight', async () => {
+            global.fetch.mockImplementation((url) => {
+                if (url === '/api/agents') {
+                    return Promise.resolve({ ok: true, status: 200, json: async () => ({ agents: [{ id: 'logic', displayName: 'Logic' }, { id: 'security', displayName: 'Security' }] }) });
+                }
+                if (url === '/api/review') {
+                    // Never-resolving reader simulates a request that's still streaming.
+                    return Promise.resolve({ ok: true, status: 200, body: { getReader: () => ({ read: () => new Promise(() => {}) }) } });
+                }
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+            });
+
+            initApp();
+            await flush();
+
+            document.getElementById('review-form').dispatchEvent(new Event('submit', { cancelable: true }));
+            await new Promise(resolve => setTimeout(resolve, 0));
+            expect(document.getElementById('submit-btn').disabled).toBe(true);
+
+            const checkbox = document.querySelector('#agent-checkbox-list input[type="checkbox"]');
+            checkbox.checked = false;
+            checkbox.dispatchEvent(new Event('change'));
+
+            expect(document.getElementById('submit-btn').disabled).toBe(true);
+        });
+
+        it('sends agents in the request body for a partial selection, and omits it for the full selection', async () => {
+            const pendingBody = { ok: true, status: 200, body: { getReader: () => ({ read: () => new Promise(() => {}) }) } };
+            global.fetch.mockImplementation((url) => {
+                if (url === '/api/agents') {
+                    return Promise.resolve({ ok: true, status: 200, json: async () => ({ agents: [{ id: 'logic', displayName: 'Logic' }, { id: 'security', displayName: 'Security' }] }) });
+                }
+                if (url === '/api/review') return Promise.resolve(pendingBody);
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+            });
+
+            initApp();
+            await flush();
+
+            // Full selection (default): agents omitted from the payload.
+            document.getElementById('review-form').dispatchEvent(new Event('submit', { cancelable: true }));
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            let reviewCall = global.fetch.mock.calls.find(c => c[0] === '/api/review');
+            expect(JSON.parse(reviewCall[1].body)).not.toHaveProperty('agents');
+
+            // Partial selection: agents included, matching only the checked ids.
+            document.querySelectorAll('#agent-checkbox-list input[type="checkbox"]')[0].click();
+            global.fetch.mockClear();
+            document.getElementById('review-form').dispatchEvent(new Event('submit', { cancelable: true }));
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            reviewCall = global.fetch.mock.calls.find(c => c[0] === '/api/review');
+            expect(JSON.parse(reviewCall[1].body).agents).toEqual(['security']);
         });
     });
 });

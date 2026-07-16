@@ -37,6 +37,7 @@ export function initApp() {
 
   let fullHistoryData = [];
   let currentHistoryLimit = 5;
+  let isSubmitting = false;
 
   // Tab Setup
   tabs.forEach(tab => {
@@ -141,7 +142,8 @@ export function initApp() {
       // the full swarm rather than hard-blocking submission.
       const anySelected = checkboxes.length === 0 || getSelectedAgentIds().length > 0;
       if (agentSelectionError) agentSelectionError.classList.toggle('hidden', anySelected);
-      if (submitBtn) submitBtn.disabled = !anySelected;
+      // Don't let a checkbox change re-enable submit while a review is already in flight.
+      if (submitBtn) submitBtn.disabled = isSubmitting || !anySelected;
       return anySelected;
   }
 
@@ -292,6 +294,7 @@ export function initApp() {
       const warningContainer = document.getElementById('warning-container');
       
       // UI Loading State
+      isSubmitting = true;
       submitBtn.disabled = true;
       btnText.classList.add('hidden');
       spinner.classList.remove('hidden');
@@ -365,6 +368,7 @@ export function initApp() {
           document.querySelector('.tabs').insertAdjacentHTML('beforebegin', errorHtml);
       } finally {
           // Reset UI
+          isSubmitting = false;
           submitBtn.disabled = !validateAgentSelection();
           btnText.classList.remove('hidden');
           spinner.classList.add('hidden');

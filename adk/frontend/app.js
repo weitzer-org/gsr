@@ -104,7 +104,7 @@ export function initApp() {
           });
 
           label.appendChild(checkbox);
-          label.appendChild(document.createTextNode(escapeHTML(displayName)));
+          label.appendChild(document.createTextNode(displayName));
           agentCheckboxList.appendChild(label);
       });
       updateAgentSelectToggleLabel();
@@ -136,7 +136,10 @@ export function initApp() {
   }
 
   function validateAgentSelection() {
-      const anySelected = getSelectedAgentIds().length > 0;
+      const checkboxes = getAgentCheckboxes();
+      // No checkboxes means the /api/agents fetch failed — fall back to running
+      // the full swarm rather than hard-blocking submission.
+      const anySelected = checkboxes.length === 0 || getSelectedAgentIds().length > 0;
       if (agentSelectionError) agentSelectionError.classList.toggle('hidden', anySelected);
       if (submitBtn) submitBtn.disabled = !anySelected;
       return anySelected;

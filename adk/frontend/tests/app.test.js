@@ -17,7 +17,7 @@ const FIXTURE_HTML = `
     <div id="connection-status"><span class="status-text"></span></div>
     <div id="agent-checkbox-list"></div>
     <button type="button" id="agent-select-toggle"></button>
-    <small id="agent-selection-error"></small>
+    <small id="agent-selection-error" class="hidden"></small>
 `;
 
 describe('App frontend logic (app.js)', () => {
@@ -145,6 +145,32 @@ describe('App frontend logic (app.js)', () => {
             checkboxes = document.querySelectorAll('#agent-checkbox-list input[type="checkbox"]');
             expect(Array.from(checkboxes).every(cb => cb.checked)).toBe(true);
             expect(toggle.textContent).toBe('Select None');
+        });
+
+        it('renders display names as plain text without double-escaping HTML entities', async () => {
+            mockFetchWithAgents([{ id: 'r-and-d', displayName: 'R&D' }]);
+
+            initApp();
+            await flush();
+
+            const label = document.querySelector('#agent-checkbox-list .agent-checkbox-item');
+            // textContent reflects the actual text data (un-serialized); double-escaping
+            // via escapeHTML() inside createTextNode would make this literally "R&amp;D".
+            expect(label.textContent).toBe('R&D');
+        });
+
+        it('does not block submission when the /api/agents fetch fails (falls back to the full swarm)', async () => {
+            global.fetch.mockImplementation((url) => {
+                if (url === '/api/agents') return Promise.reject(new Error('network down'));
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+            });
+
+            initApp();
+            await flush();
+
+            expect(document.querySelectorAll('#agent-checkbox-list input[type="checkbox"]').length).toBe(0);
+            expect(document.getElementById('submit-btn').disabled).toBe(false);
+            expect(document.getElementById('agent-selection-error').classList.contains('hidden')).toBe(true);
         });
     });
 });

@@ -53,6 +53,17 @@
                         <small>Required to fetch the private diff. Token is NOT stored.</small>
                     </div>
 
+                    <div class="input-group">
+                        <div class="agent-selector-header">
+                            <label id="agent-selector-label">Subagents to Run</label>
+                            <button type="button" id="agent-select-toggle" class="link-btn">Select None</button>
+                        </div>
+                        <div id="agent-checkbox-list" class="agent-checkbox-list" role="group" aria-labelledby="agent-selector-label">
+                            <!-- Agent checkboxes populated by JS from GET /api/agents -->
+                        </div>
+                        <small id="agent-selection-error" class="error-text hidden">Select at least one agent.</small>
+                    </div>
+
                     <button type="submit" id="submit-btn">
                         <span class="btn-text">Start Concurrent Review</span>
                         <span class="spinner hidden"></span>

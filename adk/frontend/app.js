@@ -30,6 +30,11 @@ export function initApp() {
   const refreshHistoryBtn = document.getElementById('refresh-history-btn');
   const viewMoreHistoryBtn = document.getElementById('view-more-history-btn');
 
+  // Agent selection
+  const agentCheckboxList = document.getElementById('agent-checkbox-list');
+  const agentSelectToggle = document.getElementById('agent-select-toggle');
+  const agentSelectionError = document.getElementById('agent-selection-error');
+
   let fullHistoryData = [];
   let currentHistoryLimit = 5;
 
@@ -70,9 +75,91 @@ export function initApp() {
       }
   }
 
+  async function fetchAgents() {
+      try {
+          const response = await authFetch('/api/agents');
+          if (!response.ok) throw new Error('Failed to fetch agent list');
+          const data = await response.json();
+          renderAgentCheckboxes(data.agents || []);
+      } catch (err) {
+          console.error('Failed to fetch agents', err);
+          agentCheckboxList.innerHTML = '<small class="error-text">Could not load agent list — the full swarm will run.</small>';
+      }
+  }
+
+  function renderAgentCheckboxes(agents) {
+      agentCheckboxList.innerHTML = '';
+      agents.forEach(({ id, displayName }) => {
+          const label = document.createElement('label');
+          label.className = 'agent-checkbox-item checked';
+
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = id;
+          checkbox.checked = true;
+          checkbox.addEventListener('change', () => {
+              label.classList.toggle('checked', checkbox.checked);
+              updateAgentSelectToggleLabel();
+              validateAgentSelection();
+          });
+
+          label.appendChild(checkbox);
+          label.appendChild(document.createTextNode(escapeHTML(displayName)));
+          agentCheckboxList.appendChild(label);
+      });
+      updateAgentSelectToggleLabel();
+      validateAgentSelection();
+  }
+
+  function getAgentCheckboxes() {
+      return Array.from(agentCheckboxList.querySelectorAll('input[type="checkbox"]'));
+  }
+
+  function getSelectedAgentIds() {
+      return getAgentCheckboxes().filter(cb => cb.checked).map(cb => cb.value);
+  }
+
+  function updateAgentSelectToggleLabel() {
+      if (!agentSelectToggle) return;
+      const checkboxes = getAgentCheckboxes();
+      const allChecked = checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
+      agentSelectToggle.textContent = allChecked ? 'Select None' : 'Select All';
+  }
+
+  // Omits `agents` entirely when every available agent is selected, so the
+  // default request is identical to the pre-agent-selection payload.
+  function buildReviewPayload(url, pat) {
+      const checkboxes = getAgentCheckboxes();
+      const selectedIds = getSelectedAgentIds();
+      const isFullSelection = checkboxes.length === 0 || selectedIds.length === checkboxes.length;
+      return isFullSelection ? { url, pat } : { url, pat, agents: selectedIds };
+  }
+
+  function validateAgentSelection() {
+      const anySelected = getSelectedAgentIds().length > 0;
+      if (agentSelectionError) agentSelectionError.classList.toggle('hidden', anySelected);
+      if (submitBtn) submitBtn.disabled = !anySelected;
+      return anySelected;
+  }
+
+  if (agentSelectToggle) {
+      agentSelectToggle.addEventListener('click', () => {
+          const checkboxes = getAgentCheckboxes();
+          const allChecked = checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
+          const nextChecked = !allChecked;
+          checkboxes.forEach(cb => {
+              cb.checked = nextChecked;
+              cb.closest('.agent-checkbox-item').classList.toggle('checked', nextChecked);
+          });
+          updateAgentSelectToggleLabel();
+          validateAgentSelection();
+      });
+  }
+
   // Check immediately on load
   checkApiStatus();
   fetchHistory();
+  fetchAgents();
 
   if (refreshHistoryBtn) {
       refreshHistoryBtn.addEventListener('click', fetchHistory);
@@ -194,6 +281,7 @@ export function initApp() {
       const pat = document.getElementById('pat').value;
 
       if (!url || !pat) return;
+      if (!validateAgentSelection()) return;
 
       // Progress UI elements
       const progressContainer = document.getElementById('progress-container');
@@ -225,7 +313,7 @@ export function initApp() {
               headers: {
                   'Content-Type': 'application/json',
               },
-              body: JSON.stringify({ url, pat })
+              body: JSON.stringify(buildReviewPayload(url, pat))
           });
 
           if (!response.ok) {
@@ -274,7 +362,7 @@ export function initApp() {
           document.querySelector('.tabs').insertAdjacentHTML('beforebegin', errorHtml);
       } finally {
           // Reset UI
-          submitBtn.disabled = false;
+          submitBtn.disabled = !validateAgentSelection();
           btnText.classList.remove('hidden');
           spinner.classList.add('hidden');
           // Keep progress container visible to show what was done

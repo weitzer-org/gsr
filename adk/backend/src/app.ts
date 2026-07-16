@@ -67,8 +67,8 @@ app.post('/api/review', async (req, res) => {
       if (!Array.isArray(agents) || agents.some((a: unknown) => typeof a !== 'string')) {
         return res.status(400).json({ error: '"agents" must be an array of agent ID strings.' });
       }
-      const normalized = Array.from(new Set(agents.map((a: string) => a.trim().toLowerCase())));
-      if (normalized.length === 0 || normalized.some(id => id === '')) {
+      const normalized = Array.from(new Set(agents.map((a: string) => a.trim().toLowerCase()).filter(id => id !== '')));
+      if (normalized.length === 0) {
         return res.status(400).json({ error: 'Select at least one agent.' });
       }
       const availableIds = new Set(Orchestrator.listAgentIds(SYSTEM_PROMPTS_DIR));

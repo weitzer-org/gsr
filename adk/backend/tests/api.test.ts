@@ -185,6 +185,15 @@ describe('POST /api/review', () => {
     expect(response.body.error).toMatch(/select at least one agent/i);
   });
 
+  it('should return 400 when agents contains only blank/whitespace strings', async () => {
+    const response = await request(app)
+      .post('/api/review')
+      .send({ url: 'https://github.com/owner/repo/pull/1', pat: 'mock-pat', agents: ['', '   '] });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toMatch(/select at least one agent/i);
+  });
+
   it('should return 400 if agents is not an array of strings', async () => {
     const response = await request(app)
       .post('/api/review')
@@ -206,6 +215,24 @@ describe('POST /api/review', () => {
     const response = await request(app)
       .post('/api/review')
       .send({ url: 'https://github.com/owner/repo/pull/1', pat: 'mock-pat', agents: ['LOGIC', 'Security'] });
+
+    expect(response.status).toBe(200);
+    expect(runReviewSpy).toHaveBeenCalled();
+  });
+
+  it('filters out blank entries instead of rejecting the whole request when a valid id is also present', async () => {
+    const githubModule = await import('../src/github.js');
+    const orchestratorModule = await import('../src/orchestrator.js');
+    const evaluatorModule = await import('../src/evaluator.js');
+    const mockChunks = [{ file: 'test.js', content: 'diff' }];
+
+    jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
+    const runReviewSpy = jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockResolvedValue({ findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } });
+    jest.spyOn(evaluatorModule.Evaluator.prototype, 'evaluateComparison').mockResolvedValue('Mock evaluation');
+
+    const response = await request(app)
+      .post('/api/review')
+      .send({ url: 'https://github.com/owner/repo/pull/1', pat: 'mock-pat', agents: ['logic', '', '  '] });
 
     expect(response.status).toBe(200);
     expect(runReviewSpy).toHaveBeenCalled();

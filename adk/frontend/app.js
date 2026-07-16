@@ -282,6 +282,8 @@ export function initApp() {
   form.addEventListener('submit', async (e) => {
       e.preventDefault();
 
+      if (isSubmitting) return;
+
       const url = document.getElementById('pr-url').value;
       const pat = document.getElementById('pat').value;
 
@@ -369,7 +371,7 @@ export function initApp() {
       } finally {
           // Reset UI
           isSubmitting = false;
-          submitBtn.disabled = !validateAgentSelection();
+          validateAgentSelection(); // recomputes submitBtn.disabled from the current selection
           btnText.classList.remove('hidden');
           spinner.classList.add('hidden');
           // Keep progress container visible to show what was done

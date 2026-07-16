@@ -213,12 +213,15 @@ describe('App frontend logic (app.js)', () => {
         });
 
         it('sends agents in the request body for a partial selection, and omits it for the full selection', async () => {
-            const pendingBody = { ok: true, status: 200, body: { getReader: () => ({ read: () => new Promise(() => {}) }) } };
+            // Each /api/review call gets a reader that reports "done" on the first read,
+            // so the submission completes (and isSubmitting resets) instead of hanging —
+            // this test does two submissions in sequence, unlike the in-flight test above.
+            const immediatelyDoneBody = { ok: true, status: 200, body: { getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }) } };
             global.fetch.mockImplementation((url) => {
                 if (url === '/api/agents') {
                     return Promise.resolve({ ok: true, status: 200, json: async () => ({ agents: [{ id: 'logic', displayName: 'Logic' }, { id: 'security', displayName: 'Security' }] }) });
                 }
-                if (url === '/api/review') return Promise.resolve(pendingBody);
+                if (url === '/api/review') return Promise.resolve(immediatelyDoneBody);
                 return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
             });
 
@@ -231,6 +234,7 @@ describe('App frontend logic (app.js)', () => {
 
             let reviewCall = global.fetch.mock.calls.find(c => c[0] === '/api/review');
             expect(JSON.parse(reviewCall[1].body)).not.toHaveProperty('agents');
+            expect(document.getElementById('submit-btn').disabled).toBe(false); // submission completed, isSubmitting reset
 
             // Partial selection: agents included, matching only the checked ids.
             document.querySelectorAll('#agent-checkbox-list input[type="checkbox"]')[0].click();
@@ -240,6 +244,31 @@ describe('App frontend logic (app.js)', () => {
 
             reviewCall = global.fetch.mock.calls.find(c => c[0] === '/api/review');
             expect(JSON.parse(reviewCall[1].body).agents).toEqual(['security']);
+        });
+
+        it('ignores a second submit while one is already in flight (no duplicate request)', async () => {
+            global.fetch.mockImplementation((url) => {
+                if (url === '/api/agents') {
+                    return Promise.resolve({ ok: true, status: 200, json: async () => ({ agents: [{ id: 'logic', displayName: 'Logic' }] }) });
+                }
+                if (url === '/api/review') {
+                    return Promise.resolve({ ok: true, status: 200, body: { getReader: () => ({ read: () => new Promise(() => {}) }) } });
+                }
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+            });
+
+            initApp();
+            await flush();
+
+            const form = document.getElementById('review-form');
+            form.dispatchEvent(new Event('submit', { cancelable: true }));
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            global.fetch.mockClear();
+            form.dispatchEvent(new Event('submit', { cancelable: true }));
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            expect(global.fetch.mock.calls.find(c => c[0] === '/api/review')).toBeUndefined();
         });
     });
 });

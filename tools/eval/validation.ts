@@ -10,6 +10,18 @@ export interface ValidationResult {
   hallucinatedFindings: ReviewFinding[];
 }
 
+/** Strips a leading '/' and a git-style 'a/'/'b/' diff prefix from a file path. */
+export function normalizeFilePath(filePath: string): string {
+  return filePath.replace(/^\//, '').replace(/^[ab]\//, '');
+}
+
+/** Same-file check tolerant of one side being a path suffix of the other (e.g. relative vs repo-rooted). */
+export function filePathsMatch(a: string, b: string): boolean {
+  const na = normalizeFilePath(a);
+  const nb = normalizeFilePath(b);
+  return na === nb || na.endsWith('/' + nb) || nb.endsWith('/' + na);
+}
+
 export function validateFindingsAgainstDiff(findings: ReviewFinding[], diffChunks: DiffChunk[]): ValidationResult {
   const validFindings: ReviewFinding[] = [];
   const hallucinatedFindings: ReviewFinding[] = [];
@@ -42,8 +54,7 @@ export function validateFindingsAgainstDiff(findings: ReviewFinding[], diffChunk
       }
     }
 
-    const cleanChunk = chunk.file.replace(/^\//, '').replace(/^[ab]\//, '');
-    fileToValidLines.set(cleanChunk, validLines);
+    fileToValidLines.set(normalizeFilePath(chunk.file), validLines);
   }
 
   for (const finding of findings) {
@@ -53,15 +64,15 @@ export function validateFindingsAgainstDiff(findings: ReviewFinding[], diffChunk
     }
     
     let validLinesForFile: Set<number> | undefined;
-    const cleanFinding = finding.fileName.replace(/^\//, '').replace(/^[ab]\//, '');
-    
+    const cleanFinding = normalizeFilePath(finding.fileName);
+
     // O(1) primary lookup
     validLinesForFile = fileToValidLines.get(cleanFinding);
-    
+
     // Structural fallback lookup with boundary bounds
     if (!validLinesForFile) {
         for (const [cleanChunk, lines] of fileToValidLines.entries()) {
-            if (cleanFinding.endsWith('/' + cleanChunk) || cleanChunk.endsWith('/' + cleanFinding) || cleanFinding === cleanChunk) {
+            if (filePathsMatch(cleanFinding, cleanChunk)) {
                 validLinesForFile = lines;
                 break;
             }

@@ -6,6 +6,7 @@
   "scripts": {
     "test": "jest",
     "eval": "ts-node evaluate.ts",
+    "eval:regression": "ts-node fixture-regression.ts",
     "eval:list": "ts-node api-gcs.ts list",
     "eval:get": "ts-node api-gcs.ts get",
     "build": "tsc",

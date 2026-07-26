@@ -69,10 +69,14 @@ export function validateFindingsAgainstDiff(findings: ReviewFinding[], diffChunk
     // O(1) primary lookup
     validLinesForFile = fileToValidLines.get(cleanFinding);
 
-    // Structural fallback lookup with boundary bounds
+    // Structural fallback lookup with boundary bounds.
+    // cleanFinding and the map's keys are already normalized here, so compare
+    // directly rather than via filePathsMatch — routing through it would
+    // re-normalize already-normalized paths, incorrectly stripping a second
+    // leading 'a/'/'b/' segment from paths where that's a real directory name.
     if (!validLinesForFile) {
         for (const [cleanChunk, lines] of fileToValidLines.entries()) {
-            if (filePathsMatch(cleanFinding, cleanChunk)) {
+            if (cleanFinding === cleanChunk || cleanFinding.endsWith('/' + cleanChunk) || cleanChunk.endsWith('/' + cleanFinding)) {
                 validLinesForFile = lines;
                 break;
             }

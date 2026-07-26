@@ -15,11 +15,14 @@ export function normalizeFilePath(filePath: string): string {
   return filePath.replace(/^\//, '').replace(/^[ab]\//, '');
 }
 
-/** Same-file check tolerant of one side being a path suffix of the other (e.g. relative vs repo-rooted). */
-export function filePathsMatch(a: string, b: string): boolean {
-  const na = normalizeFilePath(a);
-  const nb = normalizeFilePath(b);
+/** Same-file check tolerant of one side being a path suffix of the other, given two already-normalized paths. */
+function pathsMatchNormalized(na: string, nb: string): boolean {
   return na === nb || na.endsWith('/' + nb) || nb.endsWith('/' + na);
+}
+
+/** Same-file check tolerant of one side being a path suffix of the other (e.g. relative vs repo-rooted). Normalizes both inputs — pass already-normalized paths to pathsMatchNormalized instead to avoid double-normalizing. */
+export function filePathsMatch(a: string, b: string): boolean {
+  return pathsMatchNormalized(normalizeFilePath(a), normalizeFilePath(b));
 }
 
 export function validateFindingsAgainstDiff(findings: ReviewFinding[], diffChunks: DiffChunk[]): ValidationResult {
@@ -69,10 +72,15 @@ export function validateFindingsAgainstDiff(findings: ReviewFinding[], diffChunk
     // O(1) primary lookup
     validLinesForFile = fileToValidLines.get(cleanFinding);
 
-    // Structural fallback lookup with boundary bounds
+    // Structural fallback lookup with boundary bounds.
+    // cleanFinding and the map's keys are already normalized here, so use
+    // pathsMatchNormalized directly rather than filePathsMatch — routing
+    // through filePathsMatch would re-normalize already-normalized paths,
+    // incorrectly stripping a second leading 'a/'/'b/' segment from paths
+    // where that's a real directory name.
     if (!validLinesForFile) {
         for (const [cleanChunk, lines] of fileToValidLines.entries()) {
-            if (filePathsMatch(cleanFinding, cleanChunk)) {
+            if (pathsMatchNormalized(cleanFinding, cleanChunk)) {
                 validLinesForFile = lines;
                 break;
             }

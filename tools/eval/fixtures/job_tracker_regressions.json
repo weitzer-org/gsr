@@ -1,0 +1,85 @@
+{
+  "description": "Regression fixture derived from the manual weitzer-org/job_tracker PR audit (review-quality-design.md §1, §7.1). Ground truth is human-verified, not GSR output. Scored against basic-mode findings from /api/review, since job_tracker's own CI (.github/workflows/gsr-review.yml) runs mode: basic exclusively — the deep-review swarm has never run on this repo (review-quality-design.md §1 correction).",
+  "lineTolerance": 3,
+  "entries": {
+    "must_catch": [
+      {
+        "id": "filters-containsAny-substring-false-positive",
+        "prUrl": "https://github.com/weitzer-org/job_tracker/pull/1",
+        "file": "internal/ingest/filters.go",
+        "line": 73,
+        "summary": "containsAny (internal/ingest/filters.go) does plain substring matching for single-token needles like \"tpm\", so it can false-positive inside an unrelated longer word instead of requiring a word boundary the way containsAnyWord does for vpTitleKeywords.",
+        "gap": "§1 wrongly-ignored Logic finding, still live in main as of this audit."
+      },
+      {
+        "id": "filters-containsAnyWord-boundary-bug",
+        "prUrl": "https://github.com/weitzer-org/job_tracker/pull/1",
+        "file": "internal/ingest/filters.go",
+        "line": 85,
+        "summary": "containsAnyWord (internal/ingest/filters.go) only strips to [a-z0-9] fields, so a needle containing punctuation-adjacent characters or mixed case beyond simple lowering can miss real matches or the whole-word invariant the doc comment claims.",
+        "gap": "§1 wrongly-ignored Logic finding, still live in main as of this audit."
+      },
+      {
+        "id": "recruiter-store-mutate-missing-ctx-done",
+        "prUrl": "https://github.com/weitzer-org/job_tracker/pull/4",
+        "file": "internal/recruiter/store.go",
+        "line": 87,
+        "summary": "Store.Mutate's conflict retry loop calls time.Sleep(retryBaseDelay + rand.N(retryJitter)) on an ETag mismatch with no select on ctx.Done() — a cancelled/timed-out context does not abort the retry loop early, it just keeps sleeping and retrying until maxWriteRetries is exhausted.",
+        "gap": "§1 wrongly-ignored Logic finding, still live in main as of this audit. Same structural bug also exists in internal/status/store.go's Mutate, which this file's own comment says it mirrors."
+      },
+      {
+        "id": "scoring-fallback-judge-passthrough",
+        "prUrl": "https://github.com/weitzer-org/job_tracker/pull/15",
+        "file": "internal/scoring/fallback.go",
+        "line": 88,
+        "summary": "FallbackProvider.Judge passes straight through to f.primary.Judge with no keyword/error-class handling and no doc comment explaining the choice (unlike ParseJD/ScoreCandidate, which have explicit \"passes through\" comments) — unclear whether Judge was meant to get the same outage-tolerant treatment as ScoreJob under NFR-4.",
+        "gap": "§1 wrongly-ignored Logic finding, still live in main as of this audit."
+      }
+    ],
+    "must_not_flag_high": [
+      {
+        "id": "design-prd-mockup-race-condition",
+        "prUrl": "https://github.com/weitzer-org/job_tracker/pull/3",
+        "file": "design_prd/recruiter_pm_leader_tracker_artifact.html",
+        "line": 127,
+        "summary": "GSR flagged a UI race condition in saveStatus() as HIGH. Real observation, but this file is a static historical reference mockup, never served — severity should be dampened, not zero, per §4.1.",
+        "gap": "§4 correctly-ignored-but-overweighted finding — regression check is that it stays capped below HIGH/CRITICAL (or is absent), not that it disappears entirely."
+      },
+      {
+        "id": "scratch-script-no-healthcheck-timeout",
+        "prUrl": "https://github.com/weitzer-org/job_tracker/pull/14",
+        "file": "wait_for_app.sh",
+        "line": 3,
+        "summary": "GSR flagged the unbounded `while ! curl ... ; do sleep 1; done` health-check loop as HIGH (\"no healthcheck timeout\"). Real observation, but this is a one-off local dev-scratch script touched once and referenced by nothing else in the repo.",
+        "gap": "§4 correctly-ignored-but-overweighted finding — regression check is that it stays capped below HIGH/CRITICAL (or is absent)."
+      },
+      {
+        "id": "scratch-script-swallowed-test-failures",
+        "prUrl": "https://github.com/weitzer-org/job_tracker/pull/14",
+        "file": "run_real_test.sh",
+        "line": 28,
+        "summary": "GSR flagged \"test failures swallowed\" as HIGH — tests/e2e/run.sh's exit code is never checked before the script proceeds to \"Cleaning up...\" and tears the stack down regardless of pass/fail. Real observation, but this is a one-off dev-scratch script, not shipping code.",
+        "gap": "§4 correctly-ignored-but-overweighted finding — regression check is that it stays capped below HIGH/CRITICAL (or is absent)."
+      }
+    ],
+    "must_resolve_cross_file": [
+      {
+        "id": "eval-applyConfig-cross-file",
+        "prUrl": "https://github.com/weitzer-org/job_tracker/pull/15",
+        "file": "cmd/eval/main.go",
+        "line": 218,
+        "definedInFile": "cmd/eval/apply.go",
+        "claimPatterns": [
+          "is not defined",
+          "not defined in this file",
+          "does not exist",
+          "undefined",
+          "no such function",
+          "no such method"
+        ],
+        "summary": "PR #15 got a Logic finding claiming applyConfig (called at cmd/eval/main.go:218) is not defined in this file. False — it's defined in cmd/eval/apply.go, a brand-new file added in this same PR, valid per Go package-level scoping. §5's root cause: basic mode's useTriage=false routes runReview through the legacy file-by-file branch, so the call reviewing main.go never had apply.go's diff in the same prompt.",
+        "gap": "§5 cross-file false-claim, the deciding signal for whether §5.1 Tier 2 is needed once Tier 1 (aggregateChunks decoupled from useDedup) lands in Phase 2."
+      }
+    ]
+  }
+}

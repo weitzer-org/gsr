@@ -50,6 +50,16 @@ Secrets are plain env vars — `.env` locally (git-ignored, never commit it),
 path anymore (removed in the Fly.io migration); don't reintroduce
 `GOOGLE_APPLICATION_CREDENTIALS`-style auto-loading.
 
+**Usage analytics.** Every real Gemini call in `adk/backend` (agent.ts,
+deduplicator.ts, evaluator.ts) is wrapped by `trackGeminiCall`
+(`adk/backend/src/usage.ts`), which persists a per-call token/latency/cost/
+success record to `S3_REVIEW_BUCKET` under `usage/<date>/`. See
+`usage_analytics_reference.md` for the schema and query recipes (the
+`usage-report.js` CLI, or raw `jq`-over-S3) — read that before answering any
+"what's our token spend/error rate" question instead of re-deriving the
+storage layout. `usage.ts`'s `PRICE_TABLE` mirrors `job_tracker`'s
+`internal/scoring/pricing.go` — keep both in sync when Gemini prices change.
+
 ## Auth
 Both Fly apps were originally deployed with zero auth on their public URLs
 — `fly.toml`'s `app = 'gsr-code-review'` is public in this repo, so the

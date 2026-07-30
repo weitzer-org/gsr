@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { CandidateFinding } from './types';
+import { trackGeminiCall } from './usage';
 
 export class Evaluator {
   private ai: GoogleGenAI;
@@ -36,10 +37,14 @@ Format your output in professional Markdown. Keep it under 250 words and be high
     try {
       console.log(`[Evaluator] Starting Gemini API call for comparison evaluation...`);
       
-      const response = await this.ai.models.generateContent({
-         model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
+      const evaluatorModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+      const response = await trackGeminiCall(
+        { callType: 'evaluate', model: evaluatorModel },
+        () => this.ai.models.generateContent({
+         model: evaluatorModel,
          contents: prompt,
-      });
+        })
+      );
       
       console.log(`[Evaluator] Received Gemini API response for comparison evaluation`);
       return response.text || "No evaluation generated.";

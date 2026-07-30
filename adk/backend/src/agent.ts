@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { CandidateFinding, DiffChunk, Subagent, AnalyzeResult } from './types';
+import { trackGeminiCall } from './usage';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -131,7 +132,10 @@ export class GeminiAgent implements Subagent {
            requestArgs.config.systemInstruction = promptPayload.systemInstruction;
         }
 
-        const genAiRequest = this.ai.models.generateContent(requestArgs);
+        const genAiRequest = trackGeminiCall(
+          { callType: 'discovery', model: requestArgs.model },
+          () => this.ai.models.generateContent(requestArgs)
+        );
 
         const timeoutPromise = new Promise<any>((_, reject) => {
             timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
@@ -176,8 +180,11 @@ export class GeminiAgent implements Subagent {
       // PASS 2: Remediation
       // Not cached because it uses a different short-lived prompt focused tightly on synthesizing solutions
       const remediationPayload = this.buildRemediationPrompt(chunks, discoveryIssues);
-      const remediationRequest = this.ai.models.generateContent({
-           model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
+      const remediationModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+      const remediationRequest = trackGeminiCall(
+        { callType: 'remediation', model: remediationModel },
+        () => this.ai.models.generateContent({
+           model: remediationModel,
            contents: remediationPayload.contents,
            config: {
              systemInstruction: remediationPayload.systemInstruction,
@@ -199,7 +206,8 @@ export class GeminiAgent implements Subagent {
                }
              }
            }
-      });
+        })
+      );
 
       const remediationResponse = await Promise.race([remediationRequest, new Promise<any>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini remediation fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
@@ -250,8 +258,11 @@ ${chunk.content}
     try {
       console.log(`[${this.name}] Starting Baseline Gemini API call for ${chunk.file}...`);
       
-      const response = await this.ai.models.generateContent({
-         model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
+      const legacyModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+      const response = await trackGeminiCall(
+        { callType: 'legacy', model: legacyModel },
+        () => this.ai.models.generateContent({
+         model: legacyModel,
          contents: prompt,
          config: {
            responseMimeType: 'application/json',
@@ -272,7 +283,8 @@ ${chunk.content}
              }
            }
          }
-      });
+        })
+      );
 
       if (response.text) {
           const findings = JSON.parse(response.text) as CandidateFinding[];

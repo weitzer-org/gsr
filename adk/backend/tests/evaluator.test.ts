@@ -12,6 +12,13 @@ jest.unstable_mockModule('@google/genai', () => ({
   }))
 }));
 
+// trackGeminiCall's real implementation writes to S3-compatible storage
+// (src/usage.ts) — pass through to fn() here instead of making a real
+// network call per test (see tests/agent.test.ts's identical rationale).
+jest.unstable_mockModule('../src/usage.js', () => ({
+  trackGeminiCall: jest.fn((_ctx: unknown, fn: () => Promise<unknown>) => fn())
+}));
+
 describe('Evaluator', () => {
   let evaluator: any;
 

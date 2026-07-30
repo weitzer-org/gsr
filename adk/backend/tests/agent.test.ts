@@ -1,6 +1,15 @@
 import { jest } from '@jest/globals';
 import { GeminiAgent } from '../src/agent';
 
+// trackGeminiCall's real implementation writes to S3-compatible storage
+// (see src/usage.ts) — transparently pass through to fn() here so these
+// tests exercise the real generateContent-mocking/response-handling logic
+// without making a real (and, in this sandboxed test environment, failing
+// and retrying) network call on every analyze() call.
+jest.mock('../src/usage', () => ({
+    trackGeminiCall: jest.fn((_ctx: unknown, fn: () => Promise<unknown>) => fn()),
+}));
+
 describe('GeminiAgent', () => {
     let originalEnv: NodeJS.ProcessEnv;
 

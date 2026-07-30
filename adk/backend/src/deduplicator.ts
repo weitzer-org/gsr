@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { CandidateFinding } from './types.js';
+import { trackGeminiCall } from './usage.js';
 
 export class DeduplicatorAgent {
   private ai: GoogleGenAI;
@@ -44,8 +45,11 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
       const startTime = Date.now();
       console.log(`[Deduplicator] Sending request to Gemini...`);
       
-      const request = this.ai.models.generateContent({
-        model: process.env.DEDUPLICATOR_MODEL || 'gemini-3.1-pro-preview',
+      const deduplicatorModel = process.env.DEDUPLICATOR_MODEL || 'gemini-3.1-pro-preview';
+      const request = trackGeminiCall(
+        { callType: 'deduplicate', model: deduplicatorModel },
+        () => this.ai.models.generateContent({
+        model: deduplicatorModel,
         contents: JSON.stringify(findings),
         config: {
           systemInstruction,
@@ -62,13 +66,14 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
                 summary: { type: Type.STRING },
                 description: { type: Type.STRING },
                 suggestion: { type: Type.STRING, nullable: true },
-                agent: { type: Type.STRING, nullable: true } 
+                agent: { type: Type.STRING, nullable: true }
               },
               required: ["file", "line", "severity", "summary", "description"]
             }
           }
         }
-      });
+        })
+      );
 
       const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '300000', 10);
       console.log(`[Deduplicator] Timeout set to ${timeoutMs}ms`);

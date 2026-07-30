@@ -1,0 +1,287 @@
+// Persists per-Gemini-call token/latency/cost/success records to object
+// storage for cost analytics — the same pattern built for the sibling
+// job_tracker and sound-profile-builder projects (all three share the same
+// storage-layout convention deliberately, so the query recipes/tooling are
+// interchangeable across projects).
+//
+// Every real call site (agent.ts, deduplicator.ts, evaluator.ts) already
+// reads `response.usageMetadata` and computes latency inline, but that data
+// was only ever logged to the console or aggregated in-memory for the
+// current run — never persisted durably. trackGeminiCall wraps the actual
+// `generateContent` call so each call site gets durable recording with a
+// one-line change, without disturbing the retry/timeout logic already
+// wrapped around it at each site.
+//
+// Storage layout: one small JSON object per call under
+// usage/<date>/<time>-<rand>.json in S3_REVIEW_BUCKET (the same bucket
+// review-run history already lives in) — no read-modify-write, so
+// concurrent subagent calls (Orchestrator's PromisePool, up to 5 in flight)
+// never contend the way a single shared/appended file would.
+import { randomBytes } from 'crypto';
+import { uploadJson, listFiles, getFileStream } from './storage';
+
+export interface UsageEvent {
+  callType: string; // e.g. "legacy", "discovery", "remediation", "deduplicate", "evaluate"
+  refId?: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens?: number;
+  latencyMs: number;
+  costUsd: number;
+  finishReason?: string;
+  success: boolean;
+  errorKind?: string; // set only when success is false
+}
+
+export interface UsageRecord extends UsageEvent {
+  timestamp: string; // ISO 8601, UTC
+  provider: 'gemini';
+}
+
+// USD per 1,000,000 tokens. Mirrors the pricing table used by the sibling
+// job_tracker project (internal/scoring/pricing.go) — keep them in sync when
+// prices change. An unknown model returns 0 cost, a signal to add it here,
+// not "this call was free."
+const PRICE_TABLE: Record<string, { input: number; output: number }> = {
+  'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
+  'gemini-3.5-flash': { input: 1.5, output: 9.0 },
+  'gemini-3.6-flash': { input: 1.5, output: 7.5 },
+};
+
+export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
+  const price = PRICE_TABLE[model];
+  if (!price) return 0;
+  const perM = 1_000_000;
+  const billedInput = Math.max(0, inputTokens - cachedTokens);
+  return (billedInput * price.input) / perM + (outputTokens * price.output) / perM;
+}
+
+// classifyError gives a coarse, stable label for a failed call so usage
+// records can be aggregated by failure reason without string-matching error
+// text ad hoc at query time. @google/genai/fetch errors don't have one
+// consistent shape across every failure mode this repo's call sites can hit
+// (SDK HTTP errors, the hand-rolled ETIMEDOUT Promise.race timeouts in
+// agent.ts/deduplicator.ts), so this inspects the common signals — an HTTP
+// status if present, otherwise the message text — rather than assuming a
+// single error class.
+export function classifyError(err: unknown): string {
+  const anyErr = err as { status?: number; code?: number; response?: { status?: number }; message?: string } | undefined;
+  const status = anyErr?.status ?? anyErr?.code ?? anyErr?.response?.status;
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 429) return 'rate_limit';
+  if (typeof status === 'number' && status >= 500) return 'unavailable';
+  const message = String(anyErr?.message ?? err ?? '');
+  if (/etimedout|timed?\s?out|deadline/i.test(message)) return 'timeout';
+  return 'api_error';
+}
+
+function getUsageBucketName(): string {
+  return process.env.S3_REVIEW_BUCKET || 'gsr-review-results';
+}
+
+// objectKey builds usage/<YYYY-MM-DD>/<HHMMSSmmm>-<8 hex chars>.json. The
+// random suffix guarantees uniqueness even for two calls completing within
+// the same millisecond — an unconditional PUT would otherwise silently
+// overwrite the earlier record instead of erroring.
+function objectKey(date: Date): string {
+  const iso = date.toISOString(); // e.g. "2026-07-29T20:13:53.282Z"
+  const day = iso.slice(0, 10);
+  const time = iso.slice(11, 23).replace(/[:.]/g, '');
+  const rand = randomBytes(4).toString('hex');
+  return `usage/${day}/${time}-${rand}.json`;
+}
+
+// recordUsage never throws — a broken/unreachable bucket must never turn a
+// dropped analytics record into a failed review. A write failure is logged
+// and the record dropped, mirroring internal/usage.Store.Record's contract
+// in the sibling job_tracker project.
+export async function recordUsage(event: UsageEvent): Promise<void> {
+  const record: UsageRecord = { ...event, provider: 'gemini', timestamp: new Date().toISOString() };
+  try {
+    await uploadJson(getUsageBucketName(), objectKey(new Date()), record);
+  } catch (err) {
+    console.error('[usage] failed to record usage event:', err);
+  }
+}
+
+type GenerateContentLikeResponse = {
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    cachedContentTokenCount?: number;
+  };
+};
+
+// trackGeminiCall wraps a single `ai.models.generateContent(...)` call (or
+// anything returning a `{ usageMetadata, ... }`-shaped response) so latency,
+// tokens, cost, and success/failure are captured with a one-line change at
+// the call site — see agent.ts/deduplicator.ts/evaluator.ts.
+//
+// A failed call is recorded too (success: false, zero tokens, a classified
+// errorKind, but a real latency-to-failure) before the error is rethrown
+// unchanged, so the existing retry/timeout logic wrapped around each call
+// site is completely unaffected — this only observes the call, it never
+// changes its outcome.
+export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
+  ctx: { callType: string; model: string; refId?: string },
+  fn: () => Promise<T>
+): Promise<T> {
+  const start = Date.now();
+  try {
+    const response = await fn();
+    const latencyMs = Date.now() - start;
+    const u = response.usageMetadata;
+    const inputTokens = u?.promptTokenCount ?? 0;
+    const outputTokens = u?.candidatesTokenCount ?? 0;
+    const cachedTokens = u?.cachedContentTokenCount ?? 0;
+    await recordUsage({
+      callType: ctx.callType,
+      refId: ctx.refId,
+      model: ctx.model,
+      inputTokens,
+      outputTokens,
+      cachedTokens,
+      latencyMs,
+      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens),
+      success: true,
+    });
+    return response;
+  } catch (err) {
+    const latencyMs = Date.now() - start;
+    await recordUsage({
+      callType: ctx.callType,
+      refId: ctx.refId,
+      model: ctx.model,
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs,
+      costUsd: 0,
+      success: false,
+      errorKind: classifyError(err),
+    });
+    throw err;
+  }
+}
+
+// --- Rollup aggregation, mirroring internal/usage's Aggregate/ListRecords
+// in the sibling job_tracker project. ---
+
+export interface UsageBucket {
+  calls: number;
+  successCount: number;
+  failureCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+export interface Rollup {
+  date: string;
+  totalCalls: number;
+  successCount: number;
+  failureCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  avgLatencyMs: number;
+  byCallType: Record<string, UsageBucket>;
+  byModel: Record<string, UsageBucket>;
+  byErrorKind: Record<string, number>;
+}
+
+async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream as AsyncIterable<Buffer | string>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
+
+// listUsageRecords reads every record written under usage/<date>/. A record
+// that fails to fetch or decode is skipped with a logged warning rather than
+// failing the whole listing — one malformed object shouldn't block
+// aggregating everything else that day.
+export async function listUsageRecords(date: string): Promise<UsageRecord[]> {
+  const bucket = getUsageBucketName();
+  const files = await listFiles(bucket, `usage/${date}/`);
+  const records: UsageRecord[] = [];
+  for (const file of files) {
+    try {
+      const stream = await getFileStream(bucket, file.name);
+      records.push(JSON.parse(await streamToString(stream)));
+    } catch (err) {
+      console.error(`[usage] failed to read/parse ${file.name}:`, err);
+    }
+  }
+  return records;
+}
+
+function addToBucket(m: Record<string, UsageBucket>, key: string | undefined, rec: UsageRecord): void {
+  if (!key) return;
+  if (!m[key]) {
+    m[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  }
+  const b = m[key];
+  b.calls++;
+  if (rec.success) {
+    b.successCount++;
+  } else {
+    b.failureCount++;
+  }
+  b.inputTokens += rec.inputTokens;
+  b.outputTokens += rec.outputTokens;
+  b.costUsd += rec.costUsd;
+}
+
+// aggregate summarizes records into a Rollup for date. Pure/deterministic —
+// no I/O — so it's independently testable from listUsageRecords/writeRollup.
+export function aggregate(date: string, records: UsageRecord[]): Rollup {
+  const rollup: Rollup = {
+    date,
+    totalCalls: 0,
+    successCount: 0,
+    failureCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCostUsd: 0,
+    avgLatencyMs: 0,
+    byCallType: {},
+    byModel: {},
+    byErrorKind: {},
+  };
+
+  let totalLatencyMs = 0;
+  for (const rec of records) {
+    rollup.totalCalls++;
+    if (rec.success) {
+      rollup.successCount++;
+    } else {
+      rollup.failureCount++;
+      if (rec.errorKind) {
+        rollup.byErrorKind[rec.errorKind] = (rollup.byErrorKind[rec.errorKind] || 0) + 1;
+      }
+    }
+    rollup.totalInputTokens += rec.inputTokens;
+    rollup.totalOutputTokens += rec.outputTokens;
+    rollup.totalCostUsd += rec.costUsd;
+    totalLatencyMs += rec.latencyMs;
+
+    addToBucket(rollup.byCallType, rec.callType, rec);
+    addToBucket(rollup.byModel, rec.model, rec);
+  }
+
+  if (rollup.totalCalls > 0) {
+    rollup.avgLatencyMs = totalLatencyMs / rollup.totalCalls;
+  }
+  return rollup;
+}
+
+// writeRollup persists a Rollup, overwriting any existing rollup for the
+// same date — a rollup is a recomputable summary meant to be regenerated
+// idempotently, not an append-only log, so an unconditional PUT is correct
+// here (unlike per-call records, which are already inherently non-colliding
+// thanks to their random-suffixed keys).
+export async function writeRollup(rollup: Rollup): Promise<void> {
+  await uploadJson(getUsageBucketName(), `usage/rollups/${rollup.date}.json`, rollup);
+}

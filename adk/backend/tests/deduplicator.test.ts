@@ -1,6 +1,13 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { DeduplicatorAgent } from '../src/deduplicator';
 
+// See tests/agent.test.ts's identical mock for why: trackGeminiCall's real
+// implementation writes to S3-compatible storage (src/usage.ts) — pass
+// through to fn() here instead of making a real network call per test.
+jest.mock('../src/usage', () => ({
+    trackGeminiCall: jest.fn((_ctx: unknown, fn: () => Promise<unknown>) => fn()),
+}));
+
 describe('DeduplicatorAgent', () => {
     let deduplicator: DeduplicatorAgent;
 

@@ -42,6 +42,24 @@ inputs:
       ignored (with a warning) when mode is "basic". Defaults to "all".
     required: false
     default: 'all'
+  usage-report-url:
+    description: >
+      OPTIONAL, off by default. URL of a hosted GSR usage-ingest endpoint
+      (POST /api/usage/ingest) to additionally report this run's Gemini
+      usage (call counts, tokens, cost, latency — never diff or PR content)
+      to. Only set this if the GSR maintainer has explicitly given your repo
+      this value and usage-report-key. See ACTION.md's "Usage reporting"
+      section. A local usage summary is always written to this run's Job
+      Summary regardless of this setting.
+    required: false
+    default: ''
+  usage-report-key:
+    description: >
+      OPTIONAL. Shared secret paired with usage-report-url, provided by the
+      GSR maintainer alongside it. Store as a repo secret. Has no effect
+      unless usage-report-url is also set.
+    required: false
+    default: ''
 
 runs:
   using: 'docker'
@@ -54,3 +72,5 @@ runs:
     GEMINI_MODEL: ${{ inputs.gemini-model }}
     MAX_REVIEW_FILES: ${{ inputs.max-review-files }}
     REVIEW_AGENTS: ${{ inputs.agents }}
+    USAGE_INGEST_URL: ${{ inputs.usage-report-url }}
+    USAGE_INGEST_SHARED_SECRET: ${{ inputs.usage-report-key }}

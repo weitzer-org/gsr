@@ -24,7 +24,7 @@ function sign(expiry: number, password: string): string {
   return crypto.createHmac('sha256', key).update(String(expiry)).digest('base64url');
 }
 
-function timingSafeStringEqual(a: string, b: string): boolean {
+export function timingSafeStringEqual(a: string, b: string): boolean {
   const aBuf = Buffer.from(a);
   const bBuf = Buffer.from(b);
   return aBuf.length === bBuf.length && crypto.timingSafeEqual(aBuf, bBuf);

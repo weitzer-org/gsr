@@ -174,6 +174,113 @@ describe('aggregate', () => {
     });
 });
 
+describe('setUsageSink / resetUsageSink', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockUploadJson.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        // sink is module-global state — leaking an override here would
+        // silently break the recordUsage/trackGeminiCall describe blocks
+        // above and below, which assert mockUploadJson is called directly.
+        usage.resetUsageSink();
+    });
+
+    it('redirects recordUsage to a custom sink instead of uploadJson', async () => {
+        const received: any[] = [];
+        usage.setUsageSink(record => { received.push(record); });
+
+        await usage.recordUsage({
+            callType: 'discovery',
+            model: 'gemini-3.1-pro-preview',
+            inputTokens: 10,
+            outputTokens: 5,
+            latencyMs: 100,
+            costUsd: 0,
+            success: true,
+        });
+
+        expect(mockUploadJson).not.toHaveBeenCalled();
+        expect(received).toHaveLength(1);
+        expect(received[0].callType).toBe('discovery');
+    });
+
+    it('resetUsageSink restores the default S3-writing sink', async () => {
+        usage.setUsageSink(() => {});
+        usage.resetUsageSink();
+
+        await usage.recordUsage({
+            callType: 'discovery',
+            model: 'x',
+            inputTokens: 0,
+            outputTokens: 0,
+            latencyMs: 0,
+            costUsd: 0,
+            success: true,
+        });
+
+        expect(mockUploadJson).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('ingestUsageRecords', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockUploadJson.mockResolvedValue(undefined);
+    });
+
+    const record = (callType: string) => ({
+        timestamp: 't', provider: 'gemini' as const, callType, model: 'x',
+        inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true,
+    });
+
+    it('writes one object per record and reports accepted/failed counts', async () => {
+        const result = await usage.ingestUsageRecords([record('discovery'), record('deduplicate')]);
+        expect(mockUploadJson).toHaveBeenCalledTimes(2);
+        expect(result).toEqual({ accepted: 2, failed: 0 });
+    });
+
+    it('tags each persisted record with the given repository', async () => {
+        await usage.ingestUsageRecords([record('discovery')], { repository: 'weitzer-org/logo-maker' });
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.repository).toBe('weitzer-org/logo-maker');
+    });
+
+    it('skips a record whose write fails instead of throwing, and reflects it in failed count', async () => {
+        mockUploadJson.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('network down'));
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+        const result = await usage.ingestUsageRecords([record('discovery'), record('deduplicate')]);
+
+        expect(result).toEqual({ accepted: 1, failed: 1 });
+        errorSpy.mockRestore();
+    });
+});
+
+describe('formatUsageSummaryMarkdown', () => {
+    it('renders totals and a per-call-type breakdown', () => {
+        const rollup = usage.aggregate('2026-07-29', [
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'gemini-3.1-pro-preview', inputTokens: 100, outputTokens: 20, latencyMs: 1000, costUsd: 0.01, success: true } as any,
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'gemini-3.1-pro-preview', inputTokens: 0, outputTokens: 0, latencyMs: 500, costUsd: 0, success: false, errorKind: 'rate_limit' } as any,
+        ]);
+
+        const md = usage.formatUsageSummaryMarkdown(rollup);
+
+        expect(md).toContain('## GSR Usage Summary');
+        expect(md).toContain('| 2 | 1 | 1 |');
+        expect(md).toContain('### By call type');
+        expect(md).toContain('discovery');
+        expect(md).toContain('### Errors');
+        expect(md).toContain('rate_limit');
+    });
+
+    it('omits the errors section when there are no failures', () => {
+        const rollup = usage.aggregate('2026-07-29', []);
+        expect(usage.formatUsageSummaryMarkdown(rollup)).not.toContain('### Errors');
+    });
+});
+
 describe('listUsageRecords', () => {
     beforeEach(() => {
         jest.clearAllMocks();

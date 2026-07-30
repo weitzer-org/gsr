@@ -8,6 +8,8 @@ import { Orchestrator } from './orchestrator';
 import { Evaluator } from './evaluator';
 import { ReviewSource } from './types';
 import { requireAuth, handleLogin, handleLogout } from './auth';
+import { isValidUsageIngestKey } from './usageIngestAuth';
+import { ingestUsageRecords, UsageRecord } from './usage';
 
 const SYSTEM_PROMPTS_DIR = process.env.SYSTEM_PROMPTS_DIR || 'system_prompts';
 const BASIC_PROMPT_DIR = 'basic_prompt';
@@ -15,7 +17,10 @@ const frontendPath = path.join(process.cwd(), '../frontend');
 
 export const app = express();
 app.use(cors());
-app.use(express.json());
+// 2mb (bumped from Express's 100kb default): every other route's body is
+// small, but a full-size usage-ingest batch (see /api/usage/ingest below)
+// can hold up to MAX_USAGE_INGEST_RECORDS records.
+app.use(express.json({ limit: '2mb' }));
 
 // Log all API requests to the terminal
 app.use((req, res, next) => {
@@ -38,6 +43,37 @@ app.get('/api/status', (req, res) => {
 app.get('/login', (req, res) => res.sendFile(path.join(frontendPath, 'login.html')));
 app.post('/login', handleLogin);
 app.post('/logout', handleLogout);
+
+const MAX_USAGE_INGEST_RECORDS = 500;
+
+// Public (no UI_PASSWORD session) — used by GSR Action runs reporting usage
+// from a consumer's own runner. Protected by its own shared-secret check
+// instead, since it must stay reachable by consumers who never have a
+// session cookie. See usageIngestAuth.ts for why this fails closed instead
+// of following tools/eval's "open when unset" convention.
+app.post('/api/usage/ingest', async (req, res) => {
+  if (!isValidUsageIngestKey(req.header('X-Usage-Ingest-Key'), process.env.USAGE_INGEST_SHARED_SECRET)) {
+    return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+  }
+
+  const { repository, records } = req.body || {};
+  if (!Array.isArray(records) || records.length === 0) {
+    return res.status(400).json({ status: 'error', message: '"records" must be a non-empty array.' });
+  }
+  if (records.length > MAX_USAGE_INGEST_RECORDS) {
+    return res.status(400).json({ status: 'error', message: `Too many records (max ${MAX_USAGE_INGEST_RECORDS} per request).` });
+  }
+
+  try {
+    const result = await ingestUsageRecords(records as UsageRecord[], {
+      repository: typeof repository === 'string' ? repository : undefined,
+    });
+    res.json({ status: 'ok', ...result });
+  } catch (error: any) {
+    console.error('Error ingesting usage records:', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Internal server error' });
+  }
+});
 
 // Everything below this point requires a valid session when UI_PASSWORD is set.
 app.use(requireAuth);

@@ -32,6 +32,9 @@ export interface UsageEvent {
   finishReason?: string;
   success: boolean;
   errorKind?: string; // set only when success is false
+  repository?: string; // "owner/repo" — set only via ingestUsageRecords() for
+                        // batches reported from a GitHub Action run;
+                        // undefined for the hosted backend's own calls.
 }
 
 export interface UsageRecord extends UsageEvent {
@@ -92,14 +95,41 @@ function objectKey(date: Date): string {
   return `usage/${day}/${time}-${rand}.json`;
 }
 
-// recordUsage never throws — a broken/unreachable bucket must never turn a
+export type UsageSink = (record: UsageRecord) => void | Promise<void>;
+
+async function defaultSink(record: UsageRecord): Promise<void> {
+  await uploadJson(getUsageBucketName(), objectKey(new Date()), record);
+}
+
+let sink: UsageSink = defaultSink;
+
+// setUsageSink lets a caller (currently only action-entrypoint.ts) redirect
+// every recordUsage() call for the rest of the process's lifetime — e.g.
+// into an in-memory array instead of S3, since a GitHub Action's runner has
+// no S3_* credentials. Deliberately a module-level override rather than
+// threading a sink through GeminiAgent/DeduplicatorAgent/Orchestrator: those
+// classes are constructed many times per review (one GeminiAgent per
+// subagent/file) with no natural single injection point, and trackGeminiCall
+// already only ever calls this module's recordUsage directly.
+export function setUsageSink(newSink: UsageSink): void {
+  sink = newSink;
+}
+
+// resetUsageSink restores the default S3 sink. Tests must call this after
+// setUsageSink — sink is module-global state that would otherwise leak into
+// later tests sharing the same module instance.
+export function resetUsageSink(): void {
+  sink = defaultSink;
+}
+
+// recordUsage never throws — a broken/unreachable sink must never turn a
 // dropped analytics record into a failed review. A write failure is logged
 // and the record dropped, mirroring internal/usage.Store.Record's contract
 // in the sibling job_tracker project.
 export async function recordUsage(event: UsageEvent): Promise<void> {
   const record: UsageRecord = { ...event, provider: 'gemini', timestamp: new Date().toISOString() };
   try {
-    await uploadJson(getUsageBucketName(), objectKey(new Date()), record);
+    await sink(record);
   } catch (err) {
     console.error('[usage] failed to record usage event:', err);
   }
@@ -284,4 +314,88 @@ export function aggregate(date: string, records: UsageRecord[]): Rollup {
 // thanks to their random-suffixed keys).
 export async function writeRollup(rollup: Rollup): Promise<void> {
   await uploadJson(getUsageBucketName(), `usage/rollups/${rollup.date}.json`, rollup);
+}
+
+// --- Ingest from remote GSR Action runs ---
+
+const MAX_REPOSITORY_LABEL_LENGTH = 200;
+
+// ingestUsageRecords persists records reported by a remote GSR Action run
+// (see adk/backend/src/usageReporter.ts and the POST /api/usage/ingest
+// route in app.ts). Deliberately bypasses the sink override above and
+// writes straight to storage: ingested records already carry a real
+// client-side timestamp from when the Gemini call actually happened
+// (possibly minutes before the batch is POSTed), and this path must always
+// land in real storage regardless of any setUsageSink() call elsewhere in
+// the process. Writes under the same usage/<date>/... prefix as native
+// records — tagged with `repository` when known — so listUsageRecords/
+// aggregate/writeRollup fold Action-reported usage into existing rollups
+// without any changes.
+export async function ingestUsageRecords(
+  records: UsageRecord[],
+  opts?: { repository?: string }
+): Promise<{ accepted: number; failed: number }> {
+  const repository = opts?.repository?.slice(0, MAX_REPOSITORY_LABEL_LENGTH);
+  let accepted = 0;
+  let failed = 0;
+  for (const record of records) {
+    try {
+      const tagged: UsageRecord = repository ? { ...record, repository } : record;
+      await uploadJson(getUsageBucketName(), objectKey(new Date()), tagged);
+      accepted++;
+    } catch (err) {
+      failed++;
+      console.error('[usage] failed to ingest a reported usage record:', err);
+    }
+  }
+  return { accepted, failed };
+}
+
+// --- Job-summary formatting for GitHub Action runs ---
+
+function formatUsd(n: number): string {
+  return `$${n.toFixed(4)}`;
+}
+
+// formatUsageSummaryMarkdown renders a Rollup as GitHub-Flavored Markdown
+// for $GITHUB_STEP_SUMMARY. Pure — independently testable from the
+// file-writing side, which lives in action-entrypoint.ts.
+export function formatUsageSummaryMarkdown(rollup: Rollup): string {
+  const lines: string[] = [];
+  lines.push('## GSR Usage Summary');
+  lines.push('');
+  lines.push('| Calls | Success | Failed | Input tokens | Output tokens | Cost | Avg latency |');
+  lines.push('|---|---|---|---|---|---|---|');
+  lines.push(
+    `| ${rollup.totalCalls} | ${rollup.successCount} | ${rollup.failureCount} | ` +
+    `${rollup.totalInputTokens} | ${rollup.totalOutputTokens} | ${formatUsd(rollup.totalCostUsd)} | ` +
+    `${Math.round(rollup.avgLatencyMs)}ms |`
+  );
+
+  const callTypes = Object.keys(rollup.byCallType);
+  if (callTypes.length > 0) {
+    lines.push('');
+    lines.push('### By call type');
+    lines.push('');
+    lines.push('| Call type | Calls | Input tokens | Output tokens | Cost |');
+    lines.push('|---|---|---|---|---|');
+    for (const callType of callTypes) {
+      const b = rollup.byCallType[callType];
+      lines.push(`| ${callType} | ${b.calls} | ${b.inputTokens} | ${b.outputTokens} | ${formatUsd(b.costUsd)} |`);
+    }
+  }
+
+  const errorKinds = Object.keys(rollup.byErrorKind);
+  if (errorKinds.length > 0) {
+    lines.push('');
+    lines.push('### Errors');
+    lines.push('');
+    lines.push('| Error kind | Count |');
+    lines.push('|---|---|');
+    for (const kind of errorKinds) {
+      lines.push(`| ${kind} | ${rollup.byErrorKind[kind]} |`);
+    }
+  }
+
+  return lines.join('\n');
 }

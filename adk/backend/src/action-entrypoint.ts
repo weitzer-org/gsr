@@ -3,6 +3,8 @@ import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
 import { shouldFailOnSeverity } from './severityGate';
 import { resolveAgentSelectionForMode } from './agentSelection';
+import { setUsageSink, UsageRecord, aggregate, formatUsageSummaryMarkdown } from './usage';
+import { reportUsage } from './usageReporter';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -29,61 +31,99 @@ function resolvePullRequestUrl(): string {
   return `https://github.com/${repository}/pull/${pullNumber}`;
 }
 
+// writeJobSummary always runs for a run that produced any usage (even one
+// that ultimately fails the workflow via shouldFailOnSeverity) — usage was
+// incurred either way. No-ops quietly when there's nothing to report or
+// GITHUB_STEP_SUMMARY isn't set (e.g. local test runs).
+function writeJobSummary(records: UsageRecord[]): void {
+  if (records.length === 0 || !process.env.GITHUB_STEP_SUMMARY) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const rollup = aggregate(today, records);
+  fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatUsageSummaryMarkdown(rollup) + '\n');
+}
+
+// maybeReportUsage is the opt-in, off-by-default centralized reporting path
+// — see ACTION.md's "Usage reporting" section. No-ops unless both env vars
+// are set, which only happens for repos the GSR maintainer has explicitly
+// handed a working USAGE_INGEST_SHARED_SECRET to (mirroring how
+// gemini-api-key is already supplied per-consumer, never baked into the
+// public action image).
+async function maybeReportUsage(records: UsageRecord[]): Promise<void> {
+  const url = process.env.USAGE_INGEST_URL;
+  const key = process.env.USAGE_INGEST_SHARED_SECRET;
+  if (!url || !key || records.length === 0) return;
+  await reportUsage(records, { url, key, repository: process.env.GITHUB_REPOSITORY });
+}
+
 async function main() {
-  const githubToken = process.env.GITHUB_TOKEN;
-  if (!githubToken) {
-    throw new Error('GITHUB_TOKEN is required.');
-  }
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY is required.');
-  }
+  const collectedUsage: UsageRecord[] = [];
+  setUsageSink(record => {
+    collectedUsage.push(record);
+  });
 
-  const mode = (process.env.REVIEW_MODE || 'subagent').toLowerCase();
-  const modeConfig = MODE_CONFIG[mode];
-  if (!modeConfig) {
-    throw new Error(`Invalid mode "${mode}" — must be "subagent" or "basic".`);
-  }
+  try {
+    const githubToken = process.env.GITHUB_TOKEN;
+    if (!githubToken) {
+      throw new Error('GITHUB_TOKEN is required.');
+    }
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY is required.');
+    }
 
-  const failOnSeverity = process.env.FAIL_ON_SEVERITY || 'none';
-  shouldFailOnSeverity([], failOnSeverity); // validates the threshold up front; throws before we burn a review on a typo
+    const mode = (process.env.REVIEW_MODE || 'subagent').toLowerCase();
+    const modeConfig = MODE_CONFIG[mode];
+    if (!modeConfig) {
+      throw new Error(`Invalid mode "${mode}" — must be "subagent" or "basic".`);
+    }
 
-  const availableIds = mode === 'subagent' ? Orchestrator.listAgentIds(modeConfig.promptsDir) : [];
-  const { selectedAgents, warning } = resolveAgentSelectionForMode(mode, process.env.REVIEW_AGENTS, availableIds);
-  if (warning) {
-    console.warn(warning);
-  }
+    const failOnSeverity = process.env.FAIL_ON_SEVERITY || 'none';
+    shouldFailOnSeverity([], failOnSeverity); // validates the threshold up front; throws before we burn a review on a typo
 
-  const url = resolvePullRequestUrl();
-  const ghClient = new GitHubClient(githubToken);
+    const availableIds = mode === 'subagent' ? Orchestrator.listAgentIds(modeConfig.promptsDir) : [];
+    const { selectedAgents, warning } = resolveAgentSelectionForMode(mode, process.env.REVIEW_AGENTS, availableIds);
+    if (warning) {
+      console.warn(warning);
+    }
 
-  console.log(`[GSR Action] Fetching diff for ${url} (mode: ${mode})...`);
-  const chunks = await ghClient.getPRDiff(url);
-  console.log(`[GSR Action] Found ${chunks.length} reviewable file(s).`);
+    const url = resolvePullRequestUrl();
+    const ghClient = new GitHubClient(githubToken);
 
-  if (chunks.length === 0) {
-    console.log('[GSR Action] No reviewable file changes — skipping review.');
-    return;
-  }
+    console.log(`[GSR Action] Fetching diff for ${url} (mode: ${mode})...`);
+    const chunks = await ghClient.getPRDiff(url);
+    console.log(`[GSR Action] Found ${chunks.length} reviewable file(s).`);
 
-  const maxFiles = parseInt(process.env.MAX_REVIEW_FILES || '300', 10);
-  const activeChunks = chunks.length > maxFiles ? chunks.slice(0, maxFiles) : chunks;
-  if (chunks.length > maxFiles) {
-    console.warn(`[GSR Action] PR has ${chunks.length} files; truncating to ${maxFiles}.`);
-  }
+    if (chunks.length === 0) {
+      console.log('[GSR Action] No reviewable file changes — skipping review.');
+      return;
+    }
 
-  const orchestrator = new Orchestrator(5, modeConfig.promptsDir, modeConfig.useDedup, selectedAgents);
-  orchestrator.onProgress = (agentName, file, status) => {
-    console.log(`[GSR Action][${agentName}] ${file} — ${status}`);
-  };
+    const maxFiles = parseInt(process.env.MAX_REVIEW_FILES || '300', 10);
+    const activeChunks = chunks.length > maxFiles ? chunks.slice(0, maxFiles) : chunks;
+    if (chunks.length > maxFiles) {
+      console.warn(`[GSR Action] PR has ${chunks.length} files; truncating to ${maxFiles}.`);
+    }
 
-  const result = await orchestrator.runReview(activeChunks);
-  console.log(`[GSR Action] Review complete: ${result.findings.length} finding(s), ${result.metrics.calls} model call(s).`);
+    const orchestrator = new Orchestrator(5, modeConfig.promptsDir, modeConfig.useDedup, selectedAgents);
+    orchestrator.onProgress = (agentName, file, status) => {
+      console.log(`[GSR Action][${agentName}] ${file} — ${status}`);
+    };
 
-  const { posted, skipped } = await ghClient.postReviewComments(url, result.findings);
-  console.log(`[GSR Action] Posted ${posted} inline comment(s)${skipped > 0 ? `, skipped ${skipped}` : ''}.`);
+    const result = await orchestrator.runReview(activeChunks);
+    console.log(`[GSR Action] Review complete: ${result.findings.length} finding(s), ${result.metrics.calls} model call(s).`);
 
-  if (shouldFailOnSeverity(result.findings, failOnSeverity)) {
-    throw new Error(`Found finding(s) at or above severity "${failOnSeverity}" — failing the workflow.`);
+    const { posted, skipped } = await ghClient.postReviewComments(url, result.findings);
+    console.log(`[GSR Action] Posted ${posted} inline comment(s)${skipped > 0 ? `, skipped ${skipped}` : ''}.`);
+
+    if (shouldFailOnSeverity(result.findings, failOnSeverity)) {
+      throw new Error(`Found finding(s) at or above severity "${failOnSeverity}" — failing the workflow.`);
+    }
+  } finally {
+    try {
+      writeJobSummary(collectedUsage);
+    } catch (err) {
+      console.warn('[GSR Action] Failed to write usage job summary:', err);
+    }
+    await maybeReportUsage(collectedUsage).catch(err => console.warn('[GSR Action] Failed to report usage:', err));
   }
 }
 

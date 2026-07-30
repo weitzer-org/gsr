@@ -14,8 +14,10 @@ if (currentDir) {
 
 import { app } from './app';
 import { assertProductionAuthConfigured } from './auth';
+import { assertProductionUsageIngestConfigured } from './usageIngestAuth';
 
 assertProductionAuthConfigured();
+assertProductionUsageIngestConfigured();
 
 const PORT = process.env.PORT || 8080;
 

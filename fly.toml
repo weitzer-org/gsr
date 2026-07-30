@@ -14,7 +14,8 @@
 #     S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com \
 #     S3_BUCKET=gsr-review-results \
 #     S3_REVIEW_BUCKET=gsr-review-results \
-#     EVALUATOR_SERVICE_URL=https://gsr-evaluator.fly.dev
+#     EVALUATOR_SERVICE_URL=https://gsr-evaluator.fly.dev \
+#     USAGE_INGEST_SHARED_SECRET=...
 
 app = 'gsr-code-review'
 primary_region = 'iad'

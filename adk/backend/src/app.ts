@@ -8,6 +8,8 @@ import { Orchestrator } from './orchestrator';
 import { Evaluator } from './evaluator';
 import { ReviewSource } from './types';
 import { requireAuth, handleLogin, handleLogout } from './auth';
+import { isValidUsageIngestKey } from './usageIngestAuth';
+import { ingestUsageRecords, UsageRecord } from './usage';
 
 const SYSTEM_PROMPTS_DIR = process.env.SYSTEM_PROMPTS_DIR || 'system_prompts';
 const BASIC_PROMPT_DIR = 'basic_prompt';
@@ -15,13 +17,59 @@ const frontendPath = path.join(process.cwd(), '../frontend');
 
 export const app = express();
 app.use(cors());
-app.use(express.json());
 
 // Log all API requests to the terminal
 app.use((req, res, next) => {
   console.log(`[Backend API] ${req.method} ${req.url}`);
   next();
 });
+
+const MAX_USAGE_INGEST_RECORDS = 500;
+
+// Public (no UI_PASSWORD session) — used by GSR Action runs reporting usage
+// from a consumer's own runner. Protected by its own shared-secret check
+// instead, since it must stay reachable by consumers who never have a
+// session cookie. See usageIngestAuth.ts for why this fails closed instead
+// of following tools/eval's "open when unset" convention.
+//
+// Registered — with its own body parser — before the app-wide
+// express.json() below, so only this route gets a bumped 2mb body limit (a
+// full usage-ingest batch is bigger than every other route's tiny
+// control-plane payload); every other pre-auth route keeps Express's
+// smaller 100kb default. The key check runs as its own middleware ahead of
+// the parser, so an unauthenticated/wrong-key request is rejected before
+// any of its body is parsed.
+app.post(
+  '/api/usage/ingest',
+  (req, res, next) => {
+    if (!isValidUsageIngestKey(req.header('X-Usage-Ingest-Key'), process.env.USAGE_INGEST_SHARED_SECRET)) {
+      return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+    }
+    next();
+  },
+  express.json({ limit: '2mb' }),
+  async (req, res) => {
+    const { repository, records } = req.body || {};
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ status: 'error', message: '"records" must be a non-empty array.' });
+    }
+    if (records.length > MAX_USAGE_INGEST_RECORDS) {
+      return res.status(400).json({ status: 'error', message: `Too many records (max ${MAX_USAGE_INGEST_RECORDS} per request).` });
+    }
+
+    try {
+      const result = await ingestUsageRecords(records as UsageRecord[], {
+        repository: typeof repository === 'string' ? repository : undefined,
+      });
+      res.json({ status: 'ok', ...result });
+    } catch (error: any) {
+      console.error('Error ingesting usage records:', error);
+      res.status(500).json({ status: 'error', message: error.message || 'Internal server error' });
+    }
+  }
+);
+
+app.use(express.json());
 
 app.get('/api/status', (req, res) => {
   const isConnected = !!process.env.GEMINI_API_KEY;

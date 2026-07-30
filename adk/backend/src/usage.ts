@@ -320,6 +320,28 @@ export async function writeRollup(rollup: Rollup): Promise<void> {
 
 const MAX_REPOSITORY_LABEL_LENGTH = 200;
 
+// Callers only need to hold USAGE_INGEST_SHARED_SECRET to reach this path
+// (see app.ts), so a record's shape can't be trusted the way an in-process
+// trackGeminiCall() call can — reject anything that doesn't look like a
+// real UsageRecord instead of writing it verbatim, which would otherwise
+// silently corrupt a later aggregate() rollup with malformed/adversarial
+// values.
+function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
+  if (!record || typeof record !== 'object') return false;
+  const r = record as Record<string, unknown>;
+  return (
+    typeof r.callType === 'string' &&
+    typeof r.model === 'string' &&
+    typeof r.inputTokens === 'number' && Number.isFinite(r.inputTokens) &&
+    typeof r.outputTokens === 'number' && Number.isFinite(r.outputTokens) &&
+    typeof r.latencyMs === 'number' && Number.isFinite(r.latencyMs) &&
+    typeof r.costUsd === 'number' && Number.isFinite(r.costUsd) &&
+    typeof r.success === 'boolean' &&
+    typeof r.timestamp === 'string' &&
+    r.provider === 'gemini'
+  );
+}
+
 // ingestUsageRecords persists records reported by a remote GSR Action run
 // (see adk/backend/src/usageReporter.ts and the POST /api/usage/ingest
 // route in app.ts). Deliberately bypasses the sink override above and
@@ -339,6 +361,11 @@ export async function ingestUsageRecords(
   let accepted = 0;
   let failed = 0;
   for (const record of records) {
+    if (!isValidIngestedRecordShape(record)) {
+      failed++;
+      console.error('[usage] rejected a malformed ingested usage record');
+      continue;
+    }
     try {
       const tagged: UsageRecord = repository ? { ...record, repository } : record;
       await uploadJson(getUsageBucketName(), objectKey(new Date()), tagged);

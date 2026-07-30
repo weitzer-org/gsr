@@ -256,6 +256,24 @@ describe('ingestUsageRecords', () => {
         expect(result).toEqual({ accepted: 1, failed: 1 });
         errorSpy.mockRestore();
     });
+
+    it('rejects a malformed record instead of writing it verbatim', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+        const malformed = [
+            null,
+            'not-an-object',
+            { ...record('discovery'), inputTokens: 'not-a-number' },
+            { ...record('discovery'), provider: 'openai' },
+            { ...record('discovery'), success: 'true' },
+        ];
+
+        const result = await usage.ingestUsageRecords(malformed as any);
+
+        expect(result).toEqual({ accepted: 0, failed: malformed.length });
+        expect(mockUploadJson).not.toHaveBeenCalled();
+        errorSpy.mockRestore();
+    });
 });
 
 describe('formatUsageSummaryMarkdown', () => {

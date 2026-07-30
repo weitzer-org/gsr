@@ -3,10 +3,14 @@ import { UsageRecord } from './usage';
 export const DEFAULT_USAGE_REPORT_BATCH_SIZE = 200;
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+// A non-positive or non-finite batchSize would otherwise never advance `i`
+// (or move it backward), hanging this loop forever — guard here rather than
+// at each call site, since this is the one place that actually walks `i`.
 export function chunkRecords<T>(records: T[], batchSize: number): T[][] {
+  const size = Number.isFinite(batchSize) && batchSize > 0 ? Math.floor(batchSize) : DEFAULT_USAGE_REPORT_BATCH_SIZE;
   const batches: T[][] = [];
-  for (let i = 0; i < records.length; i += batchSize) {
-    batches.push(records.slice(i, i + batchSize));
+  for (let i = 0; i < records.length; i += size) {
+    batches.push(records.slice(i, i + size));
   }
   return batches;
 }
@@ -34,7 +38,8 @@ export async function reportUsage(records: UsageRecord[], config: UsageReportCon
 
   for (const batch of batches) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const timeoutMs = config.timeoutMs && config.timeoutMs > 0 ? config.timeoutMs : DEFAULT_TIMEOUT_MS;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetchImpl(config.url, {
         method: 'POST',

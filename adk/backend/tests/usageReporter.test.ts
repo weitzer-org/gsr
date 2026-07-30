@@ -1,5 +1,5 @@
 import { jest, describe, it, expect } from '@jest/globals';
-import { chunkRecords, reportUsage } from '../src/usageReporter';
+import { chunkRecords, reportUsage, DEFAULT_USAGE_REPORT_BATCH_SIZE } from '../src/usageReporter';
 
 describe('chunkRecords', () => {
     it('returns an empty array for an empty input', () => {
@@ -12,6 +12,15 @@ describe('chunkRecords', () => {
 
     it('puts the remainder in a final short batch', () => {
         expect(chunkRecords([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+    });
+
+    // A batchSize <= 0 would otherwise never advance the loop index, hanging
+    // forever — this must fall back to the default instead of looping.
+    it('falls back to the default batch size for a batchSize of 0, negative, or non-finite', () => {
+        const input = [1, 2, 3];
+        expect(chunkRecords(input, 0)).toEqual(chunkRecords(input, DEFAULT_USAGE_REPORT_BATCH_SIZE));
+        expect(chunkRecords(input, -5)).toEqual(chunkRecords(input, DEFAULT_USAGE_REPORT_BATCH_SIZE));
+        expect(chunkRecords(input, NaN)).toEqual(chunkRecords(input, DEFAULT_USAGE_REPORT_BATCH_SIZE));
     });
 });
 

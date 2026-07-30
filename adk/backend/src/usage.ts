@@ -19,6 +19,7 @@
 // never contend the way a single shared/appended file would.
 import { randomBytes } from 'crypto';
 import { uploadJson, listFiles, getFileStream } from './storage';
+import { PromisePool } from './pool';
 
 export interface UsageEvent {
   callType: string; // e.g. "legacy", "discovery", "remediation", "deduplicate", "evaluate"
@@ -353,29 +354,37 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
 // records — tagged with `repository` when known — so listUsageRecords/
 // aggregate/writeRollup fold Action-reported usage into existing rollups
 // without any changes.
+const INGEST_CONCURRENCY = 10;
+
 export async function ingestUsageRecords(
   records: UsageRecord[],
   opts?: { repository?: string }
 ): Promise<{ accepted: number; failed: number }> {
   const repository = opts?.repository?.slice(0, MAX_REPOSITORY_LABEL_LENGTH);
-  let accepted = 0;
-  let failed = 0;
-  for (const record of records) {
+
+  // Bounded-concurrency writes (mirroring Orchestrator's own PromisePool
+  // usage) rather than one uploadJson per record awaited sequentially — a
+  // full MAX_USAGE_INGEST_RECORDS batch awaited one-at-a-time can easily
+  // outlast the caller's own request timeout (see usageReporter.ts) even
+  // though every write eventually succeeds.
+  const pool = new PromisePool(INGEST_CONCURRENCY);
+  const outcomes = await Promise.all(records.map(record => pool.add(async (): Promise<boolean> => {
     if (!isValidIngestedRecordShape(record)) {
-      failed++;
       console.error('[usage] rejected a malformed ingested usage record');
-      continue;
+      return false;
     }
     try {
       const tagged: UsageRecord = repository ? { ...record, repository } : record;
       await uploadJson(getUsageBucketName(), objectKey(new Date()), tagged);
-      accepted++;
+      return true;
     } catch (err) {
-      failed++;
       console.error('[usage] failed to ingest a reported usage record:', err);
+      return false;
     }
-  }
-  return { accepted, failed };
+  })));
+
+  const accepted = outcomes.filter(Boolean).length;
+  return { accepted, failed: outcomes.length - accepted };
 }
 
 // --- Job-summary formatting for GitHub Action runs ---

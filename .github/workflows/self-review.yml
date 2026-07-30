@@ -10,6 +10,12 @@ name: GSR Self-Review
 # Requires a repository secret GEMINI_API_KEY (same one used by the deployed
 # apps). Runs on pull_request (not pull_request_target), so it only has
 # access to that secret for PRs opened from this repo, not forks.
+#
+# usage-report-url/usage-report-key opt this repo into GSR's own centralized
+# usage reporting (dogfooding the feature added in PR #58) using the
+# USAGE_REPORT_KEY repo secret, matching the same distribution model as
+# GEMINI_API_KEY above. Every run also always writes its own usage summary
+# to this workflow run's Job Summary regardless of these two inputs.
 on:
   pull_request:
     branches:
@@ -34,6 +40,8 @@ jobs:
           gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
           mode: subagent
           fail-on-severity: none
+          usage-report-url: https://gsr-code-review.fly.dev/api/usage/ingest
+          usage-report-key: ${{ secrets.USAGE_REPORT_KEY }}
 
   self-review-basic:
     name: GSR self-review (basic)
@@ -45,3 +53,5 @@ jobs:
           gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
           mode: basic
           fail-on-severity: none
+          usage-report-url: https://gsr-code-review.fly.dev/api/usage/ingest
+          usage-report-key: ${{ secrets.USAGE_REPORT_KEY }}

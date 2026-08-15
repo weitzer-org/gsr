@@ -292,17 +292,28 @@ export class GitHubClient {
     // before the `done()` call takes effect; the slice below makes the
     // final count exact regardless.
     let fetchedCount = 0;
+    // Self-review finding: when the PR's actual comment count is an exact
+    // multiple of per_page landing beyond the cap (e.g. exactly 500, 600...),
+    // `comments.length > MAX_COMMENTS_FETCHED` is false even though pagination
+    // WAS stopped early — `done()` fires, but the fetched count only ever
+    // equals the cap, never exceeds it, so the warning silently didn't fire
+    // on exactly the PRs it exists to warn about. Track whether we actually
+    // stopped early instead of inferring it from a length comparison.
+    let stoppedEarly = false;
     let comments = await this.octokit.paginate(
       this.octokit.rest.pulls.listReviewComments,
       { owner, repo, pull_number, per_page: 100, sort: 'created', direction: 'asc' },
       (response, done) => {
         fetchedCount += response.data.length;
-        if (fetchedCount >= GitHubClient.MAX_COMMENTS_FETCHED) done();
+        if (fetchedCount >= GitHubClient.MAX_COMMENTS_FETCHED) {
+          stoppedEarly = true;
+          done();
+        }
         return response.data;
       }
     );
 
-    if (comments.length > GitHubClient.MAX_COMMENTS_FETCHED) {
+    if (stoppedEarly || comments.length > GitHubClient.MAX_COMMENTS_FETCHED) {
       console.warn(`[GitHubClient] PR has at least ${comments.length} review comments; capping feedback-loop scan to the first ${GitHubClient.MAX_COMMENTS_FETCHED}.`);
       comments = comments.slice(0, GitHubClient.MAX_COMMENTS_FETCHED);
     }

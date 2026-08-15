@@ -475,6 +475,39 @@ index e69de29..d95f3ad 100644
             // 500 / 100-per-page = 5 pages needed; must not have walked all 10.
             expect(pagesRequested).toBe(5);
         });
+
+        it('still warns about truncation when the actual comment count lands on an exact multiple of per_page ' +
+           '(self-review finding: comments.length > cap is false at exactly 500, even when a 6th page of real ' +
+           'comments existed and was never fetched — inferring "was truncated" from a length comparison missed ' +
+           'exactly the boundary case it exists to catch)', async () => {
+            // 6 pages of 100 exist in total, but the cap stops fetching after
+            // page 5 (500 comments) — comments.length ends up EXACTLY 500,
+            // so the old `comments.length > 500` check would never fire here.
+            const paginate = jest.fn(async (_route: any, _params: any, mapFn: any) => {
+                const acc: any[] = [];
+                for (let page = 0; page < 6; page++) {
+                    const data = Array.from({ length: 100 }, (_, i) => ({
+                        id: page * 100 + i + 1,
+                        in_reply_to_id: undefined,
+                        user: { login: 'a-random-user', type: 'User' },
+                        body: 'not a GSR finding',
+                        html_url: 'https://github.com/x/y/pull/123',
+                    }));
+                    let stopped = false;
+                    const mapped = mapFn({ data }, () => { stopped = true; });
+                    acc.push(...mapped);
+                    if (stopped) break;
+                }
+                return acc;
+            });
+            (client as any).octokit = { paginate, rest: { pulls: { listReviewComments: jest.fn() } } };
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await client.listReviewThreads(url);
+
+            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('capping feedback-loop scan'));
+            warnSpy.mockRestore();
+        });
     });
 
 });

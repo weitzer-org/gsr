@@ -277,5 +277,20 @@ describe('runFeedbackPass', () => {
       expect(md).toContain('Security\\|Logic');
       expect(md).toContain('weird\\|login');
     });
+
+    it('escapes "|" in the severity field too (self-review finding: defense-in-depth, ' +
+       'even though severity is enum-constrained by the Gemini schema on every path that produces it today)', () => {
+      const result: FeedbackPassResult = {
+        mode: 'observe', skipped: false, threadsScanned: 1, repliesClassified: 1,
+        findings: [{
+          findingId: 'abc123def4567890', threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
+          agent: 'Security', severity: 'HIGH|INJECTED', summary: 'fine',
+          replies: [{ commentId: 2, author: 'a-dev', isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'ok' }],
+        }],
+      };
+      const md = formatFeedbackSummaryMarkdown(result);
+      expect(md).toContain('HIGH\\|INJECTED');
+      expect(md).not.toContain('HIGH|INJECTED');
+    });
   });
 });

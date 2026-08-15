@@ -319,7 +319,14 @@ export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): strin
     const summary = f.summary ? escapeMarkdownTableCell(f.summary) : undefined;
     const findingLabel = summary ? `${summary} (\`${f.findingId}\`)` : `\`${f.findingId}\``;
     const agent = f.agent ? escapeMarkdownTableCell(f.agent) : undefined;
-    lines.push(`| ${findingLabel} | ${f.severity || '—'} | ${agent || '—'} | ${replySummary} |`);
+    // Self-review finding: severity is enum-constrained by the Gemini
+    // response schema on every path that produces it (agent.ts,
+    // deduplicator.ts), so it can't actually contain "|" today — but
+    // escaping it anyway costs nothing and doesn't depend on that
+    // constraint holding forever, same defense-in-depth reasoning as
+    // agent/summary above.
+    const severity = f.severity ? escapeMarkdownTableCell(f.severity) : undefined;
+    lines.push(`| ${findingLabel} | ${severity || '—'} | ${agent || '—'} | ${replySummary} |`);
   }
 
   return lines.join('\n');

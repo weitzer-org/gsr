@@ -99,6 +99,28 @@ describe('runFeedbackPass', () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('respond'));
   });
 
+  describe('bodyExcerpt sanitization (security-review finding: raw reply text reached the HTTP response)', () => {
+    it('HTML-entity-escapes a reply body before it reaches the report, since /api/review streams it to the browser', async () => {
+      const t = thread({
+        replies: [{
+          commentId: 2, author: 'attacker', isBot: false, createdAt: 't',
+          body: '<img src=x onerror=alert(document.cookie)> & "quoted"',
+        }],
+      });
+      const gh = mockGh([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'neutral', confidence: 0.5 },
+      ]);
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+      const excerpt = result.findings[0].replies[0].bodyExcerpt;
+      expect(excerpt).not.toContain('<img');
+      expect(excerpt).not.toContain('"quoted"');
+      expect(excerpt).toBe('&lt;img src=x onerror=alert(document.cookie)&gt; &amp; &quot;quoted&quot;');
+    });
+  });
+
   describe('stage-0 bot filtering (review-amendment #4)', () => {
     it('drops known other-reviewer-bot replies (coderabbitai, gemini-code-assist) without classifying them', async () => {
       const t = thread({

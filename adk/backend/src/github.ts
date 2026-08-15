@@ -254,17 +254,27 @@ export class GitHubClient {
   public async listReviewThreads(url: string): Promise<FindingThread[]> {
     const { owner, repo, pull_number } = this.parsePRUrl(url);
 
-    let comments = await this.octokit.paginate(this.octokit.rest.pulls.listReviewComments, {
-      owner,
-      repo,
-      pull_number,
-      per_page: 100,
-      sort: 'created',
-      direction: 'asc',
-    });
+    // Stops requesting further pages once MAX_COMMENTS_FETCHED is reached
+    // (security-review finding: the cap previously only truncated the
+    // in-memory array *after* `paginate` had already walked every page —
+    // on a PR with thousands of review comments, that still burned the
+    // Action's GitHub API rate-limit budget fetching pages that were
+    // immediately discarded). May overshoot by up to one page's worth
+    // before the `done()` call takes effect; the slice below makes the
+    // final count exact regardless.
+    let fetchedCount = 0;
+    let comments = await this.octokit.paginate(
+      this.octokit.rest.pulls.listReviewComments,
+      { owner, repo, pull_number, per_page: 100, sort: 'created', direction: 'asc' },
+      (response, done) => {
+        fetchedCount += response.data.length;
+        if (fetchedCount >= GitHubClient.MAX_COMMENTS_FETCHED) done();
+        return response.data;
+      }
+    );
 
     if (comments.length > GitHubClient.MAX_COMMENTS_FETCHED) {
-      console.warn(`[GitHubClient] PR has ${comments.length} review comments; capping feedback-loop scan to the first ${GitHubClient.MAX_COMMENTS_FETCHED}.`);
+      console.warn(`[GitHubClient] PR has at least ${comments.length} review comments; capping feedback-loop scan to the first ${GitHubClient.MAX_COMMENTS_FETCHED}.`);
       comments = comments.slice(0, GitHubClient.MAX_COMMENTS_FETCHED);
     }
 

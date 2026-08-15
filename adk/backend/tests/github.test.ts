@@ -399,6 +399,39 @@ index e69de29..d95f3ad 100644
             expect(threads[0].replies[0].isBot).toBe(true);
             expect(threads[0].replies[0].author).toBe('some-coding-agent[bot]');
         });
+
+        it('stops requesting further pages once the 500-comment cap is reached, ' +
+           'instead of paginating the whole PR first and truncating after (security-review finding)', async () => {
+            // Simulates octokit.paginate's real per-page mapFn/done() contract —
+            // the earlier bug was that the mock in other tests here bypasses this
+            // entirely (mockResolvedValue short-circuits straight to a final
+            // array), which is exactly why this specific behavior had no coverage.
+            let pagesRequested = 0;
+            const paginate = jest.fn(async (_route: any, _params: any, mapFn: any) => {
+                const acc: any[] = [];
+                for (let page = 0; page < 10; page++) {
+                    pagesRequested++;
+                    const data = Array.from({ length: 100 }, (_, i) => ({
+                        id: page * 100 + i + 1,
+                        in_reply_to_id: undefined,
+                        user: { login: 'a-random-user', type: 'User' },
+                        body: 'not a GSR finding',
+                        html_url: 'https://github.com/x/y/pull/123',
+                    }));
+                    let stopped = false;
+                    const mapped = mapFn({ data }, () => { stopped = true; });
+                    acc.push(...mapped);
+                    if (stopped) break;
+                }
+                return acc;
+            });
+            (client as any).octokit = { paginate, rest: { pulls: { listReviewComments: jest.fn() } } };
+
+            await client.listReviewThreads(url);
+
+            // 500 / 100-per-page = 5 pages needed; must not have walked all 10.
+            expect(pagesRequested).toBe(5);
+        });
     });
 
 });

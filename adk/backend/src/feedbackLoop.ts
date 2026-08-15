@@ -13,6 +13,7 @@
 import { GitHubClient } from './github';
 import { AdjudicatorAgent, ClassifyReplyInput } from './adjudicator';
 import { FindingThread, ThreadReply, ReplyClassification, ReplyStance } from './types';
+import { sanitizeForComment } from './findingMarker';
 
 export type FeedbackLoopMode = 'off' | 'observe' | 'respond';
 
@@ -92,9 +93,35 @@ function stage0Filter(reply: ThreadReply): boolean {
   return true;
 }
 
+// HTML-entity-escapes a string so it's inert even if some future consumer
+// drops it straight into innerHTML. Applied to bodyExcerpt (below) rather
+// than left for a future renderer to remember — CLAUDE.md documents this
+// exact codebase already shipping the "escaped some fields, not others"
+// version of this bug in app.js's renderFindings. escaping here is
+// intentionally the plain HTML-entity kind, distinct from
+// sanitizeForComment() (which targets marker-forgery/mention-ping hazards
+// specific to a *posted GitHub comment*, not arbitrary HTML injection) —
+// the two are complementary, not redundant.
+function escapeHtmlEntities(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// excerpt() feeds FeedbackFindingReport.bodyExcerpt, which /api/review
+// streams verbatim to the browser as part of the 'feedback' NDJSON frame and
+// the final 'done' payload (app.ts) — a raw, untrusted GitHub reply body.
+// There is no frontend renderer for that field yet (security-review finding:
+// this was reaching the HTTP response completely raw), but it must be inert
+// by construction the moment one is added, not by whoever writes that future
+// code remembering to escape it.
 function excerpt(body: string, maxLen = 300): string {
-  const trimmed = body.trim();
-  return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…` : trimmed;
+  const trimmed = sanitizeForComment(body).trim();
+  const truncated = trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…` : trimmed;
+  return escapeHtmlEntities(truncated);
 }
 
 function emptyResult(mode: FeedbackLoopMode, skipReason: string): FeedbackPassResult {

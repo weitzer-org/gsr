@@ -266,14 +266,19 @@ export async function runFeedbackPass(
     // to Gemini, not a browser (see excerpt() in this file for the
     // separate HTML-escaped version used for the HTTP-response excerpt).
     const MAX_REPLY_TEXT_FOR_CLASSIFICATION = 4000;
-    const batch: ClassifyReplyInput[] = capped.map(({ thread, reply }) => ({
-      commentId: reply.commentId,
-      findingSummary: thread.summary || (thread.severity ? `${thread.severity} finding` : 'finding'),
-      findingSeverity: thread.severity,
-      replyText: reply.body.length > MAX_REPLY_TEXT_FOR_CLASSIFICATION
-        ? `${reply.body.slice(0, MAX_REPLY_TEXT_FOR_CLASSIFICATION)}…`
-        : reply.body,
-    }));
+    const batch: ClassifyReplyInput[] = capped.map(({ thread, reply }) => {
+      // Self-review finding: raw .slice() here has the same surrogate-pair-
+      // splitting risk as bodyExcerpt did (fixed above via
+      // truncateByCodePoint) — reusing that helper instead of a second,
+      // separately-fixable copy of the same bug.
+      const { value, truncated } = truncateByCodePoint(reply.body, MAX_REPLY_TEXT_FOR_CLASSIFICATION);
+      return {
+        commentId: reply.commentId,
+        findingSummary: thread.summary || (thread.severity ? `${thread.severity} finding` : 'finding'),
+        findingSeverity: thread.severity,
+        replyText: truncated ? `${value}…` : value,
+      };
+    });
 
     const adjudicator = new AdjudicatorAgent();
     const classifications = await adjudicator.classifyReplies(batch);
@@ -308,7 +313,14 @@ export async function runFeedbackPass(
 // meant to be a general markdown escaper, and this is a different render
 // target — a Job Summary table cell, not a posted PR comment body).
 function escapeMarkdownTableCell(value: string): string {
-  return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  // Self-review finding: escaping "|" alone is bypassable when the input
+  // already contains a literal backslash right before a pipe. "\|" (2
+  // chars) becomes "\\|" (3 chars) under a pipe-only escape — but GFM reads
+  // that as an escaped backslash ("\\" → literal "\") followed by an
+  // UNESCAPED pipe, which is a real column separator again. Escaping
+  // existing backslashes FIRST (so "\|" becomes "\\\|", correctly pairing
+  // into an escaped backslash plus an escaped pipe) closes that bypass.
+  return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
 export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): string {

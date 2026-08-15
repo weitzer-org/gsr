@@ -10,6 +10,16 @@ describe('GitHubClient', () => {
         client = new GitHubClient('mock-pat');
     });
 
+    // Self-review finding: a test further down restored its console.warn
+    // spy manually at the end of the `it` block — if an assertion earlier
+    // in that test throws, the manual restore never runs, leaking the
+    // suppressed console.warn into every test that runs after it. A file-
+    // level afterEach makes cleanup unconditional regardless of how a test
+    // exits.
+    afterEach(() => {
+        jest.restoreAllMocks();
+    });
+
     it('should successfully parse a valid PR URL', () => {
         const url = 'https://github.com/GoogleCloudPlatform/scion/pull/123';
         const result = client.parsePRUrl(url);
@@ -506,7 +516,8 @@ index e69de29..d95f3ad 100644
             await client.listReviewThreads(url);
 
             expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('capping feedback-loop scan'));
-            warnSpy.mockRestore();
+            // Restored unconditionally by the file-level afterEach above,
+            // regardless of whether the assertion on the previous line passes.
         });
     });
 

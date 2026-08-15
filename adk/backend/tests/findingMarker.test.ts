@@ -212,11 +212,16 @@ describe('sanitizeForComment', () => {
        'scaling ratio rather than an absolute time ceiling — a fixed millisecond bound is exactly the kind of ' +
        'CI-hardware-dependent assertion that flakes on a loaded runner, per a later self-review finding on this ' +
        'same test.', () => {
+      // performance.now() (self-review finding) instead of Date.now(): a
+      // monotonic, sub-millisecond-resolution clock — Date.now()'s
+      // millisecond granularity is coarse enough to quantize the "small"
+      // measurement to 0-1ms, adding noise to a ratio that's supposed to be
+      // precise.
       const timeToSanitize = (repeats: number) => {
         const pathological = '<!'.repeat(repeats) + '-->'.repeat(repeats);
-        const start = Date.now();
+        const start = performance.now();
         sanitizeForComment(pathological);
-        return Math.max(1, Date.now() - start); // floor at 1ms — Date.now() resolution can read 0
+        return Math.max(0.01, performance.now() - start); // floor to avoid a divide-by-near-zero
       };
 
       const small = timeToSanitize(2_000);

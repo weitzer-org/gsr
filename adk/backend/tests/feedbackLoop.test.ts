@@ -215,7 +215,11 @@ describe('runFeedbackPass', () => {
       expect(result.findings).toHaveLength(1);
       expect(result.findings[0].findingId).toBe('dup1234dup123456');
       expect(result.findings[0].threadUrls).toHaveLength(2);
-      expect(result.findings[0].replies.map(r => r.commentId).sort()).toEqual([10, 11]);
+      // Self-review finding: default .sort() coerces to strings, which
+      // happens to give the right order for [10, 11] but is fragile — an
+      // explicit numeric comparator makes the intent correct regardless of
+      // which numbers are used.
+      expect(result.findings[0].replies.map(r => r.commentId).sort((a, b) => a - b)).toEqual([10, 11]);
     });
 
     it('keeps distinct findingIds as separate report entries', async () => {
@@ -315,6 +319,21 @@ describe('runFeedbackPass', () => {
       const md = formatFeedbackSummaryMarkdown(resultWith('fine', 'Security|Logic', 'weird|login'));
       expect(md).toContain('Security\\|Logic');
       expect(md).toContain('weird\\|login');
+    });
+
+    it('does not let a pre-existing backslash-pipe defeat the escaping (self-review finding: escaping "|" alone ' +
+       'turns an existing "\\|" into "\\\\|", which GFM reads as an escaped backslash followed by an UNESCAPED ' +
+       'pipe — a real column separator again)', () => {
+      const md = formatFeedbackSummaryMarkdown(resultWith('a value ending in \\| right here', 'Security', 'a-dev'));
+      const dataRow = md.split('\n').find(l => l.startsWith('| a value'));
+      expect(dataRow).toBeDefined();
+      // Correctly escaped: the pre-existing backslash becomes "\\", and the
+      // pipe becomes "\|" — four characters total, not three.
+      expect(dataRow).toContain('a value ending in \\\\\\| right here');
+      // The table must still be exactly 4 cells — an unescaped "|" here
+      // would split it into 5.
+      const cells = dataRow!.split(/(?<!\\)\|/); // split on pipes NOT preceded by a backslash
+      expect(cells).toHaveLength(6); // leading/trailing empty strings from the outer pipes + 4 cells
     });
 
     it('escapes "|" in the severity field too (self-review finding: defense-in-depth, ' +

@@ -328,7 +328,7 @@ export type AdjudicationVerdict = 'pushback_correct' | 'pushback_incorrect' | 'u
 export interface FindingThread {
   rootCommentId: number;
   htmlUrl: string;
-  marker: FindingMarker;          // parsed from the root, or recovered legacily
+  marker: FindingMarker;          // parsed from the root, or recovered via the legacy fallback
   gsrLastReply?: { round: number; ackCommentId: number; verdict: AdjudicationVerdict };
   replies: ThreadReply[];         // non-GSR comments, ascending by id
 }

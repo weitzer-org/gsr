@@ -156,7 +156,12 @@ describe('AdjudicatorAgent.classifyReplies', () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    // CodeRabbit finding: clearAllMocks() clears call history but does not
+    // restore original implementations for jest.spyOn mocks — a test that
+    // spies on console.error/warn (below) would otherwise leave console
+    // output silently suppressed for every test that runs after it in this
+    // file. restoreAllMocks() does everything clearAllMocks() does, plus that.
+    jest.restoreAllMocks();
     process.env = originalEnv;
   });
 

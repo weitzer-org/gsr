@@ -208,7 +208,11 @@ const LEGACY_BODY_PATTERN = /^(?:[\u{1F534}\u{1F7E0}\u{1F7E1}\u{1F535}]\s*)?\*\*
 
 export function parseLegacyFindingBody(body: string): LegacyFindingInfo | null {
   if (!body) return null;
-  const firstLine = body.split('\n', 1)[0]?.trim();
+  // Self-review finding: trimming only the extracted first line doesn't
+  // help when the body starts with a blank line — `split('\n', 1)[0]` on
+  // "\n**HIGH**..." yields "" before any trimming happens. Trim the whole
+  // body first so a leading blank line can't hide the real header line.
+  const firstLine = body.trim().split('\n', 1)[0]?.trim();
   if (!firstLine) return null;
   const match = LEGACY_BODY_PATTERN.exec(firstLine);
   if (!match) return null;

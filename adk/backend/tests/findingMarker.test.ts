@@ -257,4 +257,10 @@ describe('parseLegacyFindingBody', () => {
   it('returns null for an empty body', () => {
     expect(parseLegacyFindingBody('')).toBeNull();
   });
+
+  it('parses correctly even when the body starts with blank line(s) (self-review finding)', () => {
+    const body = '\n\n🟠 **HIGH** · Logic — a real finding\n\ndescription';
+    const result = parseLegacyFindingBody(body);
+    expect(result).toEqual({ severity: 'HIGH', agent: 'Logic', summary: 'a real finding' });
+  });
 });

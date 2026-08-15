@@ -10,7 +10,7 @@ import { ReviewSource } from './types';
 import { requireAuth, handleLogin, handleLogout } from './auth';
 import { isValidUsageIngestKey } from './usageIngestAuth';
 import { ingestUsageRecords, UsageRecord } from './usage';
-import { runFeedbackPass } from './feedbackLoop';
+import { runFeedbackPass, escapeFeedbackResultForApiResponse } from './feedbackLoop';
 
 const SYSTEM_PROMPTS_DIR = process.env.SYSTEM_PROMPTS_DIR || 'system_prompts';
 const BASIC_PROMPT_DIR = 'basic_prompt';
@@ -146,7 +146,14 @@ app.post('/api/review', async (req, res) => {
     // Opt-in per request (`feedbackPass: true` in the body) since it spends
     // the requester's own Gemini quota. runFeedbackPass never throws, so
     // this can't turn a feedback-loop hiccup into a failed review.
-    const feedbackResult = await runFeedbackPass(ghClient, url, { mode: feedbackPass ? 'observe' : 'off' });
+    const feedbackResultRaw = await runFeedbackPass(ghClient, url, { mode: feedbackPass ? 'observe' : 'off' });
+    // HTML-entity-escaped once here, right at the boundary where this
+    // result becomes part of an HTTP JSON response a browser will parse —
+    // see feedbackLoop.ts's groupByFinding for why this isn't baked into
+    // the shared report shape itself (it's also consumed by the
+    // Markdown-only Job Summary formatter on the Action surface, which
+    // doesn't want HTML entities).
+    const feedbackResult = escapeFeedbackResultForApiResponse(feedbackResultRaw);
 
     let activeChunks = chunks;
     let truncationWarning = '';

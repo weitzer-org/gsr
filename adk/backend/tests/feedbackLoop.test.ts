@@ -1,5 +1,5 @@
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { runFeedbackPass, formatFeedbackSummaryMarkdown, FeedbackPassResult } from '../src/feedbackLoop';
+import { runFeedbackPass, formatFeedbackSummaryMarkdown, escapeFeedbackResultForApiResponse, FeedbackPassResult } from '../src/feedbackLoop';
 import { AdjudicatorAgent } from '../src/adjudicator';
 import { FindingThread } from '../src/types';
 
@@ -137,9 +137,10 @@ describe('runFeedbackPass', () => {
       expect(excerpt).toBe('&lt;img src=x onerror=alert(document.cookie)&gt; &amp; &quot;quoted&quot;');
     });
 
-    it('HTML-entity-escapes the finding-level summary/agent/promptVersion too (self-review finding: the ' +
-       'bodyExcerpt fix above covered the reply side of this, but the finding side — Gemini output shaped by ' +
-       'diff content — had the exact same gap)', async () => {
+    it('runFeedbackPass itself leaves finding-level summary/agent/promptVersion RAW (self-review finding: ' +
+       'these used to get HTML-escaped inside groupByFinding, but that\'s a shared shape also consumed by the ' +
+       'Markdown-only Job Summary formatter, which doesn\'t want HTML entities — escaping now happens only at ' +
+       'the actual API-response boundary, via escapeFeedbackResultForApiResponse, see the next test)', async () => {
       const t = thread({
         agent: '<script>alert(1)</script>',
         summary: 'finding with "quotes" & <tags>',
@@ -154,9 +155,31 @@ describe('runFeedbackPass', () => {
       const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
 
       const finding = result.findings[0];
-      expect(finding.agent).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
-      expect(finding.summary).toBe('finding with &quot;quotes&quot; &amp; &lt;tags&gt;');
-      expect(finding.promptVersion).toBe('v&lt;1&gt;');
+      expect(finding.agent).toBe('<script>alert(1)</script>');
+      expect(finding.summary).toBe('finding with "quotes" & <tags>');
+      expect(finding.promptVersion).toBe('v<1>');
+    });
+
+    it('escapeFeedbackResultForApiResponse HTML-entity-escapes summary/agent/promptVersion for the ' +
+       '/api/review JSON response, without mutating the raw result', () => {
+      const raw: FeedbackPassResult = {
+        mode: 'observe', skipped: false, threadsScanned: 1, repliesClassified: 1,
+        findings: [{
+          findingId: 'abc123def4567890', threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
+          agent: '<script>alert(1)</script>', severity: 'HIGH', promptVersion: 'v<1>',
+          summary: 'finding with "quotes" & <tags>',
+          replies: [{ commentId: 2, author: 'a-dev', isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'ok' }],
+        }],
+      };
+
+      const escaped = escapeFeedbackResultForApiResponse(raw);
+
+      expect(escaped.findings[0].agent).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
+      expect(escaped.findings[0].summary).toBe('finding with &quot;quotes&quot; &amp; &lt;tags&gt;');
+      expect(escaped.findings[0].promptVersion).toBe('v&lt;1&gt;');
+      // The raw object passed in must be untouched — formatFeedbackSummaryMarkdown
+      // (the Job Summary path) needs the unescaped version.
+      expect(raw.findings[0].agent).toBe('<script>alert(1)</script>');
     });
   });
 

@@ -69,6 +69,25 @@ export interface FeedbackPassResult {
   findings: FeedbackFindingReport[];
 }
 
+// Escapes the HTML-bound fields of a FeedbackPassResult for the ONE consumer
+// that actually needs HTML-entity-escaping — /api/review's JSON response
+// (app.ts). Called there, not baked into the shared report shape (see the
+// comment in groupByFinding for why). bodyExcerpt is deliberately excluded
+// here — it's already escaped at its single point of origin (excerpt(),
+// below), since it has no other consumer to keep raw for.
+export function escapeFeedbackResultForApiResponse(result: FeedbackPassResult): FeedbackPassResult {
+  return {
+    ...result,
+    findings: result.findings.map(f => ({
+      ...f,
+      agent: f.agent ? escapeHtmlEntities(f.agent) : f.agent,
+      severity: f.severity ? escapeHtmlEntities(f.severity) : f.severity,
+      promptVersion: f.promptVersion ? escapeHtmlEntities(f.promptVersion) : f.promptVersion,
+      summary: f.summary ? escapeHtmlEntities(f.summary) : f.summary,
+    })),
+  };
+}
+
 const DEFAULT_MAX_REPLIES_CLASSIFIED = 25;
 
 // Matches an empty body, or one containing only emoji/whitespace/variation
@@ -171,24 +190,26 @@ function groupByFinding(
 
     let entry = byFindingId.get(thread.findingId);
     if (!entry) {
-      // Self-review finding: agent/summary/promptVersion are (indirectly,
-      // for agent/summary) Gemini output shaped by diff content, and this
-      // report is streamed as-is into /api/review's JSON response (app.ts)
-      // — the same "reaches the HTTP response unescaped" gap already fixed
-      // for bodyExcerpt above, just on the finding side instead of the
-      // reply side. HTML-entity-escape here too, for the same reason: no
-      // renderer consumes these fields yet, but they should be inert the
-      // moment one is added rather than relying on that future code to
-      // remember. (thread.* itself stays unescaped — it's also used as
-      // classifier context, where HTML-escaped text would be noise, not a
-      // benefit; only the outward-facing report copy is escaped.)
+      // Self-review finding, refined by a later one: agent/summary/
+      // promptVersion previously got HTML-entity-escaped right here, but
+      // this report shape is SHARED by two consumers with different escaping
+      // needs — formatFeedbackSummaryMarkdown (Markdown, wants
+      // escapeMarkdownTableCell only) and /api/review's JSON response
+      // (HTML-bound, wants HTML-entity-escaping). Pre-escaping for the HTML
+      // consumer here means the Markdown consumer inherits HTML entities it
+      // doesn't want — harmless today only because summary/agent never land
+      // inside a Markdown code span in the current formatter, but a latent
+      // trap for whoever changes that formatting later without knowing this
+      // field was already escaped for a different reason. Kept raw here;
+      // HTML-escaping now lives at the actual API-response boundary — see
+      // escapeFeedbackResultForApiResponse below, called from app.ts.
       entry = {
         findingId: thread.findingId,
         threadUrls: [],
-        agent: thread.agent ? escapeHtmlEntities(thread.agent) : thread.agent,
-        severity: thread.severity ? escapeHtmlEntities(thread.severity) : thread.severity,
-        promptVersion: thread.promptVersion ? escapeHtmlEntities(thread.promptVersion) : thread.promptVersion,
-        summary: thread.summary ? escapeHtmlEntities(thread.summary) : thread.summary,
+        agent: thread.agent,
+        severity: thread.severity,
+        promptVersion: thread.promptVersion,
+        summary: thread.summary,
         replies: [],
       };
       byFindingId.set(thread.findingId, entry);

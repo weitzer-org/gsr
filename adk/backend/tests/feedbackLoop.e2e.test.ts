@@ -22,6 +22,7 @@ import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals
 import { GitHubClient } from '../src/github';
 import { runFeedbackPass } from '../src/feedbackLoop';
 import { AdjudicatorAgent } from '../src/adjudicator';
+import { parseFindingMarker } from '../src/findingMarker';
 import { CandidateFinding } from '../src/types';
 
 const PR_URL = 'https://github.com/weitzer-org/logo-maker/pull/42';
@@ -123,7 +124,14 @@ describe('PR comment feedback loop — end-to-end scenario (Phase 0 + 1)', () =>
     const postResult = await client.postReviewComments(PR_URL, [finding]);
     expect(postResult).toEqual({ posted: 1, skipped: 0 });
     expect(postedBody).toContain('SQL query built via string concatenation');
-    expect(postedBody).toMatch(/<!-- gsr:v1 f=[0-9a-f]+ a=Security s=HIGH pv=system_prompts r=[^ ]+ -->/);
+    // Self-review finding: asserting the exact marker string (field order,
+    // literal syntax) over-specifies an implementation detail — reordering
+    // buildFindingMarker's fields is a harmless, non-breaking change that
+    // this assertion would nonetheless break. Parse it and check field
+    // VALUES instead, which is what the contract actually promises.
+    const postedMarker = parseFindingMarker(postedBody);
+    expect(postedMarker).toMatchObject({ agent: 'Security', severity: 'HIGH', promptVersion: 'system_prompts' });
+    expect(postedMarker?.findingId).toMatch(/^[0-9a-f]+$/);
 
     // --- Meanwhile: a developer's coding agent replies in the thread, both a real reply
     // and one attempt at injecting a fake marker to see if it gets trusted ---

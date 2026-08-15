@@ -200,7 +200,20 @@ function parseMarkerFields(raw: string): FindingMarker | null {
 // function recovers. Taking the first match would be exactly backwards.
 export function parseFindingMarker(body: string): FindingMarker | null {
   if (!body) return null;
-  const pattern = /<!--\s*gsr:v1\s+([\s\S]*?)-->/g;
+  // Self-review finding: a lazy [\s\S]*? scan with no closing "-->" ever
+  // present is O(N²) — each of M starting positions ("<!-- gsr:v1 "
+  // prefixes) with no match ahead scans to the end of the string before
+  // failing (verified empirically: ~725ms at 288KB of stacked unclosed
+  // markers, scaling quadratically). Not reachable via GSR's own posting
+  // path today — encodeField's encodeURIComponent means a legitimate
+  // marker's fields never contain raw "<"/">", and sanitizeForComment
+  // already strips every "<!--"/"-->" from finding text before the real
+  // marker is appended, so a GSR-posted comment can contain at most one
+  // delimited span — but restricting the capture group to [^<>] is safe
+  // for that same reason (real markers never contain those characters)
+  // and bounds the worst case to O(N) regardless, defense-in-depth against
+  // either invariant changing later.
+  const pattern = /<!--\s*gsr:v1\s+([^<>]*?)-->/g;
   let match: RegExpExecArray | null;
   let lastValid: FindingMarker | null = null;
   while ((match = pattern.exec(body)) !== null) {

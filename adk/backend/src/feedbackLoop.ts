@@ -1,10 +1,20 @@
 // Phase 1 ("observe") of the PR comment feedback loop
 // (pr-comment-feedback-loop-design.md §3, §7, §8). Reads GSR's own review
-// threads on a PR, classifies replies newer than anything GSR has already
-// processed, and reports what it found. Deliberately posts nothing —
-// Phase 2 ("respond") is a separate, not-yet-built pass (adjudication,
-// createThreadReply, the stop conditions in §8.4) that would consume this
-// same result.
+// threads on a PR, classifies each surviving reply, and reports what it
+// found. Deliberately posts nothing — Phase 2 ("respond") is a separate,
+// not-yet-built pass (adjudication, createThreadReply, the stop conditions
+// in §8.4) that would consume this same result.
+//
+// Self-review finding: this used to say "classifies replies newer than
+// anything GSR has already processed" — that's the eventual goal, but not
+// what Phase 1 actually does. There's no persisted (or ack-marker-based —
+// that's a Phase 2 posting mechanism) cursor to know what's "already
+// processed," so every run re-reads and re-classifies every surviving
+// reply on every GSR thread, every time, by necessity rather than choice.
+// The known cost consequence: on a long-lived PR with many pushes, the
+// same old replies get re-classified repeatedly. Accepted for Phase 1 —
+// fixing it needs either Action-side persistence or a Phase 2 ack marker,
+// neither of which exists yet — revisit once Phase 2 adds one.
 //
 // Shared, surface-agnostic module (design doc §3.1): action-entrypoint.ts
 // and app.ts both call runFeedbackPass with the same inputs and get the

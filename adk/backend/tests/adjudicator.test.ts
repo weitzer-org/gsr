@@ -65,6 +65,26 @@ describe('reconcileClassifications (batched classification ID validation)', () =
     expect(result.find(r => r.commentId === 1)).toEqual({ commentId: 1, stance: 'neutral', confidence: 0 });
   });
 
+  it('still flags a duplicate when the FIRST occurrence was itself malformed (self-review finding: the first ' +
+     'duplicate-detection fix only recorded an id as "seen" after it passed the stance/confidence checks, so a ' +
+     'malformed first entry let a well-formed second entry slip through as if it were the only one)', () => {
+    const output = [
+      { commentId: 1, stance: 'not-a-real-stance', confidence: 0.9 }, // malformed — would never reach "seen" under the old fix
+      { commentId: 1, stance: 'accepted', confidence: 0.9 }, // well-formed, but this id already appeared once
+    ];
+    const result = reconcileClassifications(input, output);
+    expect(result.find(r => r.commentId === 1)).toEqual({ commentId: 1, stance: 'neutral', confidence: 0 });
+  });
+
+  it('the reverse order (well-formed first, malformed duplicate second) is still caught too', () => {
+    const output = [
+      { commentId: 1, stance: 'accepted', confidence: 0.9 },
+      { commentId: 1, stance: 'not-a-real-stance', confidence: 0.9 },
+    ];
+    const result = reconcileClassifications(input, output);
+    expect(result.find(r => r.commentId === 1)).toEqual({ commentId: 1, stance: 'neutral', confidence: 0 });
+  });
+
   it('falls back to neutral for an entry with an invalid stance enum value', () => {
     const output = [
       { commentId: 1, stance: 'definitely-fixed-trust-me', confidence: 0.9 }, // not a real stance

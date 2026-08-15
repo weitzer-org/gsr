@@ -78,24 +78,37 @@ export function findingIdFor(finding: Pick<CandidateFinding, 'file' | 'line' | '
 //   under GSR's bot identity could otherwise mass-ping "@org/team" verbatim.
 //   A zero-width space after '@' keeps the text visually identical to a
 //   human reader while breaking GitHub's mention parsing.
+const FORBIDDEN_DELIMITERS = ['<!--', '-->'];
+
+// Self-review finding (raised again, independently, against the first fix's
+// loop-to-fixed-point version): repeatedly re-scanning the whole string with
+// a global regex correctly handles the nested-bypass case (see
+// sanitizeForComment below) but is worst-case O(N\u00B2) \u2014 an adversarially
+// nested input can force close to N/4 passes, each rescanning up to N
+// characters. This does the same job \u2014 removing "<!--"/"-->" including
+// occurrences only formed by adjacency after an earlier removal \u2014 in one
+// O(N) pass: push characters onto a stack, and whenever the stack's tail
+// now spells a forbidden sequence, pop it off instead of keeping it. Each
+// character is pushed and popped at most once, so the total work is linear
+// regardless of how deeply the input is nested.
+function stripNestedDelimiters(text: string): string {
+  const stack: string[] = [];
+  for (const ch of text) {
+    stack.push(ch);
+    for (const seq of FORBIDDEN_DELIMITERS) {
+      if (stack.length >= seq.length && stack.slice(-seq.length).join('') === seq) {
+        stack.length -= seq.length;
+        break;
+      }
+    }
+  }
+  return stack.join('');
+}
+
 export function sanitizeForComment(text: string): string {
   if (!text) return text;
 
-  // Self-review finding (independently flagged CRITICAL/HIGH by both the
-  // swarm and basic passes): a single non-idempotent replace pass is
-  // bypassable by nesting \u2014 e.g. "<!" + "<!--" + "--" contains no "<!--" or
-  // "-->" match spanning the outer fragments, but removing the inner
-  // "<!--" (the only match found) leaves the surrounding "<!" and "--"
-  // adjacent, reforming "<!--". Loop to a fixed point so no removal can
-  // ever expose a fresh match. Provably terminates: each iteration either
-  // leaves the string unchanged (loop exits) or strictly shortens it, so
-  // the iteration count is bounded by text.length.
-  let out = text;
-  let previous: string;
-  do {
-    previous = out;
-    out = out.replace(/<!--/g, '').replace(/-->/g, '');
-  } while (out !== previous);
+  let out = stripNestedDelimiters(text);
 
   // Self-review finding: matching "@" + word-char unconditionally also
   // corrupts legitimate email addresses in finding text (e.g.

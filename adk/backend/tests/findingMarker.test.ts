@@ -198,6 +198,32 @@ describe('sanitizeForComment', () => {
       const pathological = '<!'.repeat(200) + '-->'.repeat(200);
       expect(() => sanitizeForComment(pathological)).not.toThrow();
     });
+
+    it('fully collapses a fully-nested run down to nothing but the mention-escaping pass', () => {
+      const pathological = '<!'.repeat(200) + '-->'.repeat(200);
+      const out = sanitizeForComment(pathological);
+      expect(out).not.toContain('<!--');
+      expect(out).not.toContain('-->');
+    });
+
+    it('stays fast (linear-time) on an adversarial input near GitHub\'s comment size limit ' +
+       '(self-review finding: the loop-to-fixed-point version of this fix was worst-case O(N²), ' +
+       'independently re-flagged after the fix landed — this is the O(N) stack-based replacement)', () => {
+      // ~16k repeats ≈ 65-70KB, in the neighborhood of GitHub's per-comment
+      // body size limit — the largest realistic adversarial input.
+      const pathological = '<!'.repeat(16_000) + '-->'.repeat(16_000);
+      const start = Date.now();
+      const out = sanitizeForComment(pathological);
+      const elapsedMs = Date.now() - start;
+
+      expect(out).not.toContain('<!--');
+      expect(out).not.toContain('-->');
+      // Generous ceiling — this is a linear-time algorithm on ~100KB of
+      // input, which should complete in low single-digit milliseconds on
+      // any real hardware; a regression back to quadratic behavior here
+      // would take seconds, not stay under this bound.
+      expect(elapsedMs).toBeLessThan(2000);
+    });
   });
 });
 

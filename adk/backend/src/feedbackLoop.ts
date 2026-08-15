@@ -118,15 +118,30 @@ function escapeHtmlEntities(text: string): string {
 // this was reaching the HTTP response completely raw), but it must be inert
 // by construction the moment one is added, not by whoever writes that future
 // code remembering to escape it.
+// Self-review finding, raised twice: (1) .slice() counts UTF-16 code units,
+// so it can cut a surrogate pair in half (e.g. an emoji), leaving a lone/
+// invalid surrogate in the output; (2) spreading the WHOLE string into an
+// array (`[...trimmed]`) to fix that allocates an array sized to the full
+// input just to keep the first `maxLen` entries, wasteful for a reply body
+// that could be much longer than the excerpt it produces. This walks code
+// points directly and stops as soon as `maxLen` of them have been counted,
+// so the work (and the only slice taken) is bounded by the OUTPUT size, not
+// the input size.
+function truncateByCodePoint(text: string, maxLen: number): { value: string; truncated: boolean } {
+  let count = 0;
+  let index = 0;
+  for (const ch of text) {
+    if (count === maxLen) return { value: text.slice(0, index), truncated: true };
+    index += ch.length; // 1 normally, 2 for a surrogate-pair code point
+    count++;
+  }
+  return { value: text, truncated: false };
+}
+
 function excerpt(body: string, maxLen = 300): string {
   const trimmed = sanitizeForComment(body).trim();
-  // Self-review finding: .slice() counts UTF-16 code units, so it can cut a
-  // surrogate pair in half (e.g. an emoji), leaving a lone/invalid
-  // surrogate in the output. Spreading the string iterates by code point
-  // instead.
-  const codePoints = [...trimmed];
-  const truncated = codePoints.length > maxLen ? `${codePoints.slice(0, maxLen).join('')}…` : trimmed;
-  return escapeHtmlEntities(truncated);
+  const { value, truncated } = truncateByCodePoint(trimmed, maxLen);
+  return escapeHtmlEntities(truncated ? `${value}…` : value);
 }
 
 function emptyResult(mode: FeedbackLoopMode, skipReason: string): FeedbackPassResult {

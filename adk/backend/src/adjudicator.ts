@@ -54,35 +54,39 @@ export function reconcileClassifications(
   }
 
   const matched = new Map<number, ReplyClassification>();
-  const seen = new Set<number>();
-  // Self-review finding: the docstring above promises duplicate ids fall
-  // back to neutral like any other malformed entry, but the code actually
-  // implemented "first occurrence wins" — silently trusting whichever
-  // duplicate happened to come first instead of treating the duplication
-  // itself as a sign the output can't be trusted for that id. `invalidated`
-  // makes a duplicate poison its commentId permanently for this response,
-  // matching the documented contract.
-  const invalidated = new Set<number>();
+  // Self-review finding, raised twice: (1) the docstring above promises
+  // duplicate ids fall back to neutral, but the first fix still let a
+  // malformed FIRST occurrence dodge the duplicate check entirely — it
+  // `continue`d on the invalid-stance/confidence check before ever being
+  // recorded as "seen", so a well-formed SECOND occurrence of the same id
+  // was treated as if it were the only one. `appeared` fixes this by
+  // recording every occurrence of a commentId the moment it's seen, before
+  // any well-formedness check — a model producing two entries for the same
+  // id is untrustworthy for that id regardless of which entry, if either,
+  // happens to be well-formed.
+  const appeared = new Set<number>();
 
   for (const item of rawOutput) {
     if (!item || typeof item !== 'object') continue;
     const commentId = (item as any).commentId;
-    const stance = (item as any).stance;
-    const confidence = (item as any).confidence;
 
     if (typeof commentId !== 'number') continue;
     if (!inputIds.has(commentId)) continue; // extra/unknown id — ignored, not trusted
-    if (invalidated.has(commentId)) continue; // already poisoned by an earlier duplicate
-    if (seen.has(commentId)) {
-      seen.delete(commentId);
+
+    if (appeared.has(commentId)) {
+      // A second (or later) appearance of this id anywhere in the raw
+      // output — permanently untrustworthy for this response, regardless
+      // of whether this or any earlier entry was itself well-formed.
       matched.delete(commentId);
-      invalidated.add(commentId);
       continue;
     }
+    appeared.add(commentId);
+
+    const stance = (item as any).stance;
+    const confidence = (item as any).confidence;
     if (!VALID_STANCES.has(stance)) continue; // altered/invalid stance — this entry doesn't count
     if (typeof confidence !== 'number' || !Number.isFinite(confidence)) continue;
 
-    seen.add(commentId);
     matched.set(commentId, { commentId, stance, confidence: Math.max(0, Math.min(1, confidence)) });
   }
 

@@ -91,12 +91,25 @@ const FORBIDDEN_DELIMITERS = ['<!--', '-->'];
 // now spells a forbidden sequence, pop it off instead of keeping it. Each
 // character is pushed and popped at most once, so the total work is linear
 // regardless of how deeply the input is nested.
+// Self-review finding: `stack.slice(-seq.length).join('')` allocates a new
+// array and string on every character just to compare the stack's tail —
+// still O(N) overall (seq.length is a small constant), but avoidable.
+// Compares by index instead, with no allocation.
+function stackEndsWith(stack: string[], seq: string): boolean {
+  if (stack.length < seq.length) return false;
+  const offset = stack.length - seq.length;
+  for (let i = 0; i < seq.length; i++) {
+    if (stack[offset + i] !== seq[i]) return false;
+  }
+  return true;
+}
+
 function stripNestedDelimiters(text: string): string {
   const stack: string[] = [];
   for (const ch of text) {
     stack.push(ch);
     for (const seq of FORBIDDEN_DELIMITERS) {
-      if (stack.length >= seq.length && stack.slice(-seq.length).join('') === seq) {
+      if (stackEndsWith(stack, seq)) {
         stack.length -= seq.length;
         break;
       }

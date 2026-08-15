@@ -52,6 +52,28 @@ so the action's `GITHUB_TOKEN` can post review comments.
 | `max-review-files` | no | `300` | Truncate review to this many changed files. |
 | `usage-report-url` | no | (unset) | OPTIONAL. URL of a hosted GSR usage-ingest endpoint to also report this run's usage to. Only set if the GSR maintainer has given you this value — see "Usage reporting" below. |
 | `usage-report-key` | no | (unset) | OPTIONAL. Shared secret paired with `usage-report-url`, provided by the GSR maintainer alongside it. Store as a repo secret. |
+| `feedback-loop` | no | `off` | OPTIONAL. `off`, `observe`, or `respond` — see "PR comment feedback loop" below. |
+
+## PR comment feedback loop (opt-in)
+
+Every finding GSR posts carries an invisible marker so a later run can read
+back what happened to it. When `feedback-loop` is set to `observe`, each run
+first reads reply threads on GSR's own previous findings on the PR,
+classifies each reply's stance (accepted / rejected / question / neutral)
+with a single batched Gemini call, and writes what it found to this run's
+**Job Summary**. **It posts nothing to GitHub** — no new comments, no
+replies, no PR writes beyond what the review step already does. No new
+permissions or secrets are required; `pull-requests: write` (already needed
+to post findings) is sufficient.
+
+This is off by default: even observe-only classification spends your own
+Gemini quota, and the feature ships opt-in the same way every cost-adding
+input in this action does.
+
+A `respond` value is accepted but currently behaves identically to
+`observe` — posting rebuttals is a planned future capability, not yet
+implemented in this action. Setting `feedback-loop: respond` today gets you
+the same read-only observation as `observe`, nothing more.
 
 ## Usage reporting (opt-in)
 

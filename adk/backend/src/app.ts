@@ -10,6 +10,7 @@ import { ReviewSource } from './types';
 import { requireAuth, handleLogin, handleLogout } from './auth';
 import { isValidUsageIngestKey } from './usageIngestAuth';
 import { ingestUsageRecords, UsageRecord } from './usage';
+import { runFeedbackPass } from './feedbackLoop';
 
 const SYSTEM_PROMPTS_DIR = process.env.SYSTEM_PROMPTS_DIR || 'system_prompts';
 const BASIC_PROMPT_DIR = 'basic_prompt';
@@ -101,7 +102,7 @@ app.get('/api/agents', (req, res) => {
 });
 
 app.post('/api/review', async (req, res) => {
-  const { url, pat, agents } = req.body;
+  const { url, pat, agents, feedbackPass } = req.body;
 
   if (!url || !pat) {
     return res.status(400).json({ error: 'GitHub PR URL and PAT are required.' });
@@ -136,6 +137,17 @@ app.post('/api/review', async (req, res) => {
     const chunks = await ghClient.getPRDiff(url);
     console.log(`Found ${chunks.length} modified files in PR (post-filter).`);
 
+    // PR comment feedback loop, Phase 1 ("observe") — forced to 'observe'
+    // regardless of the requested mode (pr-comment-feedback-loop-design.md
+    // §3.2, §7.3): this path posts findings under the human PAT-holder's
+    // own GitHub identity, and posting a rebuttal here would read as if
+    // that person wrote it. Only the Action (github-actions[bot]) is
+    // permitted to post; the hosted backend only ever observes and reports.
+    // Opt-in per request (`feedbackPass: true` in the body) since it spends
+    // the requester's own Gemini quota. runFeedbackPass never throws, so
+    // this can't turn a feedback-loop hiccup into a failed review.
+    const feedbackResult = await runFeedbackPass(ghClient, url, { mode: feedbackPass ? 'observe' : 'off' });
+
     let activeChunks = chunks;
     let truncationWarning = '';
 
@@ -168,6 +180,13 @@ app.post('/api/review', async (req, res) => {
     // Broadcast truncation warning natively over NDJSON if applicable
     if (truncationWarning) {
       res.write(JSON.stringify({ type: 'warning', message: truncationWarning }) + '\n');
+    }
+
+    // Feedback loop result, if requested — streamed as its own frame type
+    // (design doc §3.1) rather than folded into 'progress'/'warning', since
+    // it isn't per-agent progress or an error condition.
+    if (feedbackPass) {
+      res.write(JSON.stringify({ type: 'feedback', ...feedbackResult }) + '\n');
     }
 
     subagentOrchestrator.onProgress = (agentName, file, status) => {
@@ -213,13 +232,17 @@ app.post('/api/review', async (req, res) => {
 
     const currentTimestamp = new Date().toISOString();
 
-    const finalPayload = { 
-      type: 'done', 
+    const finalPayload = {
+      type: 'done',
       url: url,
       timestamp: currentTimestamp,
-      findings: allFindings, 
+      findings: allFindings,
       metrics: combinedMetrics,
-      evaluation: evaluationText
+      evaluation: evaluationText,
+      // Only included when actually requested — omitted (not just
+      // mode:'off') so old review-history records and new ones that never
+      // opted in stay indistinguishable from "feature doesn't exist here".
+      ...(feedbackPass ? { feedback: feedbackResult } : {})
     };
 
     res.write(JSON.stringify(finalPayload) + '\n');

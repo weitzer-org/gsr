@@ -60,6 +60,18 @@ inputs:
       unless usage-report-url is also set.
     required: false
     default: ''
+  feedback-loop:
+    description: >
+      OPTIONAL, off by default — even "observe" spends your own Gemini
+      quota. Reads reply threads on findings GSR previously posted and
+      classifies each reply's stance (accepted/rejected/question/neutral).
+      One of "off" (default), "observe" (classify and report to this run's
+      Job Summary; posts nothing to GitHub), or "respond" (reserved for a
+      future release that will post rebuttals; currently behaves exactly
+      like "observe" since posting isn't implemented yet). No new
+      permissions or secrets are required for "observe".
+    required: false
+    default: 'off'
 
 runs:
   using: 'docker'
@@ -74,3 +86,4 @@ runs:
     REVIEW_AGENTS: ${{ inputs.agents }}
     USAGE_INGEST_URL: ${{ inputs.usage-report-url }}
     USAGE_INGEST_SHARED_SECRET: ${{ inputs.usage-report-key }}
+    FEEDBACK_LOOP_MODE: ${{ inputs.feedback-loop }}

@@ -25,6 +25,11 @@ COPY --from=builder /app/backend/dist ./backend/dist
 # (dist/src -> up 4 levels -> /), which expects prompts at /adk/prompts/*.
 COPY adk/prompts/system_prompts/ /adk/prompts/system_prompts/
 COPY adk/prompts/basic_prompt/ /adk/prompts/basic_prompt/
+# adk/prompts/feedback/ holds the PR comment feedback loop's classifier
+# persona (adjudicator.ts) — deliberately its own sibling dir, NOT under
+# system_prompts/, since Orchestrator.initializeAgents globs every *.md
+# file there into a review subagent (orchestrator.ts).
+COPY adk/prompts/feedback/ /adk/prompts/feedback/
 
 ENV NODE_ENV=production
 

@@ -2,6 +2,7 @@ import { CandidateFinding, DiffChunk, Subagent, ReviewResult, AnalyzeResult } fr
 import { GeminiAgent } from './agent';
 import { DeduplicatorAgent } from './deduplicator';
 import { PromisePool } from './pool';
+import { computeFindingId } from './findingMarker';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -247,6 +248,19 @@ export class Orchestrator {
         deduplicatedFindings = await this.deduplicator.deduplicate(allFindings);
         triageCalls = 1; // It acts as the routing/filtering step
     }
+
+    // Feedback loop Phase 0 (pr-comment-feedback-loop-design.md §6.1, open
+    // question 6): attach findingId + promptVersion here, AFTER
+    // deduplication, so the hash reflects the summary that's actually going
+    // out to GitHub rather than a pre-merge draft the deduplicator may have
+    // rewritten. promptVersion is this.promptsDirName — every finding from
+    // this Orchestrator instance shares one prompts dir, so it's constant
+    // per run regardless of which agent produced the finding.
+    deduplicatedFindings = deduplicatedFindings.map(f => ({
+      ...f,
+      id: f.id || computeFindingId(f),
+      promptVersion: f.promptVersion || this.promptsDirName,
+    }));
 
     // Filter out low severity by default to avoid noise in the UI
     const filteredFindings = this.filterFindings(deduplicatedFindings, "Low");

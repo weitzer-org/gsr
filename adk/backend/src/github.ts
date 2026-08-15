@@ -1,5 +1,12 @@
 import { Octokit } from '@octokit/rest';
-import { CandidateFinding, DiffChunk } from './types.js';
+import { CandidateFinding, DiffChunk, FindingThread, ThreadReply } from './types.js';
+import {
+  buildFindingMarker,
+  computeFindingId,
+  parseFindingMarker,
+  parseLegacyFindingBody,
+  sanitizeForComment,
+} from './findingMarker.js';
 
 const SEVERITY_EMOJI: Record<string, string> = {
   CRITICAL: '🔴',
@@ -7,6 +14,20 @@ const SEVERITY_EMOJI: Record<string, string> = {
   MEDIUM: '🟡',
   LOW: '🔵'
 };
+
+// The login GitHub's own Actions runner uses for GITHUB_TOKEN-authored API
+// calls. This is what makes a comment "GSR's own" for the feedback loop's
+// trust check (pr-comment-feedback-loop-design.md §9, T2) — deliberately
+// `user.login === TRUSTED_GSR_BOT_LOGIN`, NOT `user.type === 'Bot'`. The
+// broader `type === 'Bot'` check would also match any other bot that echoes
+// user-supplied text back (a quote-reply bot, a PR-summary bot), which would
+// let that bot's comments forge a trusted `gsr:v1` marker.
+//
+// Caveat: on GitHub Enterprise Server / some self-hosted-runner
+// configurations this login string may reportedly differ. That has not been
+// verified against a GHES instance in this repo — treat it as a known gap,
+// not a silently-assumed universal constant, if GSR is ever run there.
+const TRUSTED_GSR_BOT_LOGIN = 'github-actions[bot]';
 
 export class GitHubClient {
   private octokit: Octokit;
@@ -77,12 +98,36 @@ export class GitHubClient {
     }
   }
 
+  // Sanitizes every LLM/diff-derived field before it goes into a posted
+  // comment body (pr-comment-feedback-loop-design.md §9, T2) and appends the
+  // feedback loop's invisible marker. `summary`/`description`/`suggestion`
+  // are Gemini output shaped by attacker-controlled diff content; `agent`
+  // is normally orchestrator-assigned but can be LLM-merged text after the
+  // deduplicator runs ("Performance, Security" — deduplicator.ts), so it's
+  // sanitized too as defense in depth even though the marker's own `a=`
+  // field is separately safe via percent-encoding. `severity` is left alone
+  // — it's schema-constrained to one of four enum values and used as a
+  // lookup key, not free text.
   private formatFindingBody(finding: CandidateFinding): string {
     const emoji = SEVERITY_EMOJI[finding.severity] || '';
-    let body = `${emoji} **${finding.severity}**${finding.agent ? ` · ${finding.agent}` : ''} — ${finding.summary}\n\n${finding.description}`;
+    const summary = sanitizeForComment(finding.summary);
+    const description = sanitizeForComment(finding.description);
+    const agent = finding.agent ? sanitizeForComment(finding.agent) : finding.agent;
+
+    let body = `${emoji} **${finding.severity}**${agent ? ` · ${agent}` : ''} — ${summary}\n\n${description}`;
     if (finding.suggestion) {
-      body += `\n\n${finding.suggestion}`;
+      body += `\n\n${sanitizeForComment(finding.suggestion)}`;
     }
+
+    const findingId = finding.id || computeFindingId(finding);
+    const marker = buildFindingMarker({
+      findingId,
+      agent: finding.agent,
+      severity: finding.severity,
+      promptVersion: finding.promptVersion,
+    });
+    body += `\n\n${marker}`;
+
     return body;
   }
 
@@ -146,5 +191,151 @@ export class GitHubClient {
 
       return { posted, skipped };
     }
+  }
+
+  // Hard cap on review comments fetched per listReviewThreads() call
+  // (design doc §13's failure-modes table) — a pathological PR with
+  // hundreds/thousands of comments shouldn't make the feedback pass scan
+  // unboundedly.
+  private static readonly MAX_COMMENTS_FETCHED = 500;
+
+  // Groups the flat comments list into threads keyed by root comment id.
+  // GitHub's REST docs describe `in_reply_to_id` as "the id of the comment
+  // being replied to", which in practice is generally the thread ROOT for
+  // every reply in a thread rather than the immediate parent — but the
+  // implementation must not assume that (design doc §5.1, open question 1):
+  // this walks `in_reply_to_id` transitively until it reaches a comment with
+  // none, and treats that as the root. Correct either way, one extra loop.
+  private static groupRepliesByRoot(comments: { id: number; in_reply_to_id?: number }[]): Map<number, typeof comments> {
+    const byId = new Map<number, { id: number; in_reply_to_id?: number }>();
+    for (const c of comments) byId.set(c.id, c);
+
+    const rootIdCache = new Map<number, number>();
+    const resolveRootId = (startId: number): number => {
+      const cached = rootIdCache.get(startId);
+      if (cached !== undefined) return cached;
+
+      const visited = new Set<number>();
+      let current = byId.get(startId);
+      let rootId = startId;
+      while (current?.in_reply_to_id != null && !visited.has(current.id)) {
+        visited.add(current.id);
+        rootId = current.in_reply_to_id;
+        current = byId.get(current.in_reply_to_id);
+      }
+      rootIdCache.set(startId, rootId);
+      return rootId;
+    };
+
+    const grouped = new Map<number, typeof comments>();
+    for (const c of comments) {
+      if (c.in_reply_to_id == null) continue; // a root isn't grouped as its own reply
+      const rootId = resolveRootId(c.id);
+      if (!grouped.has(rootId)) grouped.set(rootId, []);
+      grouped.get(rootId)!.push(c);
+    }
+    return grouped;
+  }
+
+  /**
+   * Reads every review-comment thread on a PR and returns the ones GSR
+   * itself started — the read side of the PR comment feedback loop
+   * (pr-comment-feedback-loop-design.md §4–§5). No writes; Phase 2's
+   * createThreadReply is a separate, not-yet-implemented method.
+   *
+   * A thread's root is only trusted as "GSR's own finding" when it's
+   * authored by TRUSTED_GSR_BOT_LOGIN AND carries a well-formed gsr:v1
+   * marker (or, for pre-marker comments, parses via the legacy fallback) —
+   * see that constant's comment for why login, not `user.type`, is the
+   * trust boundary. Untrusted roots (including ones a non-GSR author
+   * hand-typed to look like a marker) are silently skipped, never guessed
+   * at.
+   */
+  public async listReviewThreads(url: string): Promise<FindingThread[]> {
+    const { owner, repo, pull_number } = this.parsePRUrl(url);
+
+    let comments = await this.octokit.paginate(this.octokit.rest.pulls.listReviewComments, {
+      owner,
+      repo,
+      pull_number,
+      per_page: 100,
+      sort: 'created',
+      direction: 'asc',
+    });
+
+    if (comments.length > GitHubClient.MAX_COMMENTS_FETCHED) {
+      console.warn(`[GitHubClient] PR has ${comments.length} review comments; capping feedback-loop scan to the first ${GitHubClient.MAX_COMMENTS_FETCHED}.`);
+      comments = comments.slice(0, GitHubClient.MAX_COMMENTS_FETCHED);
+    }
+
+    const byId = new Map<number, (typeof comments)[number]>();
+    for (const c of comments) byId.set(c.id, c);
+
+    const grouped = GitHubClient.groupRepliesByRoot(comments as any);
+
+    const threads: FindingThread[] = [];
+    for (const [rootId, replyComments] of grouped) {
+      const root = byId.get(rootId);
+      if (!root) continue; // shouldn't happen, but a truncated/paginated window is defensive-programming territory
+
+      // Trust check (design doc §9, T2) — see TRUSTED_GSR_BOT_LOGIN.
+      if (root.user?.login !== TRUSTED_GSR_BOT_LOGIN) continue;
+
+      const rootBody = root.body || '';
+      let findingId: string;
+      let agent: string | undefined;
+      let severity: CandidateFinding['severity'] | undefined;
+      let promptVersion: string | undefined;
+
+      // The visible header line (`emoji **SEVERITY** · agent — summary`)
+      // hasn't changed shape since before markers existed, so this recovers
+      // `summary` for classifier context regardless of whether the thread
+      // has a marker — the marker itself never carries summary text.
+      const headerInfo = parseLegacyFindingBody(rootBody);
+
+      const marker = parseFindingMarker(rootBody);
+      if (marker) {
+        findingId = marker.findingId;
+        agent = marker.agent;
+        severity = marker.severity as CandidateFinding['severity'] | undefined;
+        promptVersion = marker.promptVersion;
+      } else {
+        // Pre-marker (legacy) comment fallback (design doc §4.3). If this
+        // also fails, skip the thread entirely rather than guess at a
+        // findingId.
+        if (!headerInfo || root.path == null || root.line == null) continue;
+        findingId = computeFindingId({ file: root.path, line: root.line, agent: headerInfo.agent, summary: headerInfo.summary });
+        agent = headerInfo.agent;
+        severity = headerInfo.severity as CandidateFinding['severity'];
+      }
+
+      // Exclude GSR's own comments from `replies` — Phase 2 will post
+      // rebuttals authored by TRUSTED_GSR_BOT_LOGIN into these same
+      // threads, and this loop only wants what a developer (or their coding
+      // agent) said back, not GSR talking to itself.
+      const replies: ThreadReply[] = (replyComments as any[])
+        .filter(c => c.user?.login !== TRUSTED_GSR_BOT_LOGIN)
+        .sort((a, b) => a.id - b.id)
+        .map(c => ({
+          commentId: c.id,
+          author: c.user?.login || 'unknown',
+          isBot: c.user?.type === 'Bot',
+          createdAt: c.created_at,
+          body: c.body || '',
+        }));
+
+      threads.push({
+        rootCommentId: rootId,
+        htmlUrl: root.html_url,
+        findingId,
+        agent,
+        severity,
+        promptVersion,
+        summary: headerInfo?.summary,
+        replies,
+      });
+    }
+
+    return threads;
   }
 }

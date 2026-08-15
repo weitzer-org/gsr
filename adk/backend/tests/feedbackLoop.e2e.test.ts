@@ -70,7 +70,14 @@ describe('PR comment feedback loop — end-to-end scenario (Phase 0 + 1)', () =>
 
   afterEach(() => {
     jest.restoreAllMocks();
-    process.env = originalEnv;
+    // Self-review finding, confirmed by direct testing: process.env = X
+    // replaces Node's special environment binding with a plain object,
+    // losing its auto-stringification/OS-sync behavior for the rest of the
+    // process. Restoring key-by-key onto the still-special object avoids that.
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
   });
 
   it('round-trips a real posted finding through marker parsing and classifies real replies, without ever attempting a GitHub write for a reply', async () => {
@@ -102,11 +109,15 @@ describe('PR comment feedback loop — end-to-end scenario (Phase 0 + 1)', () =>
           createReviewComment,
           createReplyForReviewComment,
           get: (jest.fn() as any).mockResolvedValue({ data: { head: { sha: 'abc123' } } }),
-          listReviewComments: undefined as any, // set for run 2, below
+          // Self-review finding: this is never actually called — Octokit's
+          // paginate() wraps it, and paginate itself is fully mocked below —
+          // but a plain jest.fn() placeholder is clearer than `undefined`
+          // for a property that's structurally part of the mocked shape.
+          listReviewComments: jest.fn(),
         },
         issues: { createComment: jest.fn() },
       },
-      paginate: undefined as any, // set for run 2, below
+      paginate: undefined as any, // reassigned below, once run 1's postedBody is available to seed run 2's fixture
     };
 
     const postResult = await client.postReviewComments(PR_URL, [finding]);

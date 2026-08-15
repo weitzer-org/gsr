@@ -162,7 +162,14 @@ describe('AdjudicatorAgent.classifyReplies', () => {
     // output silently suppressed for every test that runs after it in this
     // file. restoreAllMocks() does everything clearAllMocks() does, plus that.
     jest.restoreAllMocks();
-    process.env = originalEnv;
+    // Self-review finding, confirmed by direct testing: process.env = X
+    // replaces Node's special environment binding with a plain object,
+    // losing its auto-stringification/OS-sync behavior for the rest of the
+    // process. Restoring key-by-key onto the still-special object avoids that.
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
   });
 
   it('returns an empty array without calling Gemini for an empty batch', async () => {

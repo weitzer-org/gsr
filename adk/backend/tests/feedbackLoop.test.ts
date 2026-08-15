@@ -38,7 +38,17 @@ describe('runFeedbackPass', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
-    process.env = originalEnv;
+    // Self-review finding, confirmed by direct testing: process.env = X
+    // replaces Node's special environment binding with a plain object,
+    // permanently losing its auto-stringification (and OS-sync) behavior
+    // for the rest of the process — verified empirically that a value
+    // assigned to process.env AFTER a wholesale reassignment like this no
+    // longer coerces to a string the way it does before one. Restoring
+    // key-by-key onto the still-special object avoids that.
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
   });
 
   it('mode "off": returns a skipped result and never calls listReviewThreads', async () => {

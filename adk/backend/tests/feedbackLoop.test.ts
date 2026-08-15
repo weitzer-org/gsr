@@ -1,5 +1,5 @@
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { runFeedbackPass } from '../src/feedbackLoop';
+import { runFeedbackPass, formatFeedbackSummaryMarkdown, FeedbackPassResult } from '../src/feedbackLoop';
 import { AdjudicatorAgent } from '../src/adjudicator';
 import { FindingThread } from '../src/types';
 
@@ -210,6 +210,43 @@ describe('runFeedbackPass', () => {
       const batch = classifySpy.mock.calls[0][0] as any[];
       expect(batch).toHaveLength(1);
       expect(batch[0].commentId).toBe(2); // the CRITICAL finding's reply, not the LOW one
+    });
+  });
+
+  describe('formatFeedbackSummaryMarkdown (quick-review finding: pipe-escaping)', () => {
+    function resultWith(summary: string, agent: string, author: string): FeedbackPassResult {
+      return {
+        mode: 'observe',
+        skipped: false,
+        threadsScanned: 1,
+        repliesClassified: 1,
+        findings: [
+          {
+            findingId: 'abc123def4567890',
+            threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
+            agent,
+            severity: 'HIGH',
+            summary,
+            replies: [{ commentId: 2, author, isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'ok' }],
+          },
+        ],
+      };
+    }
+
+    it('escapes a literal "|" in the finding summary so it cannot corrupt the table', () => {
+      const md = formatFeedbackSummaryMarkdown(resultWith('uses `cmd | sh` unsafely', 'Security', 'a-dev'));
+      const dataRow = md.split('\n').find(l => l.startsWith('| uses'));
+      expect(dataRow).toBeDefined();
+      // GFM treats a backslash-escaped pipe as a literal character, not a column
+      // separator — the unescaped source "|" must never appear in the output.
+      expect(dataRow).toContain('cmd \\| sh');
+      expect(dataRow).not.toContain('cmd | sh');
+    });
+
+    it('escapes "|" in the agent and reply-author fields too', () => {
+      const md = formatFeedbackSummaryMarkdown(resultWith('fine', 'Security|Logic', 'weird|login'));
+      expect(md).toContain('Security\\|Logic');
+      expect(md).toContain('weird\\|login');
     });
   });
 });

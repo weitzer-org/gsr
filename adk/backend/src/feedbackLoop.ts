@@ -229,6 +229,17 @@ export async function runFeedbackPass(
 //
 // Mirrors usage.ts's formatUsageSummaryMarkdown: pure/independently testable
 // from the file-writing side, which lives in action-entrypoint.ts.
+
+// escapeMarkdownTableCell guards against a Gemini-generated summary/agent
+// value containing a literal `|`, which would otherwise split into extra
+// table columns and corrupt the rendered Job Summary (quick-review finding:
+// sanitizeForComment strips comment-delimiter/mention syntax but was never
+// meant to be a general markdown escaper, and this is a different render
+// target — a Job Summary table cell, not a posted PR comment body).
+function escapeMarkdownTableCell(value: string): string {
+  return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
 export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): string {
   const lines: string[] = [];
   lines.push('## GSR Feedback Loop (observe)');
@@ -252,10 +263,12 @@ export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): strin
   lines.push('|---|---|---|---|');
   for (const f of result.findings) {
     const replySummary = f.replies
-      .map(r => `${r.author}: ${r.stance} (${r.confidence.toFixed(2)})`)
+      .map(r => `${escapeMarkdownTableCell(r.author)}: ${r.stance} (${r.confidence.toFixed(2)})`)
       .join('<br/>');
-    const findingLabel = f.summary ? `${f.summary} (\`${f.findingId}\`)` : `\`${f.findingId}\``;
-    lines.push(`| ${findingLabel} | ${f.severity || '—'} | ${f.agent || '—'} | ${replySummary} |`);
+    const summary = f.summary ? escapeMarkdownTableCell(f.summary) : undefined;
+    const findingLabel = summary ? `${summary} (\`${f.findingId}\`)` : `\`${f.findingId}\``;
+    const agent = f.agent ? escapeMarkdownTableCell(f.agent) : undefined;
+    lines.push(`| ${findingLabel} | ${f.severity || '—'} | ${agent || '—'} | ${replySummary} |`);
   }
 
   return lines.join('\n');

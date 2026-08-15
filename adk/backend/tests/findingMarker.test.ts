@@ -206,23 +206,34 @@ describe('sanitizeForComment', () => {
       expect(out).not.toContain('-->');
     });
 
-    it('stays fast (linear-time) on an adversarial input near GitHub\'s comment size limit ' +
-       '(self-review finding: the loop-to-fixed-point version of this fix was worst-case O(N²), ' +
-       'independently re-flagged after the fix landed — this is the O(N) stack-based replacement)', () => {
-      // ~16k repeats ≈ 65-70KB, in the neighborhood of GitHub's per-comment
-      // body size limit — the largest realistic adversarial input.
-      const pathological = '<!'.repeat(16_000) + '-->'.repeat(16_000);
-      const start = Date.now();
-      const out = sanitizeForComment(pathological);
-      const elapsedMs = Date.now() - start;
+    it('does not regress to O(N²) on adversarial input — a 10x larger input takes nowhere near 10x longer ' +
+       '(self-review finding: the loop-to-fixed-point version of this fix was worst-case O(N²), independently ' +
+       're-flagged after the fix landed; this is the O(N) stack-based replacement). Measured as a relative ' +
+       'scaling ratio rather than an absolute time ceiling — a fixed millisecond bound is exactly the kind of ' +
+       'CI-hardware-dependent assertion that flakes on a loaded runner, per a later self-review finding on this ' +
+       'same test.', () => {
+      const timeToSanitize = (repeats: number) => {
+        const pathological = '<!'.repeat(repeats) + '-->'.repeat(repeats);
+        const start = Date.now();
+        sanitizeForComment(pathological);
+        return Math.max(1, Date.now() - start); // floor at 1ms — Date.now() resolution can read 0
+      };
 
+      const small = timeToSanitize(2_000);
+      const large = timeToSanitize(20_000); // 10x the input
+
+      // Linear time predicts ~10x; quadratic time predicts ~100x. Assert
+      // well below the quadratic prediction — generous enough to absorb
+      // real CI jitter, but a regression back to O(N²) would blow past it
+      // by roughly an order of magnitude, not sit just over the line.
+      expect(large / small).toBeLessThan(40);
+    });
+
+    it('produces correct output at the size used for the scaling check above', () => {
+      const pathological = '<!'.repeat(20_000) + '-->'.repeat(20_000);
+      const out = sanitizeForComment(pathological);
       expect(out).not.toContain('<!--');
       expect(out).not.toContain('-->');
-      // Generous ceiling — this is a linear-time algorithm on ~100KB of
-      // input, which should complete in low single-digit milliseconds on
-      // any real hardware; a regression back to quadratic behavior here
-      // would take seconds, not stay under this bound.
-      expect(elapsedMs).toBeLessThan(2000);
     });
   });
 });

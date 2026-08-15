@@ -161,13 +161,24 @@ function groupByFinding(
 
     let entry = byFindingId.get(thread.findingId);
     if (!entry) {
+      // Self-review finding: agent/summary/promptVersion are (indirectly,
+      // for agent/summary) Gemini output shaped by diff content, and this
+      // report is streamed as-is into /api/review's JSON response (app.ts)
+      // — the same "reaches the HTTP response unescaped" gap already fixed
+      // for bodyExcerpt above, just on the finding side instead of the
+      // reply side. HTML-entity-escape here too, for the same reason: no
+      // renderer consumes these fields yet, but they should be inert the
+      // moment one is added rather than relying on that future code to
+      // remember. (thread.* itself stays unescaped — it's also used as
+      // classifier context, where HTML-escaped text would be noise, not a
+      // benefit; only the outward-facing report copy is escaped.)
       entry = {
         findingId: thread.findingId,
         threadUrls: [],
-        agent: thread.agent,
-        severity: thread.severity,
-        promptVersion: thread.promptVersion,
-        summary: thread.summary,
+        agent: thread.agent ? escapeHtmlEntities(thread.agent) : thread.agent,
+        severity: thread.severity ? escapeHtmlEntities(thread.severity) : thread.severity,
+        promptVersion: thread.promptVersion ? escapeHtmlEntities(thread.promptVersion) : thread.promptVersion,
+        summary: thread.summary ? escapeHtmlEntities(thread.summary) : thread.summary,
         replies: [],
       };
       byFindingId.set(thread.findingId, entry);
@@ -244,11 +255,24 @@ export async function runFeedbackPass(
       console.warn(`[FeedbackLoop] ${pending.length} reply(ies) survived filtering; classifying only the top ${capped.length} by severity (maxRepliesClassified=${maxRepliesClassified}).`);
     }
 
+    // Self-review finding: maxRepliesClassified bounds the COUNT of replies
+    // per batch, but nothing bounded each reply's own length before this —
+    // a GitHub comment can be up to ~65KB, so a worst-case batch of 25
+    // could send over 1.5MB of text to Gemini in a single call, risking
+    // hitting the model's token limit or a large, unbounded cost spike. A
+    // real developer/agent reply is realistically a sentence to a short
+    // paragraph; this is generous enough for that while bounding the
+    // worst case. Truncation-only — no HTML escaping here, this text goes
+    // to Gemini, not a browser (see excerpt() in this file for the
+    // separate HTML-escaped version used for the HTTP-response excerpt).
+    const MAX_REPLY_TEXT_FOR_CLASSIFICATION = 4000;
     const batch: ClassifyReplyInput[] = capped.map(({ thread, reply }) => ({
       commentId: reply.commentId,
       findingSummary: thread.summary || (thread.severity ? `${thread.severity} finding` : 'finding'),
       findingSeverity: thread.severity,
-      replyText: reply.body,
+      replyText: reply.body.length > MAX_REPLY_TEXT_FOR_CLASSIFICATION
+        ? `${reply.body.slice(0, MAX_REPLY_TEXT_FOR_CLASSIFICATION)}…`
+        : reply.body,
     }));
 
     const adjudicator = new AdjudicatorAgent();

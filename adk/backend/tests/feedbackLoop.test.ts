@@ -126,6 +126,28 @@ describe('runFeedbackPass', () => {
       expect(excerpt).not.toContain('"quoted"');
       expect(excerpt).toBe('&lt;img src=x onerror=alert(document.cookie)&gt; &amp; &quot;quoted&quot;');
     });
+
+    it('HTML-entity-escapes the finding-level summary/agent/promptVersion too (self-review finding: the ' +
+       'bodyExcerpt fix above covered the reply side of this, but the finding side — Gemini output shaped by ' +
+       'diff content — had the exact same gap)', async () => {
+      const t = thread({
+        agent: '<script>alert(1)</script>',
+        summary: 'finding with "quotes" & <tags>',
+        promptVersion: 'v<1>',
+        replies: [{ commentId: 2, author: 'a-dev', isBot: false, createdAt: 't', body: 'fixed' }],
+      });
+      const gh = mockGh([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'accepted', confidence: 0.9 },
+      ]);
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+      const finding = result.findings[0];
+      expect(finding.agent).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
+      expect(finding.summary).toBe('finding with &quot;quotes&quot; &amp; &lt;tags&gt;');
+      expect(finding.promptVersion).toBe('v&lt;1&gt;');
+    });
   });
 
   describe('stage-0 bot filtering (review-amendment #4)', () => {
@@ -239,6 +261,23 @@ describe('runFeedbackPass', () => {
       const batch = classifySpy.mock.calls[0][0] as any[];
       expect(batch).toHaveLength(1);
       expect(batch[0].commentId).toBe(2); // the CRITICAL finding's reply, not the LOW one
+    });
+
+    it('truncates an individual reply\'s text before sending it to Gemini (self-review finding: ' +
+       'maxRepliesClassified bounds the batch COUNT, but nothing bounded a single reply\'s own length — a ' +
+       'GitHub comment can be up to ~65KB, so an unbounded batch could blow through the model\'s token limit)', async () => {
+      const hugeReply = 'x'.repeat(10_000);
+      const t = thread({ replies: [{ commentId: 2, author: 'dev', isBot: false, createdAt: 't', body: hugeReply }] });
+      const gh = mockGh([t]);
+      const classifySpy = jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'neutral', confidence: 0.5 },
+      ]);
+
+      await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+      const batch = classifySpy.mock.calls[0][0] as any[];
+      expect(batch[0].replyText.length).toBeLessThan(hugeReply.length);
+      expect(batch[0].replyText.length).toBeLessThanOrEqual(4001); // cap + the truncation-marker char
     });
   });
 

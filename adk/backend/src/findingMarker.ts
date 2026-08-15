@@ -80,8 +80,30 @@ export function findingIdFor(finding: Pick<CandidateFinding, 'file' | 'line' | '
 //   human reader while breaking GitHub's mention parsing.
 export function sanitizeForComment(text: string): string {
   if (!text) return text;
-  let out = text.replace(/<!--/g, '').replace(/-->/g, '');
-  out = out.replace(/@(\w)/g, '@\u200B$1');
+
+  // Self-review finding (independently flagged CRITICAL/HIGH by both the
+  // swarm and basic passes): a single non-idempotent replace pass is
+  // bypassable by nesting \u2014 e.g. "<!" + "<!--" + "--" contains no "<!--" or
+  // "-->" match spanning the outer fragments, but removing the inner
+  // "<!--" (the only match found) leaves the surrounding "<!" and "--"
+  // adjacent, reforming "<!--". Loop to a fixed point so no removal can
+  // ever expose a fresh match. Provably terminates: each iteration either
+  // leaves the string unchanged (loop exits) or strictly shortens it, so
+  // the iteration count is bounded by text.length.
+  let out = text;
+  let previous: string;
+  do {
+    previous = out;
+    out = out.replace(/<!--/g, '').replace(/-->/g, '');
+  } while (out !== previous);
+
+  // Self-review finding: matching "@" + word-char unconditionally also
+  // corrupts legitimate email addresses in finding text (e.g.
+  // "hardcoded credential for admin@example.com" becomes
+  // "admin@\u200Bexample.com"). Only treat it as a mention to neutralize
+  // when the "@" isn't already embedded in a word/dotted/hyphenated
+  // token \u2014 real @mentions are preceded by whitespace or start-of-string.
+  out = out.replace(/(?<![\w.-])@(\w)/g, '@\u200B$1');
   return out;
 }
 

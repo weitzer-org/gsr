@@ -50,7 +50,13 @@ const mockGenerateContent = jest.fn<any>();
 const realClassifyReplies = AdjudicatorAgent.prototype.classifyReplies;
 
 describe('PR comment feedback loop — end-to-end scenario (Phase 0 + 1)', () => {
+  // Self-review finding: process.env is process-global — restore it so this
+  // file can't leak GEMINI_API_KEY into a later test file in the same
+  // worker. Matches tests/agent.test.ts's convention.
+  let originalEnv: NodeJS.ProcessEnv;
+
   beforeEach(() => {
+    originalEnv = { ...process.env };
     process.env.GEMINI_API_KEY = 'test-key';
     mockGenerateContent.mockReset();
     jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockImplementation(function (
@@ -64,6 +70,7 @@ describe('PR comment feedback loop — end-to-end scenario (Phase 0 + 1)', () =>
 
   afterEach(() => {
     jest.restoreAllMocks();
+    process.env = originalEnv;
   });
 
   it('round-trips a real posted finding through marker parsing and classifies real replies, without ever attempting a GitHub write for a reply', async () => {

@@ -120,7 +120,12 @@ function escapeHtmlEntities(text: string): string {
 // code remembering to escape it.
 function excerpt(body: string, maxLen = 300): string {
   const trimmed = sanitizeForComment(body).trim();
-  const truncated = trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…` : trimmed;
+  // Self-review finding: .slice() counts UTF-16 code units, so it can cut a
+  // surrogate pair in half (e.g. an emoji), leaving a lone/invalid
+  // surrogate in the output. Spreading the string iterates by code point
+  // instead.
+  const codePoints = [...trimmed];
+  const truncated = codePoints.length > maxLen ? `${codePoints.slice(0, maxLen).join('')}…` : trimmed;
   return escapeHtmlEntities(truncated);
 }
 
@@ -269,7 +274,11 @@ function escapeMarkdownTableCell(value: string): string {
 
 export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): string {
   const lines: string[] = [];
-  lines.push('## GSR Feedback Loop (observe)');
+  // CodeRabbit finding: hardcoding "(observe)" mislabels the summary when
+  // mode is "respond" (which currently degrades to observe-only behavior,
+  // but still reports its requested mode — see runFeedbackPass — so the
+  // heading should say what was actually requested).
+  lines.push(`## GSR Feedback Loop (${result.mode})`);
   lines.push('');
 
   if (result.skipped) {

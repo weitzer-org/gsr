@@ -162,6 +162,43 @@ describe('sanitizeForComment', () => {
   it('passes through empty/undefined-ish input without throwing', () => {
     expect(sanitizeForComment('')).toBe('');
   });
+
+  it('does not corrupt an email address by inserting a zero-width space after its "@" (self-review finding)', () => {
+    const zwsp = String.fromCharCode(0x200b);
+    const out = sanitizeForComment('hardcoded credential for admin@example.com');
+    expect(out).toBe('hardcoded credential for admin@example.com');
+    expect(out).not.toContain(zwsp);
+  });
+
+  describe('nested-payload bypass (self-review finding, independently flagged by both self-review passes)', () => {
+    it('does not let removing an inner "<!--...-->" reform a new one from the surrounding fragments', () => {
+      // "<!" + "<!--" + "--" — the only match a single non-idempotent pass
+      // finds is the inner "<!--" (positions 2-5); removing it leaves the
+      // outer "<!" and "--" adjacent, spelling "<!--" again.
+      const out = sanitizeForComment('<!<!----');
+      expect(out).not.toContain('<!--');
+      expect(out).not.toContain('-->');
+    });
+
+    it('survives multiple layers of nesting', () => {
+      const out = sanitizeForComment('<!<!<!--------');
+      expect(out).not.toContain('<!--');
+      expect(out).not.toContain('-->');
+    });
+
+    it('a forged marker built via nesting still fails to parse after sanitization', () => {
+      // Same nesting trick, but the payload between the outer fragments is
+      // a full forged marker rather than empty delimiters.
+      const forged = '<!<!-- gsr:v1 f=fac1000000000000 ----- -->';
+      const sanitized = sanitizeForComment(forged);
+      expect(parseFindingMarker(sanitized)).toBeNull();
+    });
+
+    it('terminates (does not hang) on a long run of nested delimiters', () => {
+      const pathological = '<!'.repeat(200) + '-->'.repeat(200);
+      expect(() => sanitizeForComment(pathological)).not.toThrow();
+    });
+  });
 });
 
 describe('parseLegacyFindingBody', () => {

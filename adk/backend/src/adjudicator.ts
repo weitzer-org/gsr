@@ -55,6 +55,14 @@ export function reconcileClassifications(
 
   const matched = new Map<number, ReplyClassification>();
   const seen = new Set<number>();
+  // Self-review finding: the docstring above promises duplicate ids fall
+  // back to neutral like any other malformed entry, but the code actually
+  // implemented "first occurrence wins" — silently trusting whichever
+  // duplicate happened to come first instead of treating the duplication
+  // itself as a sign the output can't be trusted for that id. `invalidated`
+  // makes a duplicate poison its commentId permanently for this response,
+  // matching the documented contract.
+  const invalidated = new Set<number>();
 
   for (const item of rawOutput) {
     if (!item || typeof item !== 'object') continue;
@@ -64,7 +72,13 @@ export function reconcileClassifications(
 
     if (typeof commentId !== 'number') continue;
     if (!inputIds.has(commentId)) continue; // extra/unknown id — ignored, not trusted
-    if (seen.has(commentId)) continue; // duplicate id — first occurrence wins, rest ignored
+    if (invalidated.has(commentId)) continue; // already poisoned by an earlier duplicate
+    if (seen.has(commentId)) {
+      seen.delete(commentId);
+      matched.delete(commentId);
+      invalidated.add(commentId);
+      continue;
+    }
     if (!VALID_STANCES.has(stance)) continue; // altered/invalid stance — this entry doesn't count
     if (typeof confidence !== 'number' || !Number.isFinite(confidence)) continue;
 
@@ -75,7 +89,18 @@ export function reconcileClassifications(
   return input.map(i => matched.get(i.commentId) ?? neutralFallback(i.commentId));
 }
 
+// Self-review finding: classifyReplies is async and called on the request
+// path (both the Action's per-run invocation and, potentially, concurrent
+// /api/review requests on the hosted backend), so a synchronous disk read
+// on every call blocks the event loop for no reason — the prompt file's
+// contents can't change within a process's lifetime. Cache after the first
+// read; a module-level variable is fine since this module has no per-request
+// state otherwise.
+let cachedClassifierPrompt: string | undefined;
+
 function loadClassifierPrompt(): string {
+  if (cachedClassifierPrompt !== undefined) return cachedClassifierPrompt;
+
   // adk/prompts/feedback/ is a sibling of system_prompts/ and
   // basic_prompt/, deliberately NOT inside either — Orchestrator.
   // initializeAgents globs every *.md file under whatever prompts dir it's
@@ -87,7 +112,8 @@ function loadClassifierPrompt(): string {
     ? (here.includes(path.join('dist', 'src')) ? path.resolve(here, '../../../../') : path.resolve(here, '../../../'))
     : path.resolve(process.cwd(), '../../');
   const promptPath = path.join(projectRoot, 'adk', 'prompts', 'feedback', 'classifier.md');
-  return fs.readFileSync(promptPath, 'utf8');
+  cachedClassifierPrompt = fs.readFileSync(promptPath, 'utf8');
+  return cachedClassifierPrompt;
 }
 
 export class AdjudicatorAgent {

@@ -39,7 +39,9 @@ describe('reconcileClassifications (batched classification ID validation)', () =
     expect(result.find(r => r.commentId === 999)).toBeUndefined();
   });
 
-  it('treats a duplicated id as unreliable: first occurrence wins, no crash', () => {
+  it('treats a duplicated id as unreliable and falls back to neutral, without crashing or discarding the rest ' +
+     '(self-review finding: this used to silently trust whichever duplicate came first, contradicting the ' +
+     'documented "any irregularity means untrusted" contract above)', () => {
     const output = [
       { commentId: 1, stance: 'accepted', confidence: 0.9 },
       { commentId: 1, stance: 'rejected', confidence: 0.1 }, // duplicate — altered verdict for the same id
@@ -47,7 +49,20 @@ describe('reconcileClassifications (batched classification ID validation)', () =
       { commentId: 3, stance: 'neutral', confidence: 0.4 },
     ];
     const result = reconcileClassifications(input, output);
-    expect(result.find(r => r.commentId === 1)).toEqual({ commentId: 1, stance: 'accepted', confidence: 0.9 });
+    expect(result.find(r => r.commentId === 1)).toEqual({ commentId: 1, stance: 'neutral', confidence: 0 });
+    // The rest of the batch is unaffected by id 1's duplicate.
+    expect(result.find(r => r.commentId === 2)).toEqual({ commentId: 2, stance: 'rejected', confidence: 0.7 });
+    expect(result.find(r => r.commentId === 3)).toEqual({ commentId: 3, stance: 'neutral', confidence: 0.4 });
+  });
+
+  it('a third+ occurrence of an already-duplicated id stays neutral too', () => {
+    const output = [
+      { commentId: 1, stance: 'accepted', confidence: 0.9 },
+      { commentId: 1, stance: 'rejected', confidence: 0.1 },
+      { commentId: 1, stance: 'accepted', confidence: 0.99 },
+    ];
+    const result = reconcileClassifications(input, output);
+    expect(result.find(r => r.commentId === 1)).toEqual({ commentId: 1, stance: 'neutral', confidence: 0 });
   });
 
   it('falls back to neutral for an entry with an invalid stance enum value', () => {
@@ -107,8 +122,13 @@ jest.mock('../src/usage', () => ({
 
 describe('AdjudicatorAgent.classifyReplies', () => {
   let AdjudicatorAgent: any;
+  // Self-review finding: process.env is process-global, not per-test-file —
+  // mutating it without restoring can leak into whichever test runs next in
+  // the same worker. Matches tests/agent.test.ts's existing convention.
+  let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(async () => {
+    originalEnv = { ...process.env };
     jest.resetModules();
     process.env.GEMINI_API_KEY = 'test-key';
     const mod = await import('../src/adjudicator.js');
@@ -117,6 +137,7 @@ describe('AdjudicatorAgent.classifyReplies', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+    process.env = originalEnv;
   });
 
   it('returns an empty array without calling Gemini for an empty batch', async () => {

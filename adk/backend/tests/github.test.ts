@@ -1,5 +1,5 @@
 import { GitHubClient } from '../src/github';
-import { buildFindingMarker, parseFindingMarker } from '../src/findingMarker';
+import { buildFindingMarker, parseFindingMarker, computeFindingId } from '../src/findingMarker';
 import { jest } from '@jest/globals';
 
 
@@ -398,6 +398,49 @@ index e69de29..d95f3ad 100644
             expect(threads[0].replies).toHaveLength(1);
             expect(threads[0].replies[0].isBot).toBe(true);
             expect(threads[0].replies[0].author).toBe('some-coding-agent[bot]');
+        });
+
+        it('includes a trusted GSR finding that has zero replies yet, instead of silently dropping it ' +
+           '(self-review finding: only replies used to create a grouped-map entry, so an as-yet-unanswered ' +
+           'finding never appeared in listReviewThreads\' output at all)', async () => {
+            const marker = buildFindingMarker({ findingId: 'ab00000000000001', agent: 'Logic', severity: 'HIGH' });
+            mockComments([
+                {
+                    id: 1, in_reply_to_id: undefined, path: 'src/a.ts', line: 10,
+                    body: `🟠 **HIGH** · Logic — issue summary\n\n${marker}`,
+                    user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T00:00:00Z',
+                    html_url: 'https://github.com/x/y/pull/123#discussion_r1'
+                }
+                // No reply — nobody has responded to this finding yet.
+            ]);
+
+            const threads = await client.listReviewThreads(url);
+            expect(threads).toHaveLength(1);
+            expect(threads[0].findingId).toBe('ab00000000000001');
+            expect(threads[0].replies).toEqual([]);
+        });
+
+        it('computes the legacy findingId from original_line, not the current (possibly force-push-shifted) line ' +
+           '(self-review finding: using `line` let a legacy finding\'s identity silently change across runs)', async () => {
+            mockComments([
+                {
+                    id: 1, in_reply_to_id: undefined, path: 'src/a.ts',
+                    line: 99, original_line: 10, // current line has drifted from where the comment was created
+                    body: '🟡 **MEDIUM** · Testing — missing coverage for edge case',
+                    user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T00:00:00Z',
+                    html_url: 'https://github.com/x/y/pull/123#discussion_r1'
+                },
+                {
+                    id: 2, in_reply_to_id: 1, path: 'src/a.ts', line: 99,
+                    body: 'fixed', user: { login: 'a-developer', type: 'User' },
+                    created_at: '2026-08-15T01:00:00Z', html_url: 'https://github.com/x/y/pull/123#discussion_r2'
+                }
+            ]);
+
+            const threads = await client.listReviewThreads(url);
+            expect(threads[0].findingId).toBe(computeFindingId({
+                file: 'src/a.ts', line: 10, agent: 'Testing', summary: 'missing coverage for edge case',
+            }));
         });
 
         it('stops requesting further pages once the 500-comment cap is reached, ' +

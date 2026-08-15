@@ -210,19 +210,35 @@ export class GitHubClient {
     const byId = new Map<number, { id: number; in_reply_to_id?: number }>();
     for (const c of comments) byId.set(c.id, c);
 
+    // Self-review finding: only caching the walk's STARTING id (not every
+    // node visited along the way) makes resolveRootId O(N) per call on a
+    // reply chain of depth N, and this is called once per comment in the
+    // flat list — O(N²) total on a single deep chain. Caching every visited
+    // node (path-compression style) makes each walk touch already-cached
+    // nodes after the first, bringing the whole grouping pass back to
+    // amortized O(N). Bounded in practice either way (MAX_COMMENTS_FETCHED
+    // caps N at 500), but cheap to do properly.
     const rootIdCache = new Map<number, number>();
     const resolveRootId = (startId: number): number => {
       const cached = rootIdCache.get(startId);
       if (cached !== undefined) return cached;
 
+      const path: number[] = [];
       const visited = new Set<number>();
       let current = byId.get(startId);
       let rootId = startId;
       while (current?.in_reply_to_id != null && !visited.has(current.id)) {
+        const cachedAhead = rootIdCache.get(current.id);
+        if (cachedAhead !== undefined) {
+          rootId = cachedAhead;
+          break;
+        }
+        path.push(current.id);
         visited.add(current.id);
         rootId = current.in_reply_to_id;
         current = byId.get(current.in_reply_to_id);
       }
+      for (const id of path) rootIdCache.set(id, rootId);
       rootIdCache.set(startId, rootId);
       return rootId;
     };
@@ -234,6 +250,19 @@ export class GitHubClient {
       if (!grouped.has(rootId)) grouped.set(rootId, []);
       grouped.get(rootId)!.push(c);
     }
+
+    // Self-review finding: a finding with zero replies never got a `grouped`
+    // entry at all (only replies create one, keyed by their resolved root),
+    // so listReviewThreads silently dropped every not-yet-answered GSR
+    // finding from its output. Doesn't affect Phase 1's current behavior
+    // (nothing to classify on a thread with no replies either way — see
+    // feedbackLoop.ts's groupByFinding, which already skips empty-reply
+    // threads), but listReviewThreads is a general read method and should
+    // return every GSR thread that exists, not only the ones with activity.
+    for (const c of comments) {
+      if (c.in_reply_to_id == null && !grouped.has(c.id)) grouped.set(c.id, []);
+    }
+
     return grouped;
   }
 
@@ -313,8 +342,17 @@ export class GitHubClient {
         // Pre-marker (legacy) comment fallback (design doc §4.3). If this
         // also fails, skip the thread entirely rather than guess at a
         // findingId.
-        if (!headerInfo || root.path == null || root.line == null) continue;
-        findingId = computeFindingId({ file: root.path, line: root.line, agent: headerInfo.agent, summary: headerInfo.summary });
+        //
+        // Self-review finding: `line` is the comment's position in the
+        // CURRENT diff and can shift (or go null) after a force-push or
+        // rebase; `original_line` is fixed at comment-creation time. Using
+        // `line` here meant a legacy finding's id — its only correlation
+        // key, since it has no marker — could silently change between
+        // runs. Prefer `original_line`, falling back to `line` only if a
+        // comment predates that field being populated.
+        const legacyLine = root.original_line ?? root.line;
+        if (!headerInfo || root.path == null || legacyLine == null) continue;
+        findingId = computeFindingId({ file: root.path, line: legacyLine, agent: headerInfo.agent, summary: headerInfo.summary });
         agent = headerInfo.agent;
         severity = headerInfo.severity as CandidateFinding['severity'];
       }

@@ -12,6 +12,14 @@
 
 ## 1. What exists today (verified, not assumed)
 
+**Historical snapshot, not current state.** This section describes the
+codebase as it stood *before* Phase 0/1 implementation (CodeRabbit finding
+on the implementation PR) — `GitHubClient` now also has `listReviewThreads`,
+`CandidateFinding` now has `id`/`promptVersion`, and `formatFindingBody` now
+appends a `gsr:v1` marker. Left as-is deliberately: it's the "why" record for
+decisions made against the pre-implementation baseline, not living
+documentation of the current API — see the source files themselves for that.
+
 Read before designing: `types.ts`, `app.ts`, `orchestrator.ts`, `github.ts`,
 `agent.ts`, `evaluator.ts`, `usage.ts`, `usageReporter.ts`, `auth.ts`,
 `usageIngestAuth.ts`, `storage.ts`, `action-entrypoint.ts`, `action.yml`,

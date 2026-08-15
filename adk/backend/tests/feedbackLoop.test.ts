@@ -26,12 +26,19 @@ function mockGh(threads: FindingThread[], opts: { throws?: Error } = {}) {
 }
 
 describe('runFeedbackPass', () => {
+  // Self-review finding: process.env is process-global — restore it after
+  // each test so setting GEMINI_API_KEY here can't leak into a later test
+  // file in the same worker. Matches tests/agent.test.ts's convention.
+  let originalEnv: NodeJS.ProcessEnv;
+
   beforeEach(() => {
+    originalEnv = { ...process.env };
     process.env.GEMINI_API_KEY = 'test-key';
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
+    process.env = originalEnv;
   });
 
   it('mode "off": returns a skipped result and never calls listReviewThreads', async () => {

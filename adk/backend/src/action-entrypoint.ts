@@ -59,7 +59,10 @@ function writeFeedbackJobSummary(result: FeedbackPassResult): void {
 // value degrades to 'off' with a warning rather than failing the whole run
 // over a typo in an opt-in input.
 function resolveFeedbackLoopMode(): FeedbackLoopMode {
-  const raw = (process.env.FEEDBACK_LOOP_MODE || 'off').toLowerCase();
+  // Self-review finding: YAML block scalars / accidental trailing
+  // whitespace in a workflow file (e.g. "observe ") would otherwise fail
+  // this comparison silently and fall back to "off" with no indication why.
+  const raw = (process.env.FEEDBACK_LOOP_MODE || 'off').trim().toLowerCase();
   if (raw === 'off' || raw === 'observe' || raw === 'respond') return raw;
   console.warn(`[GSR Action] Unrecognized feedback-loop mode "${raw}" — must be "off", "observe", or "respond". Disabling the feedback loop for this run.`);
   return 'off';

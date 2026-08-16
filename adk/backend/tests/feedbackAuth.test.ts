@@ -25,9 +25,16 @@ describe('isValidFeedbackRequest (either/or: header key or session cookie)', () 
     const originalSecret = process.env.FEEDBACK_SHARED_SECRET;
     const originalPassword = process.env.UI_PASSWORD;
 
+    // Self-review finding: `process.env.X = undefined` coerces to the
+    // literal string "undefined" (Node.js env vars are always strings), not
+    // "unset" — restoring naively would leave the var permanently truthy for
+    // later tests in this file/process if it started out unset. Restore-or-
+    // delete instead.
     afterEach(() => {
-        process.env.FEEDBACK_SHARED_SECRET = originalSecret;
-        process.env.UI_PASSWORD = originalPassword;
+        if (originalSecret === undefined) delete process.env.FEEDBACK_SHARED_SECRET;
+        else process.env.FEEDBACK_SHARED_SECRET = originalSecret;
+        if (originalPassword === undefined) delete process.env.UI_PASSWORD;
+        else process.env.UI_PASSWORD = originalPassword;
     });
 
     it('rejects when neither the key nor a session is configured/provided', () => {

@@ -1,4 +1,4 @@
-import { jest, expect, describe, it, beforeAll, beforeEach, afterEach } from '@jest/globals';
+import { jest, expect, describe, it, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
 import request from 'supertest';
 
 const listFilesMock = jest.fn<any>();
@@ -25,6 +25,14 @@ describe('POST/GET /api/findings/feedback (integration, real app wiring)', () =>
         jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
+    // Self-review finding: a beforeAll spy with no matching afterAll leaks
+    // the mocked console implementation past this suite for the rest of the
+    // Jest worker process. jest.clearAllMocks() (below) only clears call
+    // history, not the mock implementation itself.
+    afterAll(() => {
+        jest.restoreAllMocks();
+    });
+
     beforeEach(async () => {
         jest.resetModules();
         listFilesMock.mockReset().mockResolvedValue([]);
@@ -37,9 +45,15 @@ describe('POST/GET /api/findings/feedback (integration, real app wiring)', () =>
         app = mod.app;
     });
 
+    // Self-review finding: `process.env.X = undefined` coerces to the
+    // literal string "undefined" rather than deleting the key — restore-or-
+    // delete instead, so a test run where these started out unset doesn't
+    // leave them permanently (and incorrectly) truthy for later tests.
     afterEach(() => {
-        process.env.FEEDBACK_SHARED_SECRET = originalKey;
-        process.env.UI_PASSWORD = originalPassword;
+        if (originalKey === undefined) delete process.env.FEEDBACK_SHARED_SECRET;
+        else process.env.FEEDBACK_SHARED_SECRET = originalKey;
+        if (originalPassword === undefined) delete process.env.UI_PASSWORD;
+        else process.env.UI_PASSWORD = originalPassword;
         jest.clearAllMocks();
     });
 
@@ -85,13 +99,13 @@ describe('POST/GET /api/findings/feedback (integration, real app wiring)', () =>
             expect(uploadJsonMock).toHaveBeenCalledTimes(2);
         });
 
-        it('rejects a malformed item with 400', async () => {
+        it('reports a malformed single-item body as an isolated rejection with 200, not a batch-level 400', async () => {
             const res = await request(app)
                 .post('/api/findings/feedback')
                 .set('X-Feedback-Key', 'feedback-test-secret')
                 .send({ findingId: 'only-this' });
 
-            expect(res.status).toBe(200); // single-item body treated as one item, isolated failure, not a batch-level 400
+            expect(res.status).toBe(200); // a bare object is treated as a one-item batch, same isolation as a real batch
             expect(res.body.rejected).toBe(1);
             expect(uploadJsonMock).not.toHaveBeenCalled();
         });

@@ -492,6 +492,7 @@ app.get('/api/findings/feedback/:id', async (req, res) => {
       .on('error', (error: Error) => {
         console.error('Error streaming finding feedback file:', error);
         if (!res.headersSent) res.status(500).json({ error: error.message });
+        else res.end(); // headers already sent — can't send a new status, but must still close the connection
       })
       .pipe(res);
   } catch (error: any) {

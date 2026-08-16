@@ -31,20 +31,26 @@ export function isValidFeedbackRequest(headerKey: string | undefined, cookieHead
 // assertProductionUsageIngestConfigured(). §5.2's explicit departure from
 // the EVALUATOR_SHARED_SECRET precedent: that secret is optional/warn-only
 // because it protects an *outbound* call the backend itself makes; this one
-// protects a new *inbound*, publicly-reachable write endpoint, so production
-// refuses to start without it rather than deploying a route that's silently
-// wide open to anyone who finds the URL.
+// protects a new *inbound*, publicly-reachable write endpoint. isValidFeedbackKey
+// already fails closed on an unset secret (rejects every header-keyed request
+// rather than accepting them), so the risk here isn't an open endpoint — it's
+// a silently DEAD one: the headless-agent path (an AI coding agent, a
+// downstream Action) this endpoint primarily exists for would be permanently
+// unreachable, with the only symptom being 401s nobody notices, mirroring
+// usageIngestAuth.ts's assertProductionUsageIngestConfigured's reasoning
+// exactly. Same strictness as UI_PASSWORD, still — refusing to boot loudly is
+// better than deploying a route no headless consumer can ever use.
 export function assertProductionFeedbackAuthConfigured(): void {
   if (process.env.NODE_ENV !== 'production') return;
 
   if (!process.env.FEEDBACK_SHARED_SECRET) {
     throw new Error(
       'FEEDBACK_SHARED_SECRET is not set. Refusing to start in production ' +
-      'without it — POST /api/findings/feedback is a new inbound write ' +
-      'endpoint on a publicly-discoverable app (the browser-session fallback ' +
-      'does not cover the headless-agent path this endpoint exists for), and ' +
-      'leaving it unset would silently accept unauthenticated writes into the ' +
-      'feedback bucket. Set it with `fly secrets set`.'
+      'without it — POST /api/findings/feedback would otherwise be ' +
+      'permanently unreachable for any non-browser consumer (an AI coding ' +
+      'agent, a downstream Action) with no way to notice, since the ' +
+      'session-cookie fallback only covers the browser path. Set it with ' +
+      '`fly secrets set`.'
     );
   }
 }

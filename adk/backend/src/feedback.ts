@@ -9,6 +9,7 @@
 import { randomBytes } from 'crypto';
 import { uploadJson, listFiles, getFileStream, StoredFile } from './storage';
 import { FindingFeedback, FeedbackVerdict, AdjudicationVerdict } from './types';
+import { PromisePool } from './pool';
 import type { Readable } from 'stream';
 
 function getFeedbackBucketName(): string {
@@ -37,8 +38,13 @@ function isBoundedString(v: unknown, maxLen: number): v is string {
   return typeof v === 'string' && v.length > 0 && v.length <= maxLen;
 }
 
-function isBoundedOptionalString(v: unknown, maxLen: number): v is string | undefined {
-  return v === undefined || (typeof v === 'string' && v.length <= maxLen);
+// Self-review finding: `v == null` (loose equality) covers both `undefined`
+// (the field omitted) and `null` (a common way JSON-serializing clients
+// represent an absent optional field explicitly) — a strict `v === undefined`
+// check would reject an otherwise-valid submission just for spelling
+// "absent" as `null` instead of leaving the key out.
+function isBoundedOptionalString(v: unknown, maxLen: number): v is string | undefined | null {
+  return v == null || (typeof v === 'string' && v.length <= maxLen);
 }
 
 // validateFeedbackItem rejects anything that doesn't look like a real
@@ -109,15 +115,19 @@ export function validateFeedbackItem(raw: unknown, defaultReviewUrl?: string): {
       agent: r.agent as string,
       summary: r.summary as string,
       reviewUrl: reviewUrl as string,
-      promptVersion: r.promptVersion as string | undefined,
+      // Normalized (not just cast) — isBoundedOptionalString accepts an
+      // explicit `null` as equivalent to "absent," so a caller-sent `null`
+      // must become `undefined` here rather than being carried through as a
+      // literal `null` mistyped as `string | undefined`.
+      promptVersion: (r.promptVersion ?? undefined) as string | undefined,
       verdict: r.verdict as FeedbackVerdict,
       comment: r.comment as string,
-      exampleCodeBefore: r.exampleCodeBefore as string | undefined,
-      exampleCodeAfter: r.exampleCodeAfter as string | undefined,
-      codeFeedback: r.codeFeedback as string | undefined,
+      exampleCodeBefore: (r.exampleCodeBefore ?? undefined) as string | undefined,
+      exampleCodeAfter: (r.exampleCodeAfter ?? undefined) as string | undefined,
+      codeFeedback: (r.codeFeedback ?? undefined) as string | undefined,
       submittedBy: r.submittedBy as string,
       source: r.source as FindingFeedback['source'],
-      threadUrl: r.threadUrl as string | undefined,
+      threadUrl: (r.threadUrl ?? undefined) as string | undefined,
       stance: r.stance as FindingFeedback['stance'],
       adjudication,
     },
@@ -165,13 +175,22 @@ export interface IngestFeedbackResult {
   errors: string[];
 }
 
+// INGEST_CONCURRENCY mirrors usage.ts's ingestUsageRecords exactly — bounded-
+// concurrency writes rather than one uploadJson per record awaited
+// sequentially. Self-review finding: a batch of up to MAX_BATCH_ITEMS
+// sequential S3 PUTs is a real N+1 latency bottleneck (each an independent
+// network round-trip), unnecessary here since every item is independent —
+// no ordering or shared-state dependency between them.
+const INGEST_CONCURRENCY = 10;
+
 // ingestFeedbackBody accepts either a single FindingFeedback object or
 // `{ reviewUrl, items: FindingFeedback[] }` for a batch (§5.4) — a coding
 // agent fixing several flagged issues in one PR session has feedback on
 // multiple findings at once, and this avoids N auth round-trips for N
 // findings. Each item is validated independently; one malformed item in a
 // batch doesn't reject the whole batch (same "isolate the failure" pattern
-// as usage.ts's ingestUsageRecords).
+// as usage.ts's ingestUsageRecords). Validation (synchronous, no I/O) runs
+// sequentially over all items first; only the actual writes are pooled.
 export async function ingestFeedbackBody(body: unknown): Promise<IngestFeedbackResult | { error: string }> {
   if (!body || typeof body !== 'object') return { error: 'request body must be an object' };
   const b = body as Record<string, unknown>;
@@ -185,22 +204,27 @@ export async function ingestFeedbackBody(body: unknown): Promise<IngestFeedbackR
 
   const submittedAt = new Date().toISOString();
   const errors: string[] = [];
-  let accepted = 0;
-
+  const validItems: Omit<FindingFeedback, 'submittedAt'>[] = [];
   for (const rawItem of rawItems) {
     const result = validateFeedbackItem(rawItem, batchReviewUrl);
-    if (!result.ok) {
+    if (result.ok) {
+      validItems.push(result.value);
+    } else {
       errors.push(result.error);
-      continue;
     }
+  }
+
+  const pool = new PromisePool(INGEST_CONCURRENCY);
+  let accepted = 0;
+  await Promise.all(validItems.map(value => pool.add(async () => {
     try {
-      await writeFeedbackRecord({ ...result.value, submittedAt });
+      await writeFeedbackRecord({ ...value, submittedAt });
       accepted++;
     } catch (err) {
       console.error('[feedback] failed to write a feedback record:', err);
       errors.push('storage write failed');
     }
-  }
+  })));
 
   return { accepted, rejected: rawItems.length - accepted, errors };
 }

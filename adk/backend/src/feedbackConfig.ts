@@ -57,3 +57,36 @@ export function resolveFeedbackMaxReplies(): number {
   }
   return parsed;
 }
+
+// resolveFeedbackPostEnabled (Phase 2b's arm switch, `feedback-post` Action
+// input) is deliberately a SEPARATE opt-in from `feedback-loop: respond`,
+// not a new mode value — see feedbackLoop.ts's module doc comment for the
+// full reasoning (independent design review, before this was implemented).
+// Default false/unset preserves "respond" as dry-run-only, exactly as
+// documented before this build; only an explicit "true" arms real posting.
+// Same fail-closed convention as resolveFeedbackLoopMode: any value other
+// than a recognized boolean-ish string degrades to false with a warning
+// rather than the run guessing what the operator meant for a switch this
+// consequential.
+export function resolveFeedbackPostEnabled(): boolean {
+  const raw = (process.env.FEEDBACK_POST || 'false').trim().toLowerCase();
+  if (raw === 'true') return true;
+  if (raw === 'false' || raw === '') return false;
+  console.warn(`[GSR Action] Unrecognized feedback-post value "${raw}" — must be "true" or "false". Disabling real posting for this run (feedback-loop, if "respond", still runs in dry-run only).`);
+  return false;
+}
+
+// feedbackPostMisconfigurationWarning is a pure helper (same reason this
+// whole module exists — testable without importing action-entrypoint.ts,
+// see the file doc comment above) for the one cross-check that needs BOTH
+// resolved values at once: feedback-post only does anything when
+// feedback-loop is "respond". action-entrypoint.ts calls this right after
+// resolving both and logs the result via console.warn if non-null — kept
+// as a pure string-or-undefined return here so the condition itself is
+// unit-testable independent of how the caller chooses to surface it.
+export function feedbackPostMisconfigurationWarning(mode: FeedbackLoopMode, postEnabled: boolean): string | undefined {
+  if (postEnabled && mode !== 'respond') {
+    return '[GSR Action] feedback-post is "true" but feedback-loop is not "respond" — feedback-post has no effect unless feedback-loop is "respond". No rebuttals will be posted this run.';
+  }
+  return undefined;
+}

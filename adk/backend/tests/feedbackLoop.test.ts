@@ -1,6 +1,7 @@
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { runFeedbackPass, formatFeedbackSummaryMarkdown, escapeFeedbackResultForApiResponse, FeedbackPassResult } from '../src/feedbackLoop';
 import { AdjudicatorAgent } from '../src/adjudicator';
+import { parseReplyMarker } from '../src/findingMarker';
 import { FindingThread } from '../src/types';
 
 function thread(overrides: Partial<FindingThread> = {}): FindingThread {
@@ -114,7 +115,12 @@ describe('runFeedbackPass', () => {
         verdict: 'unclear',
         confidence: 0,
         reasoning: '',
-        rebuttalMarkdown: '',
+        // Non-empty by default so tests exercising cap/dedup/round logic
+        // (not this file's dedicated empty-rebuttal test) don't trip the
+        // "empty-rebuttal" suppression reason by omission — pass
+        // `rebuttalMarkdown: ''` (or whitespace-only) explicitly to test
+        // THAT behavior specifically.
+        rebuttalMarkdown: 'default rebuttal text',
         fenceDetected: false,
         ...result,
       });
@@ -427,7 +433,7 @@ describe('runFeedbackPass', () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       jest.spyOn(AdjudicatorAgent.prototype, 'adjudicate').mockImplementation(async (input: any) => {
         if (input.commentId === 10) throw new Error('simulated unexpected rejection'); // a hypothetical future regression
-        return { verdict: 'pushback_incorrect', confidence: 0.9, reasoning: '', rebuttalMarkdown: '', fenceDetected: false };
+        return { verdict: 'pushback_incorrect', confidence: 0.9, reasoning: '', rebuttalMarkdown: 'B stands.', fenceDetected: false };
       });
 
       const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond' });
@@ -461,7 +467,8 @@ describe('runFeedbackPass', () => {
       expect(adjudicateSpy.mock.calls[0][0]).toMatchObject({ diffHunk: '@@ -1,1 +1,1 @@\n-old\n+new' });
     });
 
-    it('never calls createThreadReply anywhere, regardless of adjudication outcome (the Phase 2a/2b boundary)', async () => {
+    it('never calls createThreadReply when postRebuttals is unset — the Phase 2b arm switch defaults to off, ' +
+       'so existing "respond" consumers relying on the dry-run preview see zero behavior change', async () => {
       const t = thread({
         replies: [{ commentId: 2, author: 'a-developer', isBot: false, createdAt: 't', body: 'disagree' }],
       });
@@ -471,9 +478,450 @@ describe('runFeedbackPass', () => {
       ]);
       mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.99 });
 
-      await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond' });
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond' });
 
       expect(gh.createThreadReply).not.toHaveBeenCalled();
+      expect(result.postingEnabled).toBe(false);
+      expect(result.repliesPosted).toBe(0);
+      expect(result.repliesPostFailed).toBe(0);
+      expect(result.findings[0].replies[0].adjudication).toMatchObject({ wouldPost: true, posted: false });
+    });
+
+    it('does not treat a rejection as a candidate once a LATER reply in the same thread was classified ' +
+       '"accepted" (design-review finding: the developer walked the rejection back — rebutting it would mean ' +
+       'GSR publicly arguing with someone who already agreed with it)', async () => {
+      const t = thread({
+        replies: [
+          { commentId: 2, author: 'a-developer', isBot: false, createdAt: 't1', body: 'disagree, this is intentional' },
+          { commentId: 3, author: 'a-developer', isBot: false, createdAt: 't2', body: 'actually, you are right — fixing it' },
+        ],
+      });
+      const gh = mockGh([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'rejected', confidence: 0.8 },
+        { commentId: 3, stance: 'accepted', confidence: 0.9 },
+      ]);
+      const adjudicateSpy = mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond' });
+
+      expect(adjudicateSpy).not.toHaveBeenCalled(); // never even adjudicated — filtered out as a candidate
+      const replies = result.findings[0].replies;
+      expect(replies.find(r => r.commentId === 2)!.adjudication).toBeUndefined();
+      expect(replies.find(r => r.commentId === 3)!.stance).toBe('accepted');
+    });
+
+    it('an EARLIER "accepted" reply does not suppress a LATER rejection — only a later acceptance retracts it', async () => {
+      const t = thread({
+        replies: [
+          { commentId: 2, author: 'a-developer', isBot: false, createdAt: 't1', body: 'ok, fixed' },
+          { commentId: 3, author: 'a-developer', isBot: false, createdAt: 't2', body: 'wait, actually this is fine as-is' },
+        ],
+      });
+      const gh = mockGh([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'accepted', confidence: 0.9 },
+        { commentId: 3, stance: 'rejected', confidence: 0.8 },
+      ]);
+      const adjudicateSpy = mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond' });
+
+      expect(adjudicateSpy).toHaveBeenCalledTimes(1);
+      expect(result.findings[0].replies.find(r => r.commentId === 3)!.adjudication?.wouldPost).toBe(true);
+    });
+
+    it('a later "question"/"neutral" reply does NOT retract an earlier rejection (only "accepted" does)', async () => {
+      const t = thread({
+        replies: [
+          { commentId: 2, author: 'a-developer', isBot: false, createdAt: 't1', body: 'disagree' },
+          { commentId: 3, author: 'a-developer', isBot: false, createdAt: 't2', body: 'why is this a problem in Go specifically?' },
+        ],
+      });
+      const gh = mockGh([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'rejected', confidence: 0.8 },
+        { commentId: 3, stance: 'question', confidence: 0.7 },
+      ]);
+      const adjudicateSpy = mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond' });
+
+      expect(adjudicateSpy).toHaveBeenCalledTimes(1);
+      expect(result.findings[0].replies.find(r => r.commentId === 2)!.adjudication?.wouldPost).toBe(true);
+    });
+
+    it('an empty (or whitespace-only) rebuttalMarkdown never posts, even when verdict/confidence clear the bar ' +
+       '— a schema-valid empty string would otherwise post a reply containing nothing but an invisible marker', async () => {
+      const t = thread({
+        replies: [{ commentId: 2, author: 'a-developer', isBot: false, createdAt: 't', body: 'disagree' }],
+      });
+      const gh = mockGh([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'rejected', confidence: 0.8 },
+      ]);
+      mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9, rebuttalMarkdown: '   ' });
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond' });
+
+      const adjudication = result.findings[0].replies[0].adjudication;
+      expect(adjudication?.wouldPost).toBe(false);
+      expect(adjudication?.suppressedReason).toBe('empty-rebuttal');
+    });
+
+    it('an empty-rebuttal candidate does NOT consume the finding\'s one-rebuttal-ever slot — a duplicate ' +
+       'thread for the same finding with a genuine rebuttal can still post', async () => {
+      const threadA = thread({
+        rootCommentId: 1, findingId: 'dup1234dup123456', severity: 'HIGH',
+        replies: [{ commentId: 10, author: 'dev1', isBot: false, createdAt: 't', body: 'disagree A' }],
+      });
+      const threadB = thread({
+        rootCommentId: 2, findingId: 'dup1234dup123456', severity: 'HIGH', // duplicate thread, same finding
+        replies: [{ commentId: 20, author: 'dev2', isBot: false, createdAt: 't', body: 'disagree B' }],
+      });
+      const gh = mockGh([threadA, threadB]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 10, stance: 'rejected', confidence: 0.8 },
+        { commentId: 20, stance: 'rejected', confidence: 0.8 },
+      ]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'adjudicate').mockImplementation(async (input: any) => ({
+        verdict: 'pushback_incorrect', confidence: 0.9, reasoning: '',
+        rebuttalMarkdown: input.commentId === 10 ? '' : 'B has a real rebuttal.',
+        fenceDetected: false,
+      }));
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond' });
+
+      const decisions = result.findings.flatMap(f => f.replies).map(r => r.adjudication!);
+      expect(decisions.find(d => d.suppressedReason === 'empty-rebuttal')).toBeDefined();
+      expect(decisions.filter(d => d.wouldPost)).toHaveLength(1); // B still posts — not blocked as a "duplicate"
+      expect(decisions.find(d => d.wouldPost)?.rebuttalMarkdown).toBe('B has a real rebuttal.');
+    });
+  });
+
+  describe('Phase 2b — actually posting rebuttals (mode "respond" + postRebuttals: true)', () => {
+    function mockAdjudicate(result: Partial<{
+      verdict: 'pushback_correct' | 'pushback_incorrect' | 'unclear';
+      confidence: number;
+      reasoning: string;
+      rebuttalMarkdown: string;
+      fenceDetected: boolean;
+    }>) {
+      return jest.spyOn(AdjudicatorAgent.prototype, 'adjudicate').mockResolvedValue({
+        verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: 'default rebuttal text', fenceDetected: false,
+        ...result,
+      });
+    }
+
+    function mockGhWithPosting(
+      threads: FindingThread[],
+      opts: { createThreadReply?: any; listReviewThreadsSequence?: FindingThread[][] } = {}
+    ) {
+      const listReviewThreads = opts.listReviewThreadsSequence
+        ? jest.fn()
+            .mockImplementationOnce(() => Promise.resolve(opts.listReviewThreadsSequence![0]))
+            .mockImplementation(() => Promise.resolve(opts.listReviewThreadsSequence![1] ?? opts.listReviewThreadsSequence![0]))
+        : (jest.fn() as any).mockResolvedValue(threads);
+      return {
+        listReviewThreads,
+        createThreadReply: opts.createThreadReply || (jest.fn() as any).mockResolvedValue({ posted: true, htmlUrl: 'https://github.com/x/y/pull/1#discussion_r999' }),
+      } as any;
+    }
+
+    it('posts a real reply for a wouldPost candidate: rootCommentId as the thread root, a fixed disclaimer, ' +
+       'then the sanitized rebuttal, then the gsr-reply:v1 marker appended LAST (same sanitize-then-marker-last ' +
+       'contract as formatFindingBody) — verified by parsing the marker with the real parser, not string matching', async () => {
+      const t = thread({
+        rootCommentId: 42, findingId: 'abc123def4567890',
+        replies: [{ commentId: 2, author: 'a-developer', isBot: false, createdAt: 't', body: 'disagree' }],
+      });
+      const gh = mockGhWithPosting([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'rejected', confidence: 0.8 },
+      ]);
+      mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9, rebuttalMarkdown: 'Here is why it still stands.' });
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', {
+        mode: 'respond', postRebuttals: true, postDelayMs: 0,
+      });
+
+      expect(gh.createThreadReply).toHaveBeenCalledTimes(1);
+      const [calledUrl, calledRootId, calledBody] = gh.createThreadReply.mock.calls[0];
+      expect(calledUrl).toBe('https://github.com/x/y/pull/1');
+      expect(calledRootId).toBe(42);
+      // A fixed, non-attacker-derived disclaimer precedes the rebuttal text
+      // (self-review finding: cheap defense-in-depth against a human
+      // over-trusting a confidently-worded but possibly-injection-steered
+      // reply just because it's posted under GSR's identity) — then the
+      // sanitized rebuttal text...
+      const rebuttalIndex = calledBody.indexOf('Here is why it still stands.');
+      expect(rebuttalIndex).toBeGreaterThan(0);
+      expect(calledBody.slice(0, rebuttalIndex)).toContain('AI-generated');
+      // ...and the marker is the LAST thing in the body, not interspersed —
+      // same contract formatFindingBody uses for finding comments.
+      const markerIndex = calledBody.indexOf('<!-- gsr-reply:v1');
+      expect(markerIndex).toBeGreaterThan(rebuttalIndex);
+      expect(calledBody.trim().endsWith('-->')).toBe(true);
+      // Parsed with the REAL parser, not raw string matching (self-review
+      // finding: a toContain-based assertion doesn't verify the marker
+      // round-trips correctly, only that certain substrings appear
+      // somewhere in the body).
+      const marker = parseReplyMarker(calledBody);
+      expect(marker).toMatchObject({
+        findingId: 'abc123def4567890', round: 1, verdict: 'pushback_incorrect', ackCommentId: 2,
+      });
+      expect(marker!.confidence).toBeCloseTo(0.9);
+
+      expect(result.postingEnabled).toBe(true);
+      expect(result.repliesPosted).toBe(1);
+      expect(result.repliesPostFailed).toBe(0);
+      const adjudication = result.findings[0].replies[0].adjudication;
+      expect(adjudication?.posted).toBe(true);
+      expect(adjudication?.postUrl).toBe('https://github.com/x/y/pull/1#discussion_r999');
+    });
+
+    it('ack is the NEWEST reply in the thread, even when it is not the reply being rebutted', async () => {
+      const t = thread({
+        rootCommentId: 1, findingId: 'abc123def4567890',
+        replies: [
+          { commentId: 2, author: 'a-developer', isBot: false, createdAt: 't1', body: 'disagree' },
+          { commentId: 5, author: 'a-developer', isBot: false, createdAt: 't2', body: 'still thinking about it' },
+        ],
+      });
+      const gh = mockGhWithPosting([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'rejected', confidence: 0.8 },
+        { commentId: 5, stance: 'neutral', confidence: 0.5 },
+      ]);
+      mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+      await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond', postRebuttals: true, postDelayMs: 0 });
+
+      const calledBody = gh.createThreadReply.mock.calls[0][2];
+      expect(parseReplyMarker(calledBody)?.ackCommentId).toBe(5);
+    });
+
+    it('sticky fork-read-only: once one post 403s, every LATER wouldPost candidate this run is skipped ' +
+       'without a further API call (design doc §5.3 — degrade the whole loop, not just this one reply)', async () => {
+      const threadA = thread({
+        rootCommentId: 1, findingId: 'aaaa1111aaaa1111', severity: 'CRITICAL',
+        replies: [{ commentId: 10, author: 'dev1', isBot: false, createdAt: 't', body: 'disagree A' }],
+      });
+      const threadB = thread({
+        rootCommentId: 2, findingId: 'bbbb2222bbbb2222', severity: 'HIGH',
+        replies: [{ commentId: 20, author: 'dev2', isBot: false, createdAt: 't', body: 'disagree B' }],
+      });
+      const createThreadReply = (jest.fn() as any)
+        .mockResolvedValueOnce({ posted: false, reason: 'fork-read-only', message: 'Forbidden' })
+        .mockResolvedValueOnce({ posted: true, htmlUrl: 'unused' }); // never reached if sticky-skip works
+      const gh = mockGhWithPosting([threadA, threadB], { createThreadReply });
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 10, stance: 'rejected', confidence: 0.8 },
+        { commentId: 20, stance: 'rejected', confidence: 0.8 },
+      ]);
+      mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond', postRebuttals: true, postDelayMs: 0 });
+
+      // Only ONE real API call was attempted — A (higher severity, processed
+      // first) 403s, and B is skipped entirely rather than also attempted.
+      expect(createThreadReply).toHaveBeenCalledTimes(1);
+      expect(result.repliesPosted).toBe(0);
+      expect(result.repliesPostFailed).toBe(2);
+      const decisions = result.findings.flatMap(f => f.replies).map(r => r.adjudication!);
+      expect(decisions.find(d => !d.posted && d.postFailedReason === 'fork-read-only')).toBeDefined();
+      // B was never actually attempted, but is still reported as failed for
+      // the same sticky reason, not as a generic "error".
+      const bDecision = result.findings.find(f => f.findingId === 'bbbb2222bbbb2222')!.replies[0].adjudication;
+      expect(bDecision?.postFailedReason).toBe('fork-read-only');
+    });
+
+    it('a generic post error is NOT sticky — the next wouldPost candidate is still attempted normally', async () => {
+      const threadA = thread({
+        rootCommentId: 1, findingId: 'aaaa1111aaaa1111', severity: 'CRITICAL',
+        replies: [{ commentId: 10, author: 'dev1', isBot: false, createdAt: 't', body: 'disagree A' }],
+      });
+      const threadB = thread({
+        rootCommentId: 2, findingId: 'bbbb2222bbbb2222', severity: 'HIGH',
+        replies: [{ commentId: 20, author: 'dev2', isBot: false, createdAt: 't', body: 'disagree B' }],
+      });
+      const createThreadReply = (jest.fn() as any)
+        .mockResolvedValueOnce({ posted: false, reason: 'error', message: 'thread was deleted' })
+        .mockResolvedValueOnce({ posted: true, htmlUrl: 'https://github.com/x/y/pull/1#discussion_r2' });
+      const gh = mockGhWithPosting([threadA, threadB], { createThreadReply });
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 10, stance: 'rejected', confidence: 0.8 },
+        { commentId: 20, stance: 'rejected', confidence: 0.8 },
+      ]);
+      mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond', postRebuttals: true, postDelayMs: 0 });
+
+      expect(createThreadReply).toHaveBeenCalledTimes(2); // both attempted — the error wasn't sticky
+      expect(result.repliesPosted).toBe(1);
+      expect(result.repliesPostFailed).toBe(1);
+      const aDecision = result.findings.find(f => f.findingId === 'aaaa1111aaaa1111')!.replies[0].adjudication;
+      expect(aDecision).toMatchObject({ posted: false, postFailedReason: 'error' });
+      const bDecision = result.findings.find(f => f.findingId === 'bbbb2222bbbb2222')!.replies[0].adjudication;
+      expect(bDecision).toMatchObject({ posted: true });
+    });
+
+    it('a failed post does NOT promote a per-run-cap-suppressed candidate — the wouldPost decision set is ' +
+       'identical to what Phase 2a\'s dry-run preview computed regardless of posting outcomes (design-review ' +
+       'finding: posting is a separate stage over an unchanged decision set, so a failure can never "free up" ' +
+       'a cap slot for a candidate the dry-run preview would have suppressed)', async () => {
+      const threadA = thread({
+        rootCommentId: 1, findingId: 'aaaa1111aaaa1111', severity: 'CRITICAL',
+        replies: [{ commentId: 10, author: 'dev1', isBot: false, createdAt: 't', body: 'disagree A' }],
+      });
+      const threadB = thread({
+        rootCommentId: 2, findingId: 'bbbb2222bbbb2222', severity: 'HIGH',
+        replies: [{ commentId: 20, author: 'dev2', isBot: false, createdAt: 't', body: 'disagree B' }],
+      });
+      const createThreadReply = (jest.fn() as any)
+        .mockResolvedValueOnce({ posted: false, reason: 'error', message: 'boom' });
+      const gh = mockGhWithPosting([threadA, threadB], { createThreadReply });
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 10, stance: 'rejected', confidence: 0.8 },
+        { commentId: 20, stance: 'rejected', confidence: 0.8 },
+      ]);
+      mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+      // maxRepliesPosted: 1 — only A is ever a wouldPost candidate; B is
+      // suppressed as 'per-run-cap' by runAdjudicationStage BEFORE posting
+      // even starts. A's real post then fails.
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', {
+        mode: 'respond', postRebuttals: true, postDelayMs: 0, maxRepliesPosted: 1,
+      });
+
+      expect(createThreadReply).toHaveBeenCalledTimes(1); // only A was ever attempted — B never got a chance
+      const bDecision = result.findings.find(f => f.findingId === 'bbbb2222bbbb2222')!.replies[0].adjudication;
+      expect(bDecision).toMatchObject({ wouldPost: false, suppressedReason: 'per-run-cap', posted: false });
+      expect(bDecision?.postFailedReason).toBeUndefined(); // suppressed, not "attempted and failed" — a different concept
+    });
+
+    it('pre-post re-check: a finding a concurrent run already replied to (per a fresh listReviewThreads read) ' +
+       'is skipped rather than double-posted', async () => {
+      const staleThread = thread({
+        rootCommentId: 1, findingId: 'abc123def4567890',
+        replies: [{ commentId: 2, author: 'a-developer', isBot: false, createdAt: 't', body: 'disagree' }],
+      });
+      // The fresh re-read (called right before posting) shows a concurrent
+      // run already posted round 1 for this exact finding.
+      const freshThread = thread({
+        ...staleThread,
+        gsrLastReply: { round: 1, ackCommentId: 2, verdict: 'pushback_incorrect', confidence: 0.9 },
+      });
+      const createThreadReply = jest.fn();
+      const gh = mockGhWithPosting([staleThread], {
+        createThreadReply,
+        listReviewThreadsSequence: [[staleThread], [freshThread]],
+      });
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'rejected', confidence: 0.8 },
+      ]);
+      mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond', postRebuttals: true, postDelayMs: 0 });
+
+      expect(gh.listReviewThreads).toHaveBeenCalledTimes(2); // initial scan + the pre-post re-check
+      expect(createThreadReply).not.toHaveBeenCalled();
+      expect(result.repliesPosted).toBe(0);
+      expect(result.repliesPostFailed).toBe(1);
+      const decision = result.findings[0].replies[0].adjudication;
+      expect(decision).toMatchObject({ wouldPost: true, posted: false, postFailedReason: 'concurrent-post-detected' });
+    });
+
+    it('pre-post re-check failure degrades to "post anyway" rather than silently withholding every rebuttal', async () => {
+      const t = thread({
+        rootCommentId: 1, findingId: 'abc123def4567890',
+        replies: [{ commentId: 2, author: 'a-developer', isBot: false, createdAt: 't', body: 'disagree' }],
+      });
+      const listReviewThreads = jest.fn()
+        .mockImplementationOnce(() => Promise.resolve([t]))       // initial scan succeeds
+        .mockImplementationOnce(() => Promise.reject(new Error('network blip'))); // re-check fails
+      const createThreadReply = (jest.fn() as any).mockResolvedValue({ posted: true, htmlUrl: 'https://x/y#r1' });
+      const gh = { listReviewThreads, createThreadReply } as any;
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'rejected', confidence: 0.8 },
+      ]);
+      mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+      jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond', postRebuttals: true, postDelayMs: 0 });
+
+      expect(createThreadReply).toHaveBeenCalledTimes(1);
+      expect(result.repliesPosted).toBe(1);
+    });
+
+    it('the pre-post re-check only runs when there is at least one wouldPost candidate — no wasted API call ' +
+       'on a run with nothing to post', async () => {
+      const t = thread({
+        replies: [{ commentId: 2, author: 'a-developer', isBot: false, createdAt: 't', body: 'fixed it' }],
+      });
+      const gh = mockGhWithPosting([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'accepted', confidence: 0.9 }, // not a rejection — never a candidate
+      ]);
+
+      await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond', postRebuttals: true, postDelayMs: 0 });
+
+      expect(gh.listReviewThreads).toHaveBeenCalledTimes(1); // only the initial scan — no posting stage ran
+      expect(gh.createThreadReply).not.toHaveBeenCalled();
+    });
+
+    it('spaces out successive real POSTs by postDelayMs, but not after the final one (self-review finding: ' +
+       'this branch had no coverage since every other test in this file passes postDelayMs: 0)', async () => {
+      jest.useFakeTimers();
+      try {
+        const threadA = thread({
+          rootCommentId: 1, findingId: 'aaaa1111aaaa1111', severity: 'CRITICAL',
+          replies: [{ commentId: 10, author: 'dev1', isBot: false, createdAt: 't', body: 'disagree A' }],
+        });
+        const threadB = thread({
+          rootCommentId: 2, findingId: 'bbbb2222bbbb2222', severity: 'HIGH',
+          replies: [{ commentId: 20, author: 'dev2', isBot: false, createdAt: 't', body: 'disagree B' }],
+        });
+        const gh = mockGhWithPosting([threadA, threadB]);
+        jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+          { commentId: 10, stance: 'rejected', confidence: 0.8 },
+          { commentId: 20, stance: 'rejected', confidence: 0.8 },
+        ]);
+        mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+        const passPromise = runFeedbackPass(gh, 'https://github.com/x/y/pull/1', {
+          mode: 'respond', postRebuttals: true, postDelayMs: 5000,
+        });
+
+        // Flush the classify/adjudicate/first-post microtask chain without
+        // advancing real time yet — A (CRITICAL, processed first) should
+        // already be posted, and B should be waiting out the delay.
+        await jest.advanceTimersByTimeAsync(0);
+        expect(gh.createThreadReply).toHaveBeenCalledTimes(1);
+
+        await jest.advanceTimersByTimeAsync(5000);
+        const result = await passPromise;
+
+        expect(gh.createThreadReply).toHaveBeenCalledTimes(2); // B posted once the delay elapsed
+        expect(result.repliesPosted).toBe(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('mode "observe" never posts even with postRebuttals: true — posting only runs in "respond" mode', async () => {
+      const t = thread({
+        replies: [{ commentId: 2, author: 'a-developer', isBot: false, createdAt: 't', body: 'disagree' }],
+      });
+      const gh = mockGhWithPosting([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'rejected', confidence: 0.8 },
+      ]);
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe', postRebuttals: true });
+
+      expect(gh.createThreadReply).not.toHaveBeenCalled();
+      expect(result.postingEnabled).toBe(false);
     });
   });
 
@@ -525,6 +973,7 @@ describe('runFeedbackPass', () => {
        '/api/review JSON response, without mutating the raw result', () => {
       const raw: FeedbackPassResult = {
         mode: 'observe', skipped: false, threadsScanned: 1, repliesClassified: 1, repliesAdjudicated: 0,
+        postingEnabled: false, repliesPosted: 0, repliesPostFailed: 0,
         findings: [{
           findingId: 'abc123def4567890', threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
           agent: '<script>alert(1)</script>', severity: 'HIGH', promptVersion: 'v<1>',
@@ -687,6 +1136,9 @@ describe('runFeedbackPass', () => {
         threadsScanned: 1,
         repliesClassified: 1,
         repliesAdjudicated: 0,
+        postingEnabled: false,
+        repliesPosted: 0,
+        repliesPostFailed: 0,
         findings: [
           {
             findingId: 'abc123def4567890',
@@ -744,6 +1196,7 @@ describe('runFeedbackPass', () => {
        'even though severity is enum-constrained by the Gemini schema on every path that produces it today)', () => {
       const result: FeedbackPassResult = {
         mode: 'observe', skipped: false, threadsScanned: 1, repliesClassified: 1, repliesAdjudicated: 0,
+        postingEnabled: false, repliesPosted: 0, repliesPostFailed: 0,
         findings: [{
           findingId: 'abc123def4567890', threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
           agent: 'Security', severity: 'HIGH|INJECTED', summary: 'fine',
@@ -756,14 +1209,21 @@ describe('runFeedbackPass', () => {
     });
   });
 
-  describe('formatFeedbackSummaryMarkdown — Phase 2a dry-run rendering', () => {
-    function respondResultWith(replies: any[]): FeedbackPassResult {
+  describe('formatFeedbackSummaryMarkdown — Phase 2a/2b rendering', () => {
+    function respondResultWith(
+      replies: any[],
+      posting: Partial<Pick<FeedbackPassResult, 'postingEnabled' | 'repliesPosted' | 'repliesPostFailed'>> = {}
+    ): FeedbackPassResult {
       return {
         mode: 'respond',
         skipped: false,
         threadsScanned: 1,
         repliesClassified: replies.length,
         repliesAdjudicated: replies.filter(r => r.adjudication).length,
+        postingEnabled: false,
+        repliesPosted: 0,
+        repliesPostFailed: 0,
+        ...posting,
         findings: [{
           findingId: 'abc123def4567890',
           threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
@@ -781,7 +1241,8 @@ describe('runFeedbackPass', () => {
 
     it('never shows the dry-run banner for mode "observe"', () => {
       const md = formatFeedbackSummaryMarkdown({
-        mode: 'observe', skipped: false, threadsScanned: 0, repliesClassified: 0, repliesAdjudicated: 0, findings: [],
+        mode: 'observe', skipped: false, threadsScanned: 0, repliesClassified: 0, repliesAdjudicated: 0,
+        postingEnabled: false, repliesPosted: 0, repliesPostFailed: 0, findings: [],
       });
       expect(md).not.toContain('Dry run');
     });
@@ -801,12 +1262,13 @@ describe('runFeedbackPass', () => {
        'pipe-escaping is for a Markdown table cell, meaningless — and visibly wrong — inside a raw <summary> tag)', () => {
       const md = formatFeedbackSummaryMarkdown({
         mode: 'respond', skipped: false, threadsScanned: 1, repliesClassified: 1, repliesAdjudicated: 1,
+        postingEnabled: false, repliesPosted: 0, repliesPostFailed: 0,
         findings: [{
           findingId: 'abc123def4567890', threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
           agent: 'Logic', severity: 'HIGH', summary: 'Use A | B instead',
           replies: [{
             commentId: 2, author: 'a-dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
-            adjudication: { verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands', rebuttalMarkdown: 'x', wouldPost: true },
+            adjudication: { verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands', rebuttalMarkdown: 'x', wouldPost: true, posted: false },
           }],
         }],
       });
@@ -867,12 +1329,13 @@ describe('runFeedbackPass', () => {
        'not touched by this fix — scoping the assertion to the "Would post" section specifically)', () => {
       const md = formatFeedbackSummaryMarkdown({
         mode: 'respond', skipped: false, threadsScanned: 1, repliesClassified: 1, repliesAdjudicated: 1,
+        postingEnabled: false, repliesPosted: 0, repliesPostFailed: 0,
         findings: [{
           findingId: 'abc123def4567890', threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
           agent: 'Logic', severity: 'HIGH', summary: 'finding</summary><img src=x onerror=alert(1)>',
           replies: [{
             commentId: 2, author: '<img src=x>', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
-            adjudication: { verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands', rebuttalMarkdown: 'x', wouldPost: true },
+            adjudication: { verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands', rebuttalMarkdown: 'x', wouldPost: true, posted: false },
           }],
         }],
       });
@@ -899,6 +1362,56 @@ describe('runFeedbackPass', () => {
       }]));
       expect(md).not.toContain('Would post');
       expect(md).not.toContain('suppressed');
+    });
+
+    it('once posting is live (postingEnabled: true), shows a "Live" banner instead of "Dry run" and reports ' +
+       'posted/failed counts, not just would-post', () => {
+      const md = formatFeedbackSummaryMarkdown(respondResultWith(
+        [{
+          commentId: 2, author: 'a-dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
+          adjudication: {
+            verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands', rebuttalMarkdown: 'still stands',
+            wouldPost: true, posted: true, postUrl: 'https://github.com/x/y/pull/1#discussion_r99',
+          },
+        }],
+        { postingEnabled: true, repliesPosted: 1, repliesPostFailed: 0 }
+      ));
+      expect(md).toContain('Live');
+      expect(md).not.toContain('Dry run');
+      expect(md).toContain('posted 1, failed to post 0');
+      expect(md).toContain('Rebuttals (1 posted, 0 failed to post)');
+      expect(md).toContain('✅ Posted');
+      expect(md).toContain('[View posted comment](https://github.com/x/y/pull/1#discussion_r99)');
+      expect(md).not.toContain('Would post ('); // dry-run heading must not also appear
+    });
+
+    it('a live wouldPost candidate that failed to post is shown with its failure reason, not silently ' +
+       'omitted or mislabeled as posted', () => {
+      const md = formatFeedbackSummaryMarkdown(respondResultWith(
+        [{
+          commentId: 2, author: 'a-dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
+          adjudication: {
+            verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands', rebuttalMarkdown: 'still stands',
+            wouldPost: true, posted: false, postFailedReason: 'fork-read-only',
+          },
+        }],
+        { postingEnabled: true, repliesPosted: 0, repliesPostFailed: 1 }
+      ));
+      expect(md).toContain('Rebuttals (0 posted, 1 failed to post)');
+      expect(md).toContain('❌ Post failed (fork-read-only)');
+      expect(md).not.toContain('✅ Posted');
+    });
+
+    it('live mode still separates cap/dedup/empty-rebuttal SUPPRESSED candidates from posted/failed ones', () => {
+      const md = formatFeedbackSummaryMarkdown(respondResultWith(
+        [{
+          commentId: 2, author: 'a-dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
+          adjudication: { verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands', rebuttalMarkdown: 'x', wouldPost: false, suppressedReason: 'per-run-cap', posted: false },
+        }],
+        { postingEnabled: true, repliesPosted: 0, repliesPostFailed: 0 }
+      ));
+      expect(md).not.toContain('Rebuttals (');
+      expect(md).toContain('suppressed');
     });
   });
 });

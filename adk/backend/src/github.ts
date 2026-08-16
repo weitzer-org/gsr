@@ -195,28 +195,37 @@ export class GitHubClient {
   }
 
   // The outcome of a createThreadReply attempt. Deliberately NOT a plain
-  // boolean or a thrown error — Phase 2b's caller (feedbackLoop.ts, not yet
-  // wired up) needs to distinguish "this specific post failed" from "every
-  // further post this run will also fail" so it can stop attempting the
-  // rest of a capped batch instead of burning maxRepliesPosted more doomed
-  // calls one at a time (design doc §5.3: a fork PR's read-only
+  // boolean or a thrown error — Phase 2b's caller (feedbackLoop.ts's
+  // posting stage) needs to distinguish "this specific post failed" from
+  // "every further post this run will also fail" so it can stop attempting
+  // the rest of a capped batch instead of burning maxRepliesPosted more
+  // doomed calls one at a time (design doc §5.3: a fork PR's read-only
   // GITHUB_TOKEN degrades the whole loop to observe, not just this one
   // reply).
   //
-  // Note: as of this build, nothing calls createThreadReply yet — Phase 2a
-  // computes and reports adjudication verdicts in dry-run only (see
-  // feedbackLoop.ts). This method exists and is unit-tested now so Phase
-  // 2b's interface doesn't have to change when posting is wired up.
+  // `reason: 'fork-read-only'` is named for the design doc's primary
+  // scenario (a fork PR's read-only GITHUB_TOKEN), but a bare HTTP 403 from
+  // this endpoint is not proof of that specifically — GitHub's secondary
+  // rate limiting (triggered by rapid content-creation requests, which
+  // posting several replies back-to-back can be) also surfaces as 403 with
+  // no reliable way to distinguish the two from this response alone. The
+  // caller treats both the same way (sticky: stop attempting further posts
+  // this run), which is correct for either cause, but log/report text
+  // should say "read-only token or rate-limited (HTTP 403)", not assert
+  // "fork PR" as a certainty.
 
   /**
    * Posts a reply into an existing review-comment thread — the write side
    * of the PR comment feedback loop (design doc §5.2). `rootCommentId` must
    * be the thread ROOT, not the comment being answered — passing the wrong
    * id starts a sibling thread instead of replying into the existing one.
-   * Never throws.
+   * Never throws. On success, `htmlUrl` is the created reply's own URL —
+   * used by feedbackLoop.ts's Job Summary so a human can jump straight to
+   * what GSR actually posted (PRD §5's "manual audit of the first 30
+   * rebuttals" success criterion).
    */
   public async createThreadReply(url: string, rootCommentId: number, body: string): Promise<
-    { posted: true } | { posted: false; reason: 'fork-read-only' | 'error'; message: string }
+    { posted: true; htmlUrl: string } | { posted: false; reason: 'fork-read-only' | 'error'; message: string }
   > {
     // PR #61 self-review finding: parsePRUrl was called BEFORE the try
     // block, so a malformed url threw synchronously (a rejected promise)
@@ -225,12 +234,12 @@ export class GitHubClient {
     // actually true for every input, not just Octokit failures.
     try {
       const { owner, repo, pull_number } = this.parsePRUrl(url);
-      await this.octokit.rest.pulls.createReplyForReviewComment({
+      const response = await this.octokit.rest.pulls.createReplyForReviewComment({
         owner, repo, pull_number,
         comment_id: rootCommentId,
         body,
       });
-      return { posted: true };
+      return { posted: true, htmlUrl: response.data.html_url };
     } catch (error: any) {
       if (error?.status === 403) {
         return { posted: false, reason: 'fork-read-only', message: error.message || 'Forbidden' };
@@ -370,8 +379,9 @@ export class GitHubClient {
   /**
    * Reads every review-comment thread on a PR and returns the ones GSR
    * itself started — the read side of the PR comment feedback loop
-   * (pr-comment-feedback-loop-design.md §4–§5). No writes; Phase 2's
-   * createThreadReply is a separate, not-yet-implemented method.
+   * (pr-comment-feedback-loop-design.md §4–§5). No writes; createThreadReply
+   * (below) is the separate write side, called only from
+   * feedbackLoop.ts's posting stage.
    *
    * A thread's root is only trusted as "GSR's own finding" when it's
    * authored by TRUSTED_GSR_BOT_LOGIN AND carries a well-formed gsr:v1

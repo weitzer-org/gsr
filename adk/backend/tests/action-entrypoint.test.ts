@@ -10,7 +10,7 @@
 // otherwise run the whole Action and call process.exit(1) in this test
 // environment. feedbackConfig.ts has no such side effect.
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { resolveFeedbackMinConfidence, resolveFeedbackMaxReplies } from '../src/feedbackConfig';
+import { resolveFeedbackMinConfidence, resolveFeedbackMaxReplies, resolveFeedbackPostEnabled, feedbackPostMisconfigurationWarning } from '../src/feedbackConfig';
 
 describe('resolveFeedbackMinConfidence', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -137,5 +137,70 @@ describe('resolveFeedbackMaxReplies', () => {
     process.env.FEEDBACK_MAX_REPLIES = '-1';
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     expect(resolveFeedbackMaxReplies()).toBe(3);
+  });
+});
+
+// Phase 2b's arm switch (see feedbackLoop.ts's module doc comment for why
+// this is a separate opt-in rather than a new feedback-loop mode value).
+describe('resolveFeedbackPostEnabled', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it('defaults to false when unset — real posting never turns itself on', () => {
+    delete process.env.FEEDBACK_POST;
+    expect(resolveFeedbackPostEnabled()).toBe(false);
+  });
+
+  it('is true only for the exact string "true"', () => {
+    process.env.FEEDBACK_POST = 'true';
+    expect(resolveFeedbackPostEnabled()).toBe(true);
+  });
+
+  it('is case/whitespace-insensitive, matching resolveFeedbackLoopMode\'s convention', () => {
+    process.env.FEEDBACK_POST = '  TRUE  ';
+    expect(resolveFeedbackPostEnabled()).toBe(true);
+  });
+
+  it('is false for the exact string "false"', () => {
+    process.env.FEEDBACK_POST = 'false';
+    expect(resolveFeedbackPostEnabled()).toBe(false);
+  });
+
+  it('fails closed (false) on any unrecognized value, with a warning — this switch is too consequential to guess', () => {
+    process.env.FEEDBACK_POST = 'yes';
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(resolveFeedbackPostEnabled()).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('yes'));
+  });
+});
+
+describe('feedbackPostMisconfigurationWarning', () => {
+  it('warns when feedback-post is true but feedback-loop is "off"', () => {
+    expect(feedbackPostMisconfigurationWarning('off', true)).toContain('feedback-post is "true"');
+  });
+
+  it('warns when feedback-post is true but feedback-loop is "observe"', () => {
+    expect(feedbackPostMisconfigurationWarning('observe', true)).toContain('feedback-post is "true"');
+  });
+
+  it('does not warn when feedback-post is true and feedback-loop is "respond" (the only combination that does anything)', () => {
+    expect(feedbackPostMisconfigurationWarning('respond', true)).toBeUndefined();
+  });
+
+  it('does not warn when feedback-post is false, regardless of mode', () => {
+    expect(feedbackPostMisconfigurationWarning('off', false)).toBeUndefined();
+    expect(feedbackPostMisconfigurationWarning('observe', false)).toBeUndefined();
+    expect(feedbackPostMisconfigurationWarning('respond', false)).toBeUndefined();
   });
 });

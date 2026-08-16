@@ -68,29 +68,52 @@ inputs:
       One of "off" (default), "observe" (classify and report to this run's
       Job Summary; posts nothing to GitHub), or "respond" (additionally
       adjudicates rejected replies and reports what it would post — see
-      "PR comment feedback loop" in ACTION.md; posting itself is not yet
-      enabled in this release, so "respond" still posts nothing to GitHub).
-      No new permissions or secrets are required for either value.
+      "PR comment feedback loop" in ACTION.md). "respond" alone still
+      posts nothing to GitHub — it's a dry-run preview; set feedback-post
+      to "true" as well to actually post rebuttals. No new permissions or
+      secrets are required for either value (feedback-post reuses the
+      pull-requests: write permission already granted for posting
+      findings).
     required: false
     default: 'off'
   feedback-max-replies:
     description: >
       OPTIONAL. Only relevant when feedback-loop is "respond". Caps how
       many rebuttal decisions the feedback loop reports as "would post" per
-      run (design doc §7.2, §8.4). Has no effect while posting itself is
-      disabled (see feedback-loop above), but shapes the dry-run preview
-      today and will cap real posts once posting is enabled.
+      run (design doc §7.2, §8.4). Shapes the dry-run preview whether or
+      not feedback-post is enabled, and additionally caps real posts once
+      feedback-post is "true".
     required: false
     default: '3'
   feedback-min-confidence:
     description: >
       OPTIONAL. Only relevant when feedback-loop is "respond". Minimum
       adjudicator confidence (0-1) required before a rejected finding's
-      pushback is reported as "would post". Same caveat as
-      feedback-max-replies — shapes the dry-run preview only until posting
-      is enabled.
+      pushback is reported as "would post" (and, once feedback-post is
+      "true", actually posted). Same scope as feedback-max-replies.
     required: false
     default: '0.7'
+  feedback-post:
+    description: >
+      OPTIONAL, default "false". Only takes effect when feedback-loop is
+      "respond" — has no effect otherwise (a warning is logged if set true
+      without it). This is Phase 2b's arm switch: when "true", rejections
+      the adjudicator says still stand (verdict pushback_incorrect,
+      confidence >= feedback-min-confidence) are actually posted as a reply
+      in that GitHub thread, capped at feedback-max-replies per run, once
+      per finding ever. When "false" (the default), feedback-loop: respond
+      continues to run exactly as before — adjudicating and reporting a
+      dry-run preview, posting nothing. Deliberately a SEPARATE input from
+      feedback-loop, so a consumer already relying on the "respond"
+      dry-run preview is never silently upgraded to real posting by e.g. a
+      default change. Not to be confused with feedback-report-url /
+      feedback-report-key (a different, not-yet-available stage that
+      reports feedback DATA to a hosted GSR endpoint) — this posts a REPLY
+      COMMENT directly to the PR thread itself, under this Action's own
+      GITHUB_TOKEN identity. See "PR comment feedback loop" in ACTION.md,
+      including its fork-PR and concurrency-group guidance before enabling.
+    required: false
+    default: 'false'
 
 runs:
   using: 'docker'
@@ -108,3 +131,4 @@ runs:
     FEEDBACK_LOOP_MODE: ${{ inputs.feedback-loop }}
     FEEDBACK_MAX_REPLIES: ${{ inputs.feedback-max-replies }}
     FEEDBACK_MIN_CONFIDENCE: ${{ inputs.feedback-min-confidence }}
+    FEEDBACK_POST: ${{ inputs.feedback-post }}

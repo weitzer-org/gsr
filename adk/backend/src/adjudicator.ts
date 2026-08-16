@@ -2,11 +2,13 @@
 // loop (pr-comment-feedback-loop-design.md §6.2, §8.2, §8.3). `classifyReplies`
 // is Phase 1 ("observe") — one batched call per run, stance only, posts
 // nothing. `adjudicate` is Phase 2 ("respond") — one call per rejected
-// reply, capped, deciding whether the developer's pushback holds up. As of
-// this build, Phase 2 runs in dry-run mode only: feedbackLoop.ts computes
-// and reports what `adjudicate` decides but never calls
-// GitHubClient.createThreadReply with it — see feedbackLoop.ts for the 2a/2b
-// boundary.
+// reply, capped, deciding whether the developer's pushback holds up. This
+// module only ever computes verdicts; it never itself decides whether or
+// calls GitHubClient.createThreadReply — feedbackLoop.ts's runAdjudicationStage
+// computes the wouldPost decision from this output, and a separate
+// runPostingStage (Phase 2b, gated by opts.postRebuttals) is the only place
+// that call happens. See feedbackLoop.ts's module doc comment for the full
+// 2a/2b split.
 import { GoogleGenAI, Type } from '@google/genai';
 import { ReplyStance, ReplyClassification, AdjudicationVerdict } from './types';
 import { trackGeminiCall } from './usage';

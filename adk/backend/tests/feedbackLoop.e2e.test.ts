@@ -22,7 +22,7 @@ import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals
 import { GitHubClient } from '../src/github';
 import { runFeedbackPass } from '../src/feedbackLoop';
 import { AdjudicatorAgent } from '../src/adjudicator';
-import { parseFindingMarker } from '../src/findingMarker';
+import { parseFindingMarker, parseReplyMarker } from '../src/findingMarker';
 import { CandidateFinding } from '../src/types';
 
 const PR_URL = 'https://github.com/weitzer-org/logo-maker/pull/42';
@@ -49,6 +49,7 @@ jest.mock('../src/usage', () => ({
 // real; only the actual `generateContent` network call is replaced.
 const mockGenerateContent = jest.fn<any>();
 const realClassifyReplies = AdjudicatorAgent.prototype.classifyReplies;
+const realAdjudicate = AdjudicatorAgent.prototype.adjudicate;
 
 describe('PR comment feedback loop — end-to-end scenario (Phase 0 + 1)', () => {
   // Self-review finding: process.env is process-global — restore it so this
@@ -66,6 +67,13 @@ describe('PR comment feedback loop — end-to-end scenario (Phase 0 + 1)', () =>
     ) {
       (this as any).ai = { models: { generateContent: mockGenerateContent } };
       return realClassifyReplies.call(this, batch);
+    });
+    jest.spyOn(AdjudicatorAgent.prototype, 'adjudicate').mockImplementation(function (
+      this: AdjudicatorAgent,
+      input
+    ) {
+      (this as any).ai = { models: { generateContent: mockGenerateContent } };
+      return realAdjudicate.call(this, input);
     });
   });
 
@@ -231,5 +239,95 @@ describe('PR comment feedback loop — end-to-end scenario (Phase 0 + 1)', () =>
     // Phase 1 invariant: observe mode must never attempt to write a reply
     // back to GitHub, however interesting the classification result is.
     expect(createReplyForReviewComment).not.toHaveBeenCalled();
+  });
+
+  it('Phase 2b: posts a real reply whose gsr-reply:v1 marker round-trips through the REAL buildReplyMarker/' +
+     'parseReplyMarker pair — not a hand-built fixture — when postRebuttals is armed', async () => {
+    const client = new GitHubClient('mock-pat');
+
+    const finding: CandidateFinding = {
+      file: 'app.py', line: 88, severity: 'HIGH',
+      summary: 'SQL query built via string concatenation',
+      description: 'User-controlled input is concatenated directly into the query.',
+      agent: 'Security', promptVersion: 'system_prompts',
+    };
+
+    let postedBody = '';
+    const createReviewComment = (jest.fn() as any).mockImplementation((args: any) => {
+      postedBody = args.comments[0].body;
+      return Promise.resolve({ data: {} });
+    });
+    const createReplyForReviewComment = (jest.fn() as any).mockResolvedValue({
+      data: { html_url: `${PR_URL}#discussion_r5000` },
+    });
+    (client as any).octokit = {
+      rest: {
+        pulls: {
+          createReview: createReviewComment,
+          createReviewComment: jest.fn(),
+          createReplyForReviewComment,
+          get: (jest.fn() as any).mockResolvedValue({ data: { head: { sha: 'abc123' } } }),
+          listReviewComments: jest.fn(),
+        },
+        issues: { createComment: jest.fn() },
+      },
+      paginate: undefined as any,
+    };
+
+    await client.postReviewComments(PR_URL, [finding]);
+    const postedMarker = parseFindingMarker(postedBody);
+    const findingId = postedMarker!.findingId;
+
+    const rootComment = {
+      id: 1001, in_reply_to_id: undefined,
+      user: { login: GSR_LOGIN, type: 'Bot' },
+      body: postedBody,
+      html_url: `${PR_URL}#discussion_r1001`,
+      path: 'app.py', line: 88,
+    };
+    const rejectReply = {
+      id: 1002, in_reply_to_id: 1001,
+      user: { login: 'a-human-developer', type: 'User' },
+      body: 'disagree — this value never leaves an allowlist',
+      created_at: '2026-08-15T10:00:00Z',
+    };
+    (client as any).octokit.paginate = (jest.fn() as any).mockResolvedValue([rootComment, rejectReply]);
+
+    // First generateContent call is classifyReplies' (stance), second is
+    // adjudicate's (verdict + the rebuttal text that ends up posted).
+    mockGenerateContent
+      .mockResolvedValueOnce({ text: JSON.stringify([{ commentId: 1002, stance: 'rejected', confidence: 0.85 }]) })
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          verdict: 'pushback_incorrect', confidence: 0.9,
+          reasoning: 'The value is user-controlled at the API boundary regardless of any later allowlist.',
+          rebuttalMarkdown: 'This still stands: the value is user-controlled before any allowlist check runs.',
+        }),
+      });
+
+    const result = await runFeedbackPass(client as any, PR_URL, {
+      mode: 'respond', postRebuttals: true, postDelayMs: 0,
+    });
+
+    expect(result.postingEnabled).toBe(true);
+    expect(result.repliesPosted).toBe(1);
+    expect(result.repliesPostFailed).toBe(0);
+    expect(createReplyForReviewComment).toHaveBeenCalledTimes(1);
+
+    const call = createReplyForReviewComment.mock.calls[0][0];
+    expect(call.comment_id).toBe(1001); // the thread ROOT, not the reply being answered
+    expect(call.body).toContain('This still stands');
+
+    // The real parser, on the real posted body — not a hand-built marker
+    // string. Confirms sanitize-then-marker-last held all the way through
+    // the actual GitHubClient.createThreadReply call.
+    const replyMarker = parseReplyMarker(call.body);
+    expect(replyMarker).toMatchObject({
+      findingId, round: 1, verdict: 'pushback_incorrect', ackCommentId: 1002,
+    });
+    expect(replyMarker!.confidence).toBeCloseTo(0.9);
+
+    const adjudication = result.findings[0].replies[0].adjudication;
+    expect(adjudication).toMatchObject({ posted: true, postUrl: `${PR_URL}#discussion_r5000` });
   });
 });

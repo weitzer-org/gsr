@@ -4,14 +4,32 @@
 // rejected replies to decide whether the developer's pushback holds up
 // (Phase 2, §8.3).
 //
-// Phase 2a/2b boundary: as of this build, "respond" mode runs adjudication
-// for real and reports exactly what it decided (verdict, confidence,
-// reasoning, the rebuttal it would post, and why a would-post candidate was
-// or wasn't suppressed) — but this module NEVER calls
-// GitHubClient.createThreadReply. That's Phase 2b, deliberately withheld
-// until a human has reviewed a real batch of 2a's dry-run output. The single
-// place that boundary lives is runAdjudicationStage below, which computes
-// `wouldPost` and stops there.
+// Phase 2a/2b boundary: "respond" mode always runs adjudication for real and
+// reports exactly what it decided (verdict, confidence, reasoning, the
+// rebuttal it would post, and why a would-post candidate was or wasn't
+// suppressed) — that decision set (`wouldPost`) is computed identically
+// regardless of whether posting is armed. Phase 2b — actually calling
+// GitHubClient.createThreadReply — only runs when the caller ALSO sets
+// `postRebuttals: true` (the Action's separate `feedback-post` input,
+// resolved by feedbackConfig.ts's resolveFeedbackPostEnabled). This is a
+// deliberate second, independent opt-in, not a new value of `mode`: existing
+// consumers who already set `feedback-loop: respond` for the documented
+// dry-run preview (ACTION.md, prior to this build) must see zero behavior
+// change unless they explicitly add the new input — silently upgrading
+// "respond" to actually post would spring real bot replies on every PR of
+// every consumer who opted into a preview, with no action on their part.
+// (Independent design review, before this was implemented: confirmed this
+// two-flag shape over a third mode value, specifically because
+// minConfidence/maxRepliesPosted's descriptions are already scoped to
+// "respond mode" and a `post` mode would orphan that wording.)
+//
+// runAdjudicationStage computes `wouldPost` — unchanged from Phase 2a,
+// including when postRebuttals is true — and runPostingStage is a SEPARATE
+// stage that runs only over the resulting wouldPost===true set. This split
+// is deliberate (design review finding): a failed real POST must never
+// promote a candidate that Phase 2a's cap/dedup logic would have suppressed
+// in the dry-run preview, so the two decision layers (what SHOULD post vs.
+// what actually DID) cannot be allowed to interleave.
 //
 // Self-review finding (Phase 1): this used to say "classifies replies newer
 // than anything GSR has already processed" — that's the eventual goal, but
@@ -26,12 +44,15 @@
 // and app.ts both call runFeedbackPass with the same inputs and get the
 // same outputs; what differs is what each surface does with the result
 // (Job Summary vs. an NDJSON frame), never the logic that produced it. Only
-// the Action ever passes mode: 'respond' — app.ts forces 'observe' (design
-// doc §3.2).
+// the Action ever passes mode: 'respond' (or postRebuttals: true) — app.ts
+// forces 'observe' and never sets postRebuttals, so the hosted backend
+// structurally can never post under GSR's bot identity (design doc §3.2:
+// giving it write access would mean posting under the requesting human's
+// own PAT, not a bot's — deferred to a future GitHub-App-identity project).
 import { GitHubClient } from './github';
 import { AdjudicatorAgent, ClassifyReplyInput, AdjudicationOutput } from './adjudicator';
 import { FindingThread, ThreadReply, ReplyClassification, ReplyStance, DiffChunk, AdjudicationVerdict } from './types';
-import { sanitizeForComment, truncateByCodePoint } from './findingMarker';
+import { sanitizeForComment, truncateByCodePoint, buildReplyMarker } from './findingMarker';
 
 export type FeedbackLoopMode = 'off' | 'observe' | 'respond';
 
@@ -43,23 +64,73 @@ export interface FeedbackPassOptions {
   minConfidence?: number;      // adjudicator confidence floor for a would-post decision (design doc §7.2)
   maxRepliesPosted?: number;   // cap on would-post decisions per run (design doc §7.2, §8.4 layer 5)
   currentDiff?: DiffChunk[];   // this run's diff, for adjudication's diff-hunk context (design doc §8.3 item 3)
+  // Phase 2b's arm switch (see the module doc comment above): real posting
+  // only happens when this is exactly `true` AND mode is 'respond'. Default
+  // false/undefined preserves Phase 2a's dry-run-only behavior exactly —
+  // this must never default to true.
+  postRebuttals?: boolean;
+  // Delay between successive real POSTs within one run (default 1000ms —
+  // see DEFAULT_POST_DELAY_MS). GitHub's secondary rate limiting is
+  // specifically triggered by rapid content-creation requests, which
+  // posting up to maxRepliesPosted replies back-to-back can be; spacing
+  // them out is cheap at this cap (default 3). Exposed as an option only so
+  // tests don't have to eat the real delay — production call sites should
+  // leave this unset.
+  postDelayMs?: number;
 }
 
 // Suppression reasons for a `pushback_incorrect`-above-threshold verdict
 // that nonetheless would NOT post — i.e. a stop condition intervened after
-// adjudication decided the finding still stands.
-export type AdjudicationSuppressedReason = 'per-run-cap' | 'duplicate-thread-same-finding';
+// adjudication decided the finding still stands. 'empty-rebuttal' is
+// distinct from the other two: it's not a capacity/dedup stop condition but
+// a structural-validity one (see runAdjudicationStage) — the model returned
+// a schema-valid empty string for rebuttalMarkdown, which would otherwise
+// post a reply containing nothing but an invisible marker.
+export type AdjudicationSuppressedReason = 'per-run-cap' | 'duplicate-thread-same-finding' | 'empty-rebuttal';
+
+// Why a `wouldPost === true` candidate did not end up actually posted this
+// run (Phase 2b). Distinct from AdjudicationSuppressedReason, which explains
+// why adjudication never even reached a would-post decision — these three
+// only apply to candidates that DID reach one.
+//   fork-read-only         — createThreadReply returned this outcome (a 403:
+//                             either a fork PR's read-only GITHUB_TOKEN, or
+//                             GitHub's secondary rate limiting — see
+//                             github.ts's createThreadReply doc comment).
+//                             Sticky for the rest of the run (design doc
+//                             §5.3): every later candidate in the same run
+//                             is marked this way without a further API call.
+//   error                  — createThreadReply failed for any other reason.
+//                             NOT sticky — the next candidate is still
+//                             attempted normally.
+//   concurrent-post-detected — the pre-post re-check (see runPostingStage)
+//                             found this finding already has a round on
+//                             GitHub, meaning a concurrent run posted first.
+export type PostFailedReason = 'fork-read-only' | 'error' | 'concurrent-post-detected';
 
 export interface FeedbackReplyAdjudication {
   verdict: AdjudicationVerdict;
   confidence: number;
   reasoning: string;
   rebuttalMarkdown: string;
-  // Whether Phase 2b (not implemented — see the module doc comment above)
-  // would have posted this rebuttal. Always false in this build regardless
-  // of this value, since createThreadReply is never called.
+  // Whether adjudication + the stop-condition stack (design doc §8.4)
+  // decided this rebuttal SHOULD post. Computed identically regardless of
+  // whether posting is actually armed (opts.postRebuttals) — this is the
+  // dry-run-preview decision, and Phase 2b's posting stage only ever acts
+  // on candidates where this is true. See `posted` for what actually
+  // happened.
   wouldPost: boolean;
   suppressedReason?: AdjudicationSuppressedReason;
+  // Whether GitHubClient.createThreadReply actually succeeded for this
+  // candidate this run. Always false when wouldPost is false (nothing was
+  // attempted) or when opts.postRebuttals wasn't set (dry run only, same as
+  // Phase 2a).
+  posted: boolean;
+  // Set when wouldPost was true, posting was armed, and the attempt (or the
+  // pre-post re-check) didn't result in `posted: true`.
+  postFailedReason?: PostFailedReason;
+  // The created reply comment's own URL, when posted — lets a human jump
+  // straight to what GSR actually said (PRD §5's audit criterion).
+  postUrl?: string;
 }
 
 export interface FeedbackReplyReport {
@@ -98,6 +169,15 @@ export interface FeedbackPassResult {
   threadsScanned: number;
   repliesClassified: number;
   repliesAdjudicated: number; // NEW (Phase 2): always 0 outside 'respond' mode
+  // NEW (Phase 2b): whether this run had posting armed at all
+  // (mode === 'respond' && opts.postRebuttals === true) — set once per run,
+  // independent of whether there ended up being anything to post. Lets the
+  // Job Summary distinguish "dry run" from "live, but nothing to post this
+  // time" without inferring it from repliesPosted/repliesPostFailed both
+  // being zero, which is ambiguous between those two cases.
+  postingEnabled: boolean;
+  repliesPosted: number;     // NEW (Phase 2b): successful createThreadReply calls this run
+  repliesPostFailed: number; // NEW (Phase 2b): wouldPost===true candidates that did NOT end up posted
   findings: FeedbackFindingReport[];
 }
 
@@ -259,7 +339,10 @@ function excerpt(body: string, maxLen = 300): string {
 }
 
 function emptyResult(mode: FeedbackLoopMode, skipReason: string): FeedbackPassResult {
-  return { mode, skipped: true, skipReason, threadsScanned: 0, repliesClassified: 0, repliesAdjudicated: 0, findings: [] };
+  return {
+    mode, skipped: true, skipReason, threadsScanned: 0, repliesClassified: 0, repliesAdjudicated: 0,
+    postingEnabled: false, repliesPosted: 0, repliesPostFailed: 0, findings: [],
+  };
 }
 
 // maxRoundByFinding aggregates each finding's furthest-along round across
@@ -361,12 +444,17 @@ function groupByFinding(
 // failure-blast-radius sense.
 type Pending = { thread: FindingThread; reply: ThreadReply };
 
-// runAdjudicationStage is 'respond' mode's Stage 2 (design doc §8.3) — and
-// the entire Phase 2a/2b boundary lives here: it computes `wouldPost` for
-// every candidate and returns, but never calls
-// GitHubClient.createThreadReply. Mutates `out`, keyed by commentId, rather
-// than returning a new map — kept as a plain side-effecting helper since
-// its only caller immediately merges the result into groupByFinding's input.
+// runAdjudicationStage is 'respond' mode's Stage 2 (design doc §8.3): it
+// computes `wouldPost` for every candidate — identically whether or not
+// Phase 2b's posting is armed — and mutates `out`, keyed by commentId,
+// rather than returning a new map (kept as a plain side-effecting helper
+// since its only caller immediately merges the result into
+// groupByFinding's input). It never calls GitHubClient.createThreadReply
+// itself; it returns the wouldPost===true subset (in the same
+// {thread, reply} shape as its input) so a separate posting stage
+// (runPostingStage, below) can act on exactly that set without touching
+// this function's cap/dedup decisions — see the module doc comment for why
+// that split is deliberate.
 async function runAdjudicationStage(
   adjudicator: AdjudicatorAgent,
   capped: Pending[],
@@ -374,7 +462,7 @@ async function runAdjudicationStage(
   threads: FindingThread[],
   opts: FeedbackPassOptions,
   out: Map<number, FeedbackReplyAdjudication>
-): Promise<void> {
+): Promise<Pending[]> {
   const maxAdjudications = opts.maxAdjudications ?? DEFAULT_MAX_ADJUDICATIONS;
   const minConfidence = opts.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
   const maxRepliesPosted = opts.maxRepliesPosted ?? DEFAULT_MAX_REPLIES_POSTED;
@@ -396,6 +484,24 @@ async function runAdjudicationStage(
     if (!classification || classification.stance !== 'rejected') return false;
     if (reply.isBot) return false;
     if ((findingMaxRound.get(thread.findingId) ?? 0) >= FEEDBACK_MAX_ROUNDS) return false;
+    // Design-review finding (ahead of Phase 2b posting going live): don't
+    // rebut a rejection the developer has since walked back. Candidate
+    // selection was per-reply, so a sequence like "rejected" (R1) then,
+    // later in the SAME thread, "actually, you're right" (R2, accepted)
+    // still made R1 a candidate — GSR would post a rebuttal arguing against
+    // a point the developer already conceded, while simultaneously acking
+    // R2 (ackCommentId is always the thread's newest reply) as "answered."
+    // Only relevant once posting is real: in dry-run this just meant a
+    // slightly confusing preview line, but a live post making this mistake
+    // is GSR publicly arguing with someone who already agreed with it — the
+    // opposite of the credibility this feature exists to protect (PRD G4).
+    // Scoped narrowly to a LATER 'accepted' classification specifically
+    // (not 'question'/'neutral', which don't retract a rejection) so this
+    // doesn't suppress legitimate candidates over an unrelated later reply.
+    const supersededByLaterAcceptance = thread.replies.some(r =>
+      r.commentId > reply.commentId && classificationsByCommentId.get(r.commentId)?.stance === 'accepted'
+    );
+    if (supersededByLaterAcceptance) return false;
     return true;
   });
 
@@ -465,6 +571,7 @@ async function runAdjudicationStage(
   // or not it goes on to actually post — so a later duplicate of it is
   // correctly recognized regardless of why the first one didn't post.
   const seenFindingIds = new Set<string>();
+  const wouldPostEntries: Pending[] = [];
   let posted = 0;
   for (const { thread, reply, output } of adjudicated) {
     const eligible = output.verdict === 'pushback_incorrect' && output.confidence >= minConfidence;
@@ -472,7 +579,20 @@ async function runAdjudicationStage(
     let suppressedReason: AdjudicationSuppressedReason | undefined;
 
     if (eligible) {
-      if (seenFindingIds.has(thread.findingId)) {
+      // Structural-validity check, not a capacity/dedup stop condition:
+      // rebuttalMarkdown is a REQUIRED field in the response schema
+      // (adjudicator.ts), but "required" only means present, not non-empty
+      // — a schema-valid `""` would otherwise pass every check below and
+      // result in posting a reply containing nothing but an invisible
+      // gsr-reply:v1 marker with no visible text. Checked before dedup/cap
+      // so it never consumes a finding's one-rebuttal-ever slot
+      // (seenFindingIds) — a sibling duplicate thread with a genuine,
+      // non-empty rebuttal for the same finding should still be free to
+      // post (see design-review discussion on why this doesn't join
+      // seenFindingIds).
+      if (!output.rebuttalMarkdown.trim()) {
+        suppressedReason = 'empty-rebuttal';
+      } else if (seenFindingIds.has(thread.findingId)) {
         suppressedReason = 'duplicate-thread-same-finding';
       } else {
         seenFindingIds.add(thread.findingId);
@@ -485,6 +605,8 @@ async function runAdjudicationStage(
       }
     }
 
+    if (wouldPost) wouldPostEntries.push({ thread, reply });
+
     out.set(reply.commentId, {
       verdict: output.verdict,
       confidence: output.confidence,
@@ -492,8 +614,160 @@ async function runAdjudicationStage(
       rebuttalMarkdown: output.rebuttalMarkdown,
       wouldPost,
       suppressedReason,
+      posted: false,
     });
   }
+
+  return wouldPostEntries;
+}
+
+// DEFAULT_POST_DELAY_MS spaces out successive real POSTs within one run
+// (design-review finding): GitHub's secondary rate limiting is specifically
+// triggered by rapid content-creation requests, and posting up to
+// maxRepliesPosted (default 3) replies back-to-back is exactly that
+// pattern. Cheap insurance at this cap.
+const DEFAULT_POST_DELAY_MS = 1000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// runPostingStage is Phase 2b: the ONLY place GitHubClient.createThreadReply
+// is ever called. Runs as a stage separate from runAdjudicationStage
+// (design-review finding, see the module doc comment) over exactly the
+// wouldPost===true set that stage already decided — this function cannot
+// itself decide a new candidate should post, only whether an
+// already-approved one actually did.
+async function runPostingStage(
+  gh: GitHubClient,
+  prUrl: string,
+  wouldPostEntries: Pending[],
+  out: Map<number, FeedbackReplyAdjudication>,
+  postDelayMs: number
+): Promise<{ posted: number; postFailed: number }> {
+  // Race mitigation (design review): the dominant interleaving given real
+  // adjudication latency (tens of seconds of Gemini calls across the
+  // classify + per-rejection adjudicate calls) is "run A posts while run B
+  // is still adjudicating," not two near-simultaneous POSTs — a single
+  // fresh read here, right before any POST is attempted, catches that
+  // window cheaply (one extra paginated GET, only when there's at least one
+  // wouldPost candidate). The remaining seconds-wide window between this
+  // read and the actual POST is what ACTION.md's recommended `concurrency:`
+  // group covers (design doc §7.1) — this check narrows the gap that
+  // recommendation has to cover, it doesn't replace it: the Action cannot
+  // enforce a consumer's own workflow YAML. Never blocks posting on
+  // failure — a broken re-check degrades to "post anyway" (the Phase 2a
+  // behavior), not to silently withholding every rebuttal this run.
+  let freshMaxRoundByFinding: Map<string, number> | null = null;
+  try {
+    const freshThreads = await gh.listReviewThreads(prUrl);
+    freshMaxRoundByFinding = maxRoundByFinding(freshThreads);
+  } catch (err) {
+    console.warn('[FeedbackLoop] Pre-post concurrency re-check failed; posting will proceed without it:', err);
+  }
+
+  let posted = 0;
+  let postFailed = 0;
+  // Sticky for the rest of THIS run only (design doc §5.3) — a fresh 403 on
+  // a later run gets re-detected independently; there is no cross-run state.
+  let forkOrRateLimited = false;
+
+  for (let i = 0; i < wouldPostEntries.length; i++) {
+    const { thread, reply } = wouldPostEntries[i];
+    const existing = out.get(reply.commentId);
+    if (!existing) continue; // unreachable — every wouldPostEntries item was set in runAdjudicationStage
+
+    // The round THIS post is about to claim — not FEEDBACK_MAX_ROUNDS
+    // (self-review finding: comparing the concurrency re-check directly
+    // against the global cap constant silently coupled two independent
+    // things — "how many rounds are allowed at all" and "what round is
+    // this specific post" — that happen to be equal only because the cap
+    // is hardcoded to 1 today. Computing the actual intended round keeps
+    // the check correct on its own terms if that cap ever changes, without
+    // this function needing to know why).
+    const intendedRound = (thread.gsrLastReply?.round ?? 0) + 1;
+
+    if (freshMaxRoundByFinding && (freshMaxRoundByFinding.get(thread.findingId) ?? 0) >= intendedRound) {
+      console.warn(`[FeedbackLoop] Finding ${thread.findingId} already has a reply on GitHub as of the pre-post re-check — a concurrent run likely posted first. Skipping.`);
+      out.set(reply.commentId, { ...existing, posted: false, postFailedReason: 'concurrent-post-detected' });
+      postFailed++;
+      continue; // no API call was made — nothing to space out with a delay
+    }
+
+    if (forkOrRateLimited) {
+      out.set(reply.commentId, { ...existing, posted: false, postFailedReason: 'fork-read-only' });
+      postFailed++;
+      continue; // no API call was made — nothing to space out with a delay
+    }
+
+    // ack is the newest reply GSR had seen in this thread at post time
+    // (design doc §4.1's table) — thread.replies is ascending by id and
+    // already excludes GSR's own comments, so its last element is that
+    // newest developer/agent reply, not necessarily the one being rebutted
+    // (there can be other new replies since GSR last spoke). Falls back to
+    // the candidate reply's own id only as defensive programming; every
+    // wouldPost candidate implies thread.replies is non-empty (the
+    // candidate itself is in it).
+    const ackCommentId = thread.replies.length > 0
+      ? thread.replies[thread.replies.length - 1].commentId
+      : reply.commentId;
+    const marker = buildReplyMarker({
+      findingId: thread.findingId,
+      round: intendedRound,
+      verdict: existing.verdict,
+      confidence: existing.confidence,
+      ackCommentId,
+    });
+    // Sanitize-then-marker-last (same contract as formatFindingBody):
+    // existing.rebuttalMarkdown is ALREADY sanitized + length-capped by
+    // adjudicator.ts's validateAdjudicationResponse (sanitizeRebuttalMarkdown)
+    // before it ever reached runAdjudicationStage — this only appends the
+    // marker after it, never re-sanitizes. parseReplyMarker is end-anchored
+    // / last-match-wins (findingMarker.ts), so even if sanitization somehow
+    // let a fake marker delimiter through, GSR's own real marker — appended
+    // last, here — is still the one a later run trusts.
+    //
+    // Self-review finding: design doc §9 T1 already accepts, as residual
+    // risk, that a determined prompt injector can steer rebuttalMarkdown's
+    // CONTENT (the code-level mitigations only constrain whether GSR posts,
+    // not what the sanctioned text says) — "impact is bounded... not code
+    // execution or data access," but a human reading a confidently-worded
+    // reply under a trusted bot identity has no reason to weigh it
+    // differently from a genuine finding. REBUTTAL_DISCLAIMER is cheap
+    // defense-in-depth directly against that: fixed, non-attacker-derived
+    // text (never influenced by rebuttalMarkdown/reasoning/thread content),
+    // so it can't itself be a new injection surface, prepended — not
+    // appended — so it's the first thing a reader sees, before the argument
+    // itself. Deliberately only on the POSTED body, not on
+    // existing.rebuttalMarkdown/the stored report value, which stays the
+    // model's actual argument for anyone auditing adjudication quality.
+    const REBUTTAL_DISCLAIMER = '> 🤖 **Automated rebuttal from GSR.** AI-generated — please verify independently.\n\n';
+    const body = `${REBUTTAL_DISCLAIMER}${existing.rebuttalMarkdown}\n\n${marker}`;
+
+    const outcome = await gh.createThreadReply(prUrl, thread.rootCommentId, body);
+    if (outcome.posted) {
+      out.set(reply.commentId, { ...existing, posted: true, postUrl: outcome.htmlUrl });
+      posted++;
+    } else {
+      out.set(reply.commentId, { ...existing, posted: false, postFailedReason: outcome.reason });
+      postFailed++;
+      if (outcome.reason === 'fork-read-only') {
+        forkOrRateLimited = true;
+        console.warn('[FeedbackLoop] Reply post returned 403 (read-only token, e.g. a fork PR, or a rate limit) — degrading to observe for the rest of this run: no further reply posts will be attempted.');
+      } else {
+        console.warn(`[FeedbackLoop] Reply post failed for commentId ${reply.commentId} (finding ${thread.findingId}): ${outcome.message}`);
+      }
+    }
+
+    // Only reached after an actual createThreadReply call (the skip
+    // branches above `continue` before this point) — spacing out attempts
+    // that never happened would just slow the run for no benefit.
+    if (i < wouldPostEntries.length - 1 && postDelayMs > 0) {
+      await sleep(postDelayMs);
+    }
+  }
+
+  return { posted, postFailed };
 }
 
 // runFeedbackPass must never throw (mirrors usage.ts's "never throw"
@@ -512,16 +786,22 @@ export async function runFeedbackPass(
     return emptyResult('off', 'feedback loop disabled (mode=off)');
   }
 
+  // postingEnabled is set once, up front, regardless of whether this run
+  // ends up finding anything to post — the Job Summary needs to be able to
+  // say "live, but nothing to post this run" distinctly from "dry run"
+  // (both would otherwise show repliesPosted === repliesPostFailed === 0).
+  const postingEnabled = opts.mode === 'respond' && opts.postRebuttals === true;
+
   try {
     if (opts.mode === 'respond') {
-      // Phase 2a: adjudication runs for real (below) and its verdicts are
-      // fully reported, but posting (createThreadReply) is never invoked —
-      // see this module's doc comment and runAdjudicationStage for the
-      // Phase 2a/2b boundary. This log line exists so a Job Summary /
-      // console reader isn't left assuming "respond" behaves like
-      // "observe" (it doesn't — it costs more and computes more), while
-      // still being explicit that nothing is posted yet.
-      console.log('[FeedbackLoop] mode "respond": adjudicating rejected replies in dry-run — verdicts and would-post decisions are computed and reported, but no reply is posted to GitHub (posting is a separate, not-yet-enabled stage).');
+      // This log line exists so a Job Summary / console reader isn't left
+      // assuming "respond" behaves like "observe" (it doesn't — it costs
+      // more and computes more) — and, now that Phase 2b exists, states
+      // plainly whether THIS run can actually write to GitHub or is
+      // dry-run-only.
+      console.log(postingEnabled
+        ? '[FeedbackLoop] mode "respond" with posting armed (feedback-post): adjudicating rejected replies and posting rebuttals for candidates that clear the confidence threshold, capped and stop-conditioned per design doc §8.4.'
+        : '[FeedbackLoop] mode "respond": adjudicating rejected replies in dry-run — verdicts and would-post decisions are computed and reported, but no reply is posted to GitHub (set feedback-post to arm real posting).');
     }
 
     const threads = await gh.listReviewThreads(prUrl);
@@ -537,7 +817,10 @@ export async function runFeedbackPass(
     if (pending.length === 0) {
       // Stage 0 is free — zero surviving replies means zero Gemini calls
       // and zero cost (design doc §10).
-      return { mode: opts.mode, skipped: false, threadsScanned: threads.length, repliesClassified: 0, repliesAdjudicated: 0, findings: [] };
+      return {
+        mode: opts.mode, skipped: false, threadsScanned: threads.length, repliesClassified: 0, repliesAdjudicated: 0,
+        postingEnabled, repliesPosted: 0, repliesPostFailed: 0, findings: [],
+      };
     }
 
     // Ordered by the finding's severity descending before capping (design
@@ -582,8 +865,16 @@ export async function runFeedbackPass(
     const classifiedReplyIds = new Set(capped.map(({ reply }) => reply.commentId));
 
     const adjudicationsByCommentId = new Map<number, FeedbackReplyAdjudication>();
+    let repliesPosted = 0;
+    let repliesPostFailed = 0;
     if (opts.mode === 'respond') {
-      await runAdjudicationStage(adjudicator, capped, classificationsByCommentId, threads, opts, adjudicationsByCommentId);
+      const wouldPostEntries = await runAdjudicationStage(adjudicator, capped, classificationsByCommentId, threads, opts, adjudicationsByCommentId);
+      if (postingEnabled && wouldPostEntries.length > 0) {
+        const postDelayMs = opts.postDelayMs ?? DEFAULT_POST_DELAY_MS;
+        const postResult = await runPostingStage(gh, prUrl, wouldPostEntries, adjudicationsByCommentId, postDelayMs);
+        repliesPosted = postResult.posted;
+        repliesPostFailed = postResult.postFailed;
+      }
     }
 
     const findings = groupByFinding(threads, classificationsByCommentId, classifiedReplyIds, adjudicationsByCommentId);
@@ -594,6 +885,9 @@ export async function runFeedbackPass(
       threadsScanned: threads.length,
       repliesClassified: classifications.length,
       repliesAdjudicated: adjudicationsByCommentId.size,
+      postingEnabled,
+      repliesPosted,
+      repliesPostFailed,
       findings,
     };
   } catch (err) {
@@ -641,21 +935,31 @@ export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): strin
     return lines.join('\n');
   }
 
-  // Phase 2a dry-run banner: "respond" adjudicates and computes real
-  // would-post decisions but never posts (see feedbackLoop.ts's module doc
-  // comment for the 2a/2b boundary). This is the human review artifact the
-  // whole dry-run stage exists to produce — it must be unambiguous that
-  // nothing below was actually sent to GitHub.
+  // Banner: distinguishes dry-run "respond" (Phase 2a — adjudicates and
+  // computes would-post decisions but posts nothing, still the default)
+  // from live "respond" with feedback-post armed (Phase 2b) — this is the
+  // human review artifact both stages exist to produce, so it must be
+  // unambiguous which one this run was. Getting this backwards (claiming
+  // "nothing was sent" over a section reporting real posts, or vice versa)
+  // would undermine the exact human-review gate this feature exists to
+  // provide (design review finding, called out explicitly ahead of Phase 2b).
   if (result.mode === 'respond') {
-    lines.push('> **Dry run.** This build adjudicates rejected replies and computes what it ' +
-      'would post, but posting is not enabled — nothing below was sent to GitHub.');
+    lines.push(result.postingEnabled
+      ? '> **Live.** This run posts rebuttals directly to GitHub for adjudications that clear the ' +
+        'confidence threshold, subject to the per-run/per-finding caps below — see "Posted" / "Failed to ' +
+        'post" for what actually happened.'
+      : '> **Dry run.** This build adjudicates rejected replies and computes what it ' +
+        'would post, but posting is not enabled — nothing below was sent to GitHub.');
     lines.push('');
   }
 
   const adjudicatedNote = result.mode === 'respond'
     ? `; adjudicated ${result.repliesAdjudicated} rejection${result.repliesAdjudicated === 1 ? '' : 's'}`
     : '';
-  lines.push(`Scanned ${result.threadsScanned} GSR thread(s); classified ${result.repliesClassified} repl${result.repliesClassified === 1 ? 'y' : 'ies'}${adjudicatedNote}.`);
+  const postingNote = result.postingEnabled && (result.repliesPosted > 0 || result.repliesPostFailed > 0)
+    ? `; posted ${result.repliesPosted}, failed to post ${result.repliesPostFailed}`
+    : '';
+  lines.push(`Scanned ${result.threadsScanned} GSR thread(s); classified ${result.repliesClassified} repl${result.repliesClassified === 1 ? 'y' : 'ies'}${adjudicatedNote}${postingNote}.`);
 
   if (result.findings.length === 0) {
     lines.push('');
@@ -684,7 +988,7 @@ export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): strin
   }
 
   if (result.mode === 'respond') {
-    appendAdjudicationSections(lines, result.findings);
+    appendAdjudicationSections(lines, result.findings, result.postingEnabled);
   }
 
   return lines.join('\n');
@@ -716,7 +1020,7 @@ export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): strin
 // surrounding structure, which is the actual risk (a misleading Job
 // Summary undermines the human-review gate this whole dry-run stage exists
 // to provide).
-function appendAdjudicationSections(lines: string[], findings: FeedbackFindingReport[]): void {
+function appendAdjudicationSections(lines: string[], findings: FeedbackFindingReport[], postingEnabled: boolean): void {
   const wouldPost: { finding: FeedbackFindingReport; reply: FeedbackReplyReport }[] = [];
   const suppressed: { finding: FeedbackFindingReport; reply: FeedbackReplyReport }[] = [];
 
@@ -733,7 +1037,18 @@ function appendAdjudicationSections(lines: string[], findings: FeedbackFindingRe
 
   if (wouldPost.length > 0) {
     lines.push('');
-    lines.push(`### Would post (${wouldPost.length}) — dry run, nothing was actually sent`);
+    // Phase 2b (design review finding): once posting is armed, this section
+    // reports what ACTUALLY happened, not a preview — the heading and each
+    // entry's status must say so unambiguously, since a misleading Job
+    // Summary here undermines the human-review gate this feature exists to
+    // provide. The dry-run heading/wording is UNCHANGED from Phase 2a when
+    // posting isn't armed.
+    if (postingEnabled) {
+      const postedCount = wouldPost.filter(({ reply }) => reply.adjudication!.posted).length;
+      lines.push(`### Rebuttals (${postedCount} posted, ${wouldPost.length - postedCount} failed to post)`);
+    } else {
+      lines.push(`### Would post (${wouldPost.length}) — dry run, nothing was actually sent`);
+    }
     for (const { finding, reply } of wouldPost) {
       // PR #61 self-review + CodeRabbit finding (independently flagged
       // twice): escapeMarkdownTableCell is for a Markdown TABLE cell — its
@@ -748,10 +1063,22 @@ function appendAdjudicationSections(lines: string[], findings: FeedbackFindingRe
       // doesn't need that defense.
       const label = escapeHtmlEntities((finding.summary || finding.findingId).replace(/[\r\n]+/g, ' '));
       const author = escapeHtmlEntities(reply.author);
+      const adjudication = reply.adjudication!;
+      // statusPrefix carries the real per-entry outcome once posting is
+      // armed — an emoji is enough visual signal at a glance, but the
+      // actual word ("Posted"/"Post failed") is what's asserted by tests
+      // and what a screen reader gets, not just the glyph.
+      const statusPrefix = postingEnabled
+        ? (adjudication.posted ? '✅ Posted — ' : `❌ Post failed (${adjudication.postFailedReason || 'error'}) — `)
+        : '';
       lines.push('');
-      lines.push(`<details><summary>${label} — reply from ${author} (confidence ${reply.adjudication!.confidence.toFixed(2)})</summary>`);
+      lines.push(`<details><summary>${statusPrefix}${label} — reply from ${author} (confidence ${adjudication.confidence.toFixed(2)})</summary>`);
       lines.push('');
-      lines.push(reply.adjudication!.rebuttalMarkdown ? escapeMarkdownUnsafeTags(reply.adjudication!.rebuttalMarkdown) : '_(empty rebuttal)_');
+      lines.push(adjudication.rebuttalMarkdown ? escapeMarkdownUnsafeTags(adjudication.rebuttalMarkdown) : '_(empty rebuttal)_');
+      if (postingEnabled && adjudication.posted && adjudication.postUrl) {
+        lines.push('');
+        lines.push(`[View posted comment](${adjudication.postUrl})`);
+      }
       lines.push('');
       lines.push('</details>');
     }
@@ -760,6 +1087,6 @@ function appendAdjudicationSections(lines: string[], findings: FeedbackFindingRe
   if (suppressed.length > 0) {
     lines.push('');
     lines.push(`_${suppressed.length} additional "pushback still incorrect" verdict(s) were suppressed by a stop condition ` +
-      '(per-run cap or a duplicate thread for a finding already covered above) and would not have posted this run._');
+      '(per-run cap, a duplicate thread for a finding already covered above, or an empty rebuttal) and would not have posted this run._');
   }
 }

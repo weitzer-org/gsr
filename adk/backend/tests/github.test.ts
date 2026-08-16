@@ -693,19 +693,21 @@ index e69de29..d95f3ad 100644
     describe('createThreadReply', () => {
         const url = 'https://github.com/GoogleCloudPlatform/scion/pull/123';
 
-        it('posts a reply into the thread rooted at rootCommentId and returns { posted: true }', async () => {
-            const createReplyForReviewComment = (jest.fn() as any).mockResolvedValue({ data: {} });
+        it('posts a reply into the thread rooted at rootCommentId and returns { posted: true, htmlUrl }', async () => {
+            const createReplyForReviewComment = (jest.fn() as any).mockResolvedValue({
+                data: { html_url: `${url}#discussion_r99` },
+            });
             (client as any).octokit = { rest: { pulls: { createReplyForReviewComment } } };
 
             const result = await client.createThreadReply(url, 42, 'a rebuttal');
 
-            expect(result).toEqual({ posted: true });
+            expect(result).toEqual({ posted: true, htmlUrl: `${url}#discussion_r99` });
             expect(createReplyForReviewComment).toHaveBeenCalledWith(expect.objectContaining({
                 comment_id: 42, body: 'a rebuttal',
             }));
         });
 
-        it('never throws: a 403 (fork PR, read-only GITHUB_TOKEN) resolves to a "fork-read-only" outcome', async () => {
+        it('never throws: a 403 (read-only GITHUB_TOKEN, e.g. a fork PR, or a rate limit) resolves to a "fork-read-only" outcome', async () => {
             const error: any = new Error('Forbidden');
             error.status = 403;
             const createReplyForReviewComment = (jest.fn() as any).mockRejectedValue(error);

@@ -5,8 +5,9 @@ import { shouldFailOnSeverity } from './severityGate';
 import { resolveAgentSelectionForMode } from './agentSelection';
 import { setUsageSink, UsageRecord, aggregate, formatUsageSummaryMarkdown } from './usage';
 import { reportUsage } from './usageReporter';
-import { runFeedbackPass, FeedbackPassResult, formatFeedbackSummaryMarkdown } from './feedbackLoop';
-import { resolveFeedbackLoopMode, resolveFeedbackMinConfidence, resolveFeedbackMaxReplies, resolveFeedbackPostEnabled, feedbackPostMisconfigurationWarning } from './feedbackConfig';
+import { runFeedbackPass, FeedbackPassResult, formatFeedbackSummaryMarkdown, buildFeedbackRecords } from './feedbackLoop';
+import { resolveFeedbackLoopMode, resolveFeedbackMinConfidence, resolveFeedbackMaxReplies, resolveFeedbackPostEnabled, feedbackPostMisconfigurationWarning, resolveFeedbackReportConfig } from './feedbackConfig';
+import { reportFeedback } from './feedbackReporter';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -67,6 +68,22 @@ async function maybeReportUsage(records: UsageRecord[]): Promise<void> {
   await reportUsage(records, { url, key, repository: process.env.GITHUB_REPOSITORY });
 }
 
+// maybeReportFeedback is Stage 3 (design doc §7.2, §11.2) — the same
+// opt-in, off-by-default shape as maybeReportUsage above: no-ops unless
+// feedback-report-url and the shared secret are both configured. Only
+// called with a real result (never on a mode: 'off'/skipped pass) and only
+// when prUrl is known, since a FindingFeedback record's reviewUrl is
+// required (finding-feedback-requirements.md §5.4).
+async function maybeReportFeedback(result: FeedbackPassResult | undefined, prUrl: string | undefined): Promise<void> {
+  if (!result || result.skipped || !prUrl) return;
+  const config = resolveFeedbackReportConfig();
+  if (!config) return;
+  const records = buildFeedbackRecords(result, prUrl);
+  if (records.length === 0) return;
+  const { batchesSent, batchesFailed } = await reportFeedback(records, { url: config.url, key: config.key, reviewUrl: prUrl });
+  console.log(`[GSR Action] Feedback report: ${records.length} record(s) in ${batchesSent} batch(es) sent, ${batchesFailed} failed.`);
+}
+
 async function main() {
   const collectedUsage: UsageRecord[] = [];
   setUsageSink(record => {
@@ -74,6 +91,7 @@ async function main() {
   });
 
   let feedbackResult: FeedbackPassResult | undefined;
+  let prUrl: string | undefined;
 
   try {
     const githubToken = process.env.GITHUB_TOKEN;
@@ -100,6 +118,7 @@ async function main() {
     }
 
     const url = resolvePullRequestUrl();
+    prUrl = url;
     const ghClient = new GitHubClient(githubToken);
 
     console.log(`[GSR Action] Fetching diff for ${url} (mode: ${mode})...`);
@@ -176,6 +195,7 @@ async function main() {
       }
     }
     await maybeReportUsage(collectedUsage).catch(err => console.warn('[GSR Action] Failed to report usage:', err));
+    await maybeReportFeedback(feedbackResult, prUrl).catch(err => console.warn('[GSR Action] Failed to report feedback:', err));
   }
 }
 

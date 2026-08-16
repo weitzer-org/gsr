@@ -41,9 +41,16 @@ separately.
 
 ## Storage & secrets
 Object storage is S3-compatible everywhere: `S3_BUCKET`, `S3_REVIEW_BUCKET`,
-`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_ENDPOINT` (unset = local
-MinIO), `S3_REGION` (`auto` for R2). See `.env.example` /
-`adk/backend/.env.example` / `tools/eval/.env.example`.
+`S3_FEEDBACK_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
+`S3_ENDPOINT` (unset = local MinIO), `S3_REGION` (`auto` for R2). See
+`.env.example` / `adk/backend/.env.example` / `tools/eval/.env.example`.
+Unlike the other two buckets, `S3_FEEDBACK_BUCKET` has no auto-create logic
+even locally-adjacent to prod — its MinIO bucket is created by
+`docker-compose.yml`'s `createbuckets` one-shot the same way the other two
+are, but the real R2 bucket (`gsr-review-feedback`) must be created manually
+in the Cloudflare dashboard before setting the Fly secret, exactly like
+`gsr-review-results` was (`adk/backend/src/storage.ts` never auto-creates
+buckets in prod — see `finding-feedback-requirements.md` §7).
 
 Secrets are plain env vars — `.env` locally (git-ignored, never commit it),
 `fly secrets set` in production. There is no GCP Secret Manager / Vertex ADC
@@ -64,7 +71,7 @@ storage layout. `usage.ts`'s `PRICE_TABLE` mirrors `job_tracker`'s
 Both Fly apps were originally deployed with zero auth on their public URLs
 — `fly.toml`'s `app = 'gsr-code-review'` is public in this repo, so the
 default `https://gsr-code-review.fly.dev` URL is directly discoverable, not
-just guessable. Two independent gates now cover this:
+just guessable. Independent gates now cover this:
 - `adk/backend` (browser UI + API): password login, mirroring the
   sound-profile-builder pattern — `UI_PASSWORD` env var, stateless signed
   cookie session (`adk/backend/src/auth.ts`, no server-side session store).
@@ -78,17 +85,30 @@ just guessable. Two independent gates now cover this:
   main backend attaches this header when it triggers a remote eval run
   (`/api/evals/start` → `EVALUATOR_SERVICE_URL/api/evaluate`); both apps'
   Fly secrets must hold the same value.
-- **Both `UI_PASSWORD` and `EVALUATOR_SHARED_SECRET` are no-ops when unset**
+- `POST/GET /api/findings/feedback` (`adk/backend/src/feedbackAuth.ts`, the
+  finding-feedback push endpoint — `finding-feedback-requirements.md`):
+  `POST` accepts **either** a `X-Feedback-Key` header matching
+  `FEEDBACK_SHARED_SECRET` **or** a valid `UI_PASSWORD` session cookie, so
+  headless consumers (an AI coding agent, this repo's own PR-comment
+  feedback loop reporting from a GitHub Action) and the browser share one
+  endpoint without two implementations; `GET` sits behind the existing
+  session gate only (no shared secret needed to read). Registered before
+  `requireAuth`, same placement pattern as `/api/usage/ingest`.
+- **`UI_PASSWORD` and `FEEDBACK_SHARED_SECRET` are required in production**;
+  **`EVALUATOR_SHARED_SECRET` is the one exception**, no-op when unset
   (local dev / test convenience, same convention as this repo's other
-  optional secrets) — **except in production** (`NODE_ENV=production`,
-  set by both Dockerfiles): each app's entrypoint
+  optional secrets) even in production. Each app's entrypoint
   (`adk/backend/src/index.ts`, `tools/eval/server.ts`) calls a startup guard
-  that refuses to boot without its own required secret
-  (`assertProductionAuthConfigured` / `assertProductionSecretConfigured`),
-  so a missing secret fails loudly (deploy/health-check failure) instead of
-  silently re-opening the app. `adk/backend` only *warns* if
-  `EVALUATOR_SHARED_SECRET` is missing, since that's a supplementary
-  outbound-call feature, not its primary protection (`UI_PASSWORD` is).
+  at boot (`assertProductionAuthConfigured` / `assertProductionUsageIngestConfigured`
+  / `assertProductionFeedbackAuthConfigured` / `assertProductionSecretConfigured`)
+  — `NODE_ENV=production`, set by both Dockerfiles — so a missing required
+  secret fails loudly (deploy/health-check failure) instead of silently
+  re-opening the app. `adk/backend` only *warns* if `EVALUATOR_SHARED_SECRET`
+  is missing, since that's a supplementary outbound-call feature, not a
+  primary protection the way the other three are — `FEEDBACK_SHARED_SECRET`
+  is required despite the cookie fallback, since that fallback only covers
+  the browser path, not the headless-agent path the endpoint primarily
+  exists for.
 
 ## Tests
 - `cd adk/backend && npm test` — Jest + Supertest (mocks `storage.ts` and

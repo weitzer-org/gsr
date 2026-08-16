@@ -10,7 +10,7 @@
 // otherwise run the whole Action and call process.exit(1) in this test
 // environment. feedbackConfig.ts has no such side effect.
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { resolveFeedbackMinConfidence, resolveFeedbackMaxReplies, resolveFeedbackPostEnabled, feedbackPostMisconfigurationWarning } from '../src/feedbackConfig';
+import { resolveFeedbackMinConfidence, resolveFeedbackMaxReplies, resolveFeedbackPostEnabled, feedbackPostMisconfigurationWarning, resolveFeedbackReportConfig } from '../src/feedbackConfig';
 
 describe('resolveFeedbackMinConfidence', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -202,5 +202,50 @@ describe('feedbackPostMisconfigurationWarning', () => {
     expect(feedbackPostMisconfigurationWarning('off', false)).toBeUndefined();
     expect(feedbackPostMisconfigurationWarning('observe', false)).toBeUndefined();
     expect(feedbackPostMisconfigurationWarning('respond', false)).toBeUndefined();
+  });
+});
+
+// Phase 3 ("report") — mirrors maybeReportUsage's config resolution: no-ops
+// (returns null) unless BOTH env vars are set, same custody model as
+// usage-report-url/usage-report-key.
+describe('resolveFeedbackReportConfig', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+  });
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it('returns null when neither is set', () => {
+    delete process.env.FEEDBACK_REPORT_URL;
+    delete process.env.FEEDBACK_SHARED_SECRET;
+    expect(resolveFeedbackReportConfig()).toBeNull();
+  });
+
+  it('returns null when only the URL is set', () => {
+    process.env.FEEDBACK_REPORT_URL = 'https://gsr-code-review.fly.dev/api/findings/feedback';
+    delete process.env.FEEDBACK_SHARED_SECRET;
+    expect(resolveFeedbackReportConfig()).toBeNull();
+  });
+
+  it('returns null when only the key is set', () => {
+    delete process.env.FEEDBACK_REPORT_URL;
+    process.env.FEEDBACK_SHARED_SECRET = 'secret';
+    expect(resolveFeedbackReportConfig()).toBeNull();
+  });
+
+  it('returns the config when both are set', () => {
+    process.env.FEEDBACK_REPORT_URL = 'https://gsr-code-review.fly.dev/api/findings/feedback';
+    process.env.FEEDBACK_SHARED_SECRET = 'secret';
+    expect(resolveFeedbackReportConfig()).toEqual({
+      url: 'https://gsr-code-review.fly.dev/api/findings/feedback',
+      key: 'secret',
+    });
   });
 });

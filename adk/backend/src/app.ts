@@ -11,6 +11,8 @@ import { requireAuth, handleLogin, handleLogout } from './auth';
 import { isValidUsageIngestKey } from './usageIngestAuth';
 import { ingestUsageRecords, UsageRecord } from './usage';
 import { runFeedbackPass, escapeFeedbackResultForApiResponse } from './feedbackLoop';
+import { isValidFeedbackRequest } from './feedbackAuth';
+import { ingestFeedbackBody, listFeedbackFiles, getFeedbackRecordStream } from './feedback';
 
 const SYSTEM_PROMPTS_DIR = process.env.SYSTEM_PROMPTS_DIR || 'system_prompts';
 const BASIC_PROMPT_DIR = 'basic_prompt';
@@ -65,6 +67,41 @@ app.post(
       res.json({ status: 'ok', ...result });
     } catch (error: any) {
       console.error('Error ingesting usage records:', error);
+      res.status(500).json({ status: 'error', message: error.message || 'Internal server error' });
+    }
+  }
+);
+
+// Public-ish (either FEEDBACK_SHARED_SECRET header or a UI_PASSWORD session
+// cookie — see feedbackAuth.ts) — the general-purpose finding-feedback push
+// endpoint (finding-feedback-requirements.md §5, §6), and this repo's own
+// PR-comment-feedback-loop Phase 3 export sink (pr-comment-feedback-loop-
+// design.md §11: "the right sink... don't build a second one").
+//
+// Registered — with its own body parser — before the app-wide express.json()
+// below, same reasoning as /api/usage/ingest: the auth check runs ahead of
+// the parser, so an unauthenticated/wrong-key request is rejected before any
+// of its body is parsed. 200kb mirrors §5.4's overall-request-body cap
+// directly (not usage-ingest's bumped 2mb — a feedback submission is a few
+// short fields plus optional code snippets, not a full usage batch).
+app.post(
+  '/api/findings/feedback',
+  (req, res, next) => {
+    if (!isValidFeedbackRequest(req.header('X-Feedback-Key'), req.headers.cookie)) {
+      return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+    }
+    next();
+  },
+  express.json({ limit: '200kb' }),
+  async (req, res) => {
+    try {
+      const result = await ingestFeedbackBody(req.body);
+      if ('error' in result) {
+        return res.status(400).json({ status: 'error', message: result.error });
+      }
+      res.json({ status: 'ok', ...result });
+    } catch (error: any) {
+      console.error('Error ingesting finding feedback:', error);
       res.status(500).json({ status: 'error', message: error.message || 'Internal server error' });
     }
   }
@@ -420,6 +457,45 @@ app.get('/api/review/history/:id', async (req, res) => {
       .pipe(res);
   } catch (error: any) {
     console.error('Error initializing review history stream:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  }
+});
+
+// --- Finding Feedback API (read side) ---
+// Behind the existing session gate (requireAuth, above) — unlike the POST
+// route above, this needs no dedicated auth of its own (finding-feedback-
+// requirements.md §6: "auth via existing session"). Mirrors /api/review/
+// history's list+detail shape exactly.
+app.get('/api/findings/feedback', async (req, res) => {
+  try {
+    const files = await listFeedbackFiles();
+    files.sort((a, b) => new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime());
+    res.json(files);
+  } catch (error: any) {
+    console.error('Error fetching finding feedback list:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/findings/feedback/:id', async (req, res) => {
+  const fileId = req.params.id;
+
+  if (!/^[a-zA-Z0-9_.-]+$/.test(fileId) || fileId.includes('..') || !fileId.startsWith('feedback_')) {
+    return res.status(400).json({ error: 'Invalid file ID format.' });
+  }
+
+  try {
+    const stream = await getFeedbackRecordStream(fileId);
+
+    res.setHeader('Content-Type', 'application/json');
+    stream
+      .on('error', (error: Error) => {
+        console.error('Error streaming finding feedback file:', error);
+        if (!res.headersSent) res.status(500).json({ error: error.message });
+      })
+      .pipe(res);
+  } catch (error: any) {
+    console.error('Error initializing finding feedback stream:', error);
     if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 });

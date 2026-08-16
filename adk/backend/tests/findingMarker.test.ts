@@ -195,29 +195,41 @@ describe('sanitizeForComment', () => {
     });
 
     it('terminates (does not hang) on a long run of nested delimiters', () => {
-      const pathological = '<!'.repeat(200) + '-->'.repeat(200);
+      // Self-review finding: ending the trailing block with full "-->"
+      // sequences (as this used to) lets a single global regex pass remove
+      // ALL of them at once — they're already fully-formed and don't need
+      // cascading. Ending with bare "--" instead means each removal only
+      // exposes exactly one new "<!--" at the boundary, forcing genuine
+      // one-at-a-time cascading — verified empirically that this
+      // distinction is exactly what separates a 2-iteration false pass from
+      // an N-iteration real regression test against the old buggy algorithm.
+      const pathological = '<!'.repeat(200) + '--'.repeat(200);
       expect(() => sanitizeForComment(pathological)).not.toThrow();
     });
 
     it('fully collapses a fully-nested run down to nothing but the mention-escaping pass', () => {
-      const pathological = '<!'.repeat(200) + '-->'.repeat(200);
+      const pathological = '<!'.repeat(200) + '--'.repeat(200);
       const out = sanitizeForComment(pathological);
       expect(out).not.toContain('<!--');
       expect(out).not.toContain('-->');
     });
 
-    it('does not regress to O(N²) on ~250KB of adversarial nested input ' +
+    it('does not regress to O(N²) on ~200KB of adversarial nested input ' +
        '(self-review finding, repeated: manual wall-clock ratio measurements — even relative-scaling ones — ' +
        'are exactly the kind of assertion that can flake on a loaded CI runner. This drops timing measurement ' +
        'entirely: run a size the O(N) algorithm finishes near-instantly, but a regression back to O(N²) would ' +
-       "take many seconds on (see this file's git history for the measured scaling of the old approach) — and " +
-       "let Jest's own test timeout be the regression guard instead of an in-test clock reading.", () => {
-      // ~50k repeats ≈ 250KB — comfortably fast (low milliseconds) under
-      // the current O(N) algorithm; would take multiple seconds under the
-      // O(N²) approach this replaced, based on that approach's measured
-      // scaling (~725ms at 288KB in the commit that fixed it, and O(N²)
-      // means roughly proportional-to-input-squared beyond that).
-      const pathological = '<!'.repeat(50_000) + '-->'.repeat(50_000);
+       "take multiple seconds — and let Jest's own test timeout be the regression guard instead of an in-test " +
+       'clock reading.', () => {
+      // Self-review finding: ending the trailing block with full "-->"
+      // sequences instead of bare "--" let a single global regex pass
+      // remove all of them at once, so the OLD buggy algorithm only needed
+      // 2 fixed-point iterations regardless of N — this test would have
+      // passed just as fast on the buggy version, defeating its entire
+      // purpose. Bare "--" forces one-at-a-time cascading: measured
+      // directly, the old algorithm takes ~23.5s at N=50,000 on this
+      // corrected input, against ~50ms for the current O(N) one — decisively
+      // distinct, and the explicit 3s timeout below sits well between them.
+      const pathological = '<!'.repeat(50_000) + '--'.repeat(50_000);
       const out = sanitizeForComment(pathological);
       expect(out).not.toContain('<!--');
       expect(out).not.toContain('-->');

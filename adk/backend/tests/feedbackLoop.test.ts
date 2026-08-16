@@ -369,6 +369,15 @@ describe('runFeedbackPass', () => {
       expect(cells).toHaveLength(6); // leading/trailing empty strings from the outer pipes + 4 cells
     });
 
+    it('collapses a standalone "\\r" (not just "\\r\\n"/"\\n") to a space (self-review finding: CommonMark ' +
+       'treats a lone \\r as a line ending too, which the old \\r?\\n pattern missed)', () => {
+      const md = formatFeedbackSummaryMarkdown(resultWith('line one\rline two', 'Security', 'a-dev'));
+      const dataRow = md.split('\n').find(l => l.startsWith('| line one'));
+      expect(dataRow).toBeDefined();
+      expect(dataRow).toContain('line one line two');
+      expect(dataRow).not.toContain('\r');
+    });
+
     it('escapes "|" in the severity field too (self-review finding: defense-in-depth, ' +
        'even though severity is enum-constrained by the Gemini schema on every path that produces it today)', () => {
       const result: FeedbackPassResult = {

@@ -351,7 +351,11 @@ function escapeMarkdownTableCell(value: string): string {
   // UNESCAPED pipe, which is a real column separator again. Escaping
   // existing backslashes FIRST (so "\|" becomes "\\\|", correctly pairing
   // into an escaped backslash plus an escaped pipe) closes that bypass.
-  return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  // Self-review finding: \r?\n normalizes \r\n and \n, but CommonMark treats
+  // a standalone \r as a line-ending too — a stray one (possible from some
+  // LLM/API/legacy-environment output) would still break the table row.
+  // [\r\n]+ squashes any run of either character to a single space.
+  return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
 }
 
 export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): string {

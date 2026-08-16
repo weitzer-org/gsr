@@ -718,8 +718,19 @@ function appendAdjudicationSections(lines: string[], findings: FeedbackFindingRe
     lines.push('');
     lines.push(`### Would post (${wouldPost.length}) — dry run, nothing was actually sent`);
     for (const { finding, reply } of wouldPost) {
-      const label = escapeHtmlEntities(finding.summary ? escapeMarkdownTableCell(finding.summary) : finding.findingId);
-      const author = escapeHtmlEntities(escapeMarkdownTableCell(reply.author));
+      // PR #61 self-review + CodeRabbit finding (independently flagged
+      // twice): escapeMarkdownTableCell is for a Markdown TABLE cell — its
+      // pipe-escaping (`|` → `\|`) is meaningless here, since `label` and
+      // `author` render inside a raw <summary> HTML tag, not a table row.
+      // Applying it anyway made a literal "|" in a finding summary show up
+      // as a visible backslash to the reader ("Use A \| B"). Newlines are
+      // still collapsed for `label` (finding.summary is LLM-generated free
+      // text; a raw embedded newline would split what's meant to be one
+      // <summary> line across several, breaking the block) — `author` is a
+      // GitHub login, which can't contain a newline by construction, so it
+      // doesn't need that defense.
+      const label = escapeHtmlEntities((finding.summary || finding.findingId).replace(/[\r\n]+/g, ' '));
+      const author = escapeHtmlEntities(reply.author);
       lines.push('');
       lines.push(`<details><summary>${label} — reply from ${author} (confidence ${reply.adjudication!.confidence.toFixed(2)})</summary>`);
       lines.push('');

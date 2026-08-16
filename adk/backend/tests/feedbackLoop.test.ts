@@ -760,6 +760,25 @@ describe('runFeedbackPass', () => {
       expect(md).toContain(rebuttal);
     });
 
+    it('does not show a visible backslash for a literal "|" in the finding summary within the <summary> line ' +
+       '(PR #61 self-review + CodeRabbit finding, independently flagged twice: escapeMarkdownTableCell\'s ' +
+       'pipe-escaping is for a Markdown table cell, meaningless — and visibly wrong — inside a raw <summary> tag)', () => {
+      const md = formatFeedbackSummaryMarkdown({
+        mode: 'respond', skipped: false, threadsScanned: 1, repliesClassified: 1, repliesAdjudicated: 1,
+        findings: [{
+          findingId: 'abc123def4567890', threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
+          agent: 'Logic', severity: 'HIGH', summary: 'Use A | B instead',
+          replies: [{
+            commentId: 2, author: 'a-dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
+            adjudication: { verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands', rebuttalMarkdown: 'x', wouldPost: true },
+          }],
+        }],
+      });
+      const wouldPostSection = md.slice(md.indexOf('### Would post'));
+      expect(wouldPostSection).toContain('Use A | B instead');
+      expect(wouldPostSection).not.toContain('Use A \\| B instead');
+    });
+
     // CodeRabbit finding (this PR's own /security-review pass flagged the
     // same gap but initially left it as documented residual risk — wrong
     // call, since a misleading Job Summary undermines the human-review gate

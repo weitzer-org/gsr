@@ -283,7 +283,10 @@ export class GitHubClient {
           confidence = marker.confidence;
         }
       } else {
-        maxRound = Math.max(maxRound, Number.MAX_SAFE_INTEGER);
+        // PR #61 self-review finding: Math.max against MAX_SAFE_INTEGER is
+        // always MAX_SAFE_INTEGER regardless of the other operand — a direct
+        // assignment says the same thing without the pointless call.
+        maxRound = Number.MAX_SAFE_INTEGER;
         maxAck = Math.max(maxAck, c.id);
       }
     }

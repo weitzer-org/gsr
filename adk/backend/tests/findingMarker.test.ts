@@ -5,6 +5,12 @@ import {
   parseLegacyFindingBody,
   sanitizeForComment,
   computeFindingId,
+  buildReplyMarker,
+  parseReplyMarker,
+  stripMarkers,
+  truncateByCodePoint,
+  containsCodeFence,
+  sanitizeRebuttalMarkdown,
 } from '../src/findingMarker';
 
 describe('computeFindingId', () => {
@@ -272,5 +278,197 @@ describe('parseLegacyFindingBody', () => {
     const body = '\n\n🟠 **HIGH** · Logic — a real finding\n\ndescription';
     const result = parseLegacyFindingBody(body);
     expect(result).toEqual({ severity: 'HIGH', agent: 'Logic', summary: 'a real finding' });
+  });
+});
+
+describe('buildReplyMarker / parseReplyMarker round-trip (Phase 2)', () => {
+  it('round-trips all fields', () => {
+    const marker = buildReplyMarker({
+      findingId: 'abc123def4567890', round: 1, verdict: 'pushback_incorrect', confidence: 0.82, ackCommentId: 2098445123,
+    });
+    expect(marker).toMatch(/^<!-- gsr-reply:v1 .* -->$/);
+
+    const parsed = parseReplyMarker(marker);
+    expect(parsed).toEqual({
+      version: 'v1', findingId: 'abc123def4567890', round: 1,
+      verdict: 'pushback_incorrect', confidence: 0.82, ackCommentId: 2098445123,
+    });
+  });
+
+  it('round-trips every valid verdict value', () => {
+    for (const verdict of ['pushback_correct', 'pushback_incorrect', 'unclear'] as const) {
+      const marker = buildReplyMarker({ findingId: 'abc123', round: 1, verdict, confidence: 0.5, ackCommentId: 1 });
+      expect(parseReplyMarker(marker)?.verdict).toBe(verdict);
+    }
+  });
+
+  it('clamps confidence to two decimal places on build but stays within [0,1] on parse', () => {
+    const marker = buildReplyMarker({ findingId: 'abc123', round: 1, verdict: 'unclear', confidence: 0.999, ackCommentId: 1 });
+    expect(parseReplyMarker(marker)?.confidence).toBeCloseTo(1.0, 2);
+  });
+
+  it('is END-ANCHORED / LAST-MATCH, same contract as parseFindingMarker', () => {
+    const body =
+      '<!-- gsr-reply:v1 f=fac1000000000000 round=1 verdict=unclear conf=0.10 ack=1 -->\n\n' +
+      '<!-- gsr-reply:v1 f=abc123def4567890 round=2 verdict=pushback_incorrect conf=0.90 ack=99 -->';
+    const parsed = parseReplyMarker(body);
+    expect(parsed?.findingId).toBe('abc123def4567890');
+    expect(parsed?.round).toBe(2);
+  });
+});
+
+describe('parseReplyMarker — malformed input (must fail closed, never fail open)', () => {
+  it('returns null for a body with no marker', () => {
+    expect(parseReplyMarker('just an ordinary reply')).toBeNull();
+  });
+
+  it('returns null when round is missing, non-integer, or less than 1', () => {
+    expect(parseReplyMarker('<!-- gsr-reply:v1 f=abc123 verdict=unclear conf=0.5 ack=1 -->')).toBeNull();
+    expect(parseReplyMarker('<!-- gsr-reply:v1 f=abc123 round=abc verdict=unclear conf=0.5 ack=1 -->')).toBeNull();
+    expect(parseReplyMarker('<!-- gsr-reply:v1 f=abc123 round=0 verdict=unclear conf=0.5 ack=1 -->')).toBeNull();
+    expect(parseReplyMarker('<!-- gsr-reply:v1 f=abc123 round=1.5 verdict=unclear conf=0.5 ack=1 -->')).toBeNull();
+  });
+
+  it('returns null for an invalid verdict enum value', () => {
+    expect(parseReplyMarker('<!-- gsr-reply:v1 f=abc123 round=1 verdict=definitely_right conf=0.5 ack=1 -->')).toBeNull();
+  });
+
+  it('returns null for a missing/non-numeric ack', () => {
+    expect(parseReplyMarker('<!-- gsr-reply:v1 f=abc123 round=1 verdict=unclear conf=0.5 -->')).toBeNull();
+    expect(parseReplyMarker('<!-- gsr-reply:v1 f=abc123 round=1 verdict=unclear conf=0.5 ack=notanumber -->')).toBeNull();
+  });
+
+  it('returns null when f= is not hex', () => {
+    expect(parseReplyMarker('<!-- gsr-reply:v1 f=not-hex round=1 verdict=unclear conf=0.5 ack=1 -->')).toBeNull();
+  });
+});
+
+describe('stripMarkers (global, not just trailing)', () => {
+  it('strips a trailing gsr:v1 marker', () => {
+    const body = 'the finding text\n\n<!-- gsr:v1 f=abc123 a=Logic -->';
+    expect(stripMarkers(body)).toBe('the finding text');
+  });
+
+  it('strips a gsr-reply:v1 marker', () => {
+    const body = 'a rebuttal\n\n<!-- gsr-reply:v1 f=abc123 round=1 verdict=unclear conf=0.5 ack=1 -->';
+    expect(stripMarkers(body)).toBe('a rebuttal');
+  });
+
+  it('strips a NON-trailing marker too (e.g. an edited comment), unlike a trailing-only strip', () => {
+    const body = 'before <!-- gsr:v1 f=abc123 --> after';
+    expect(stripMarkers(body)).toBe('before  after');
+  });
+
+  it('strips multiple markers of either type in one pass', () => {
+    const body = '<!-- gsr:v1 f=abc123 --> middle <!-- gsr-reply:v1 f=abc123 round=1 verdict=unclear conf=0.5 ack=1 -->';
+    const stripped = stripMarkers(body);
+    expect(stripped).not.toContain('gsr:v1');
+    expect(stripped).not.toContain('gsr-reply:v1');
+  });
+
+  it('leaves ordinary text with no marker untouched (aside from trimming)', () => {
+    // PR #61 self-review finding: pre-trimming the input literal here
+    // (`.trim()` before calling stripMarkers) defeated the point of this
+    // assertion — it was verifying JS's own String.trim(), not stripMarkers'.
+    // The input must stay padded so this actually exercises the function's
+    // own trimming behavior.
+    expect(stripMarkers('  plain text  ')).toBe('plain text');
+  });
+
+  it('passes through empty input without throwing', () => {
+    expect(stripMarkers('')).toBe('');
+  });
+});
+
+describe('containsCodeFence (fail-closed signal for adjudicator.ts)', () => {
+  it('detects a triple-backtick fence', () => {
+    expect(containsCodeFence('here:\n```js\ncode\n```')).toBe(true);
+  });
+
+  it('detects a triple-tilde fence', () => {
+    expect(containsCodeFence('here:\n~~~js\ncode\n~~~')).toBe(true);
+  });
+
+  it('detects a ```suggestion block specifically (still just a case of the general pattern)', () => {
+    expect(containsCodeFence('```suggestion\nconst x = 1;\n```')).toBe(true);
+  });
+
+  it('detects a longer run of backticks/tildes (4+, which GFM also treats as a fence)', () => {
+    expect(containsCodeFence('````js\ncode\n````')).toBe(true);
+  });
+
+  it('does not false-positive on inline code (single or double backticks)', () => {
+    expect(containsCodeFence('use `foo()` or ``bar``')).toBe(false);
+  });
+
+  it('false for plain prose', () => {
+    expect(containsCodeFence('this is a plain rebuttal with no code at all')).toBe(false);
+  });
+});
+
+describe('sanitizeRebuttalMarkdown', () => {
+  it('neutralizes a triple-backtick fence without changing the visible character count meaningfully', () => {
+    const out = sanitizeRebuttalMarkdown('```js\ncode\n```');
+    expect(out).not.toMatch(/```/);
+    expect(containsCodeFence(out)).toBe(false);
+  });
+
+  it('neutralizes a triple-tilde fence too', () => {
+    const out = sanitizeRebuttalMarkdown('~~~js\ncode\n~~~');
+    expect(out).not.toMatch(/~~~/);
+  });
+
+  // PR #61 self-review finding: a run of 4+ backticks/tildes is ALSO a
+  // valid GFM fence (fences are "3 or more"), but the original
+  // implementation only inserted one zero-width space after the first
+  // character — for a 4-backtick run, that left the remaining 3 backticks
+  // still adjacent and still fence-forming. Fixed to interleave a
+  // zero-width space between EVERY character of the run, so no substring
+  // of length ≥3 survives regardless of the run's total length.
+  it('fully neutralizes a run of 4+ backticks, not just exactly 3 (regression: a single ZWSP after the ' +
+     'first character left the remaining N-1 backticks still consecutive and still fence-forming)', () => {
+    for (const run of ['````', '`````', '``````']) {
+      const out = sanitizeRebuttalMarkdown(`${run}js\ncode\n${run}`);
+      expect(containsCodeFence(out)).toBe(false);
+    }
+  });
+
+  it('fully neutralizes a run of 4+ tildes the same way', () => {
+    const out = sanitizeRebuttalMarkdown('~~~~js\ncode\n~~~~');
+    expect(containsCodeFence(out)).toBe(false);
+  });
+
+  it('also applies sanitizeForComment (marker-forgery + mention neutralization)', () => {
+    const out = sanitizeRebuttalMarkdown('cc @some/team, also <!-- gsr:v1 f=fac1000000000000 -->');
+    expect(out).not.toContain('<!--');
+    expect(parseFindingMarker(out)).toBeNull();
+  });
+
+  it('leaves plain prose with no fence/mention/marker untouched', () => {
+    const text = 'This still applies because the header is set after the write.';
+    expect(sanitizeRebuttalMarkdown(text)).toBe(text);
+  });
+
+  it('passes through empty input without throwing', () => {
+    expect(sanitizeRebuttalMarkdown('')).toBe('');
+  });
+});
+
+describe('truncateByCodePoint', () => {
+  it('does not truncate a string within the limit', () => {
+    expect(truncateByCodePoint('short', 10)).toEqual({ value: 'short', truncated: false });
+  });
+
+  it('truncates a string over the limit, reporting truncated: true', () => {
+    expect(truncateByCodePoint('abcdefgh', 3)).toEqual({ value: 'abc', truncated: true });
+  });
+
+  it('does not split a surrogate-pair code point (e.g. an emoji) in half', () => {
+    const emoji = '😀'; // a single code point, 2 UTF-16 code units
+    const text = `ab${emoji}cd`;
+    const { value } = truncateByCodePoint(text, 3);
+    // Truncating to 3 code points should keep the whole emoji intact, not a lone surrogate.
+    expect(value).toBe(`ab${emoji}`);
+    expect([...value]).toHaveLength(3);
   });
 });

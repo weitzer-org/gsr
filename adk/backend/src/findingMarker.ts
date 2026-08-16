@@ -15,7 +15,7 @@
 // untrusted comment as authoritative.
 
 import { createHash } from 'crypto';
-import { CandidateFinding } from './types';
+import { CandidateFinding, AdjudicationVerdict } from './types';
 
 export interface FindingMarker {
   version: 'v1';
@@ -30,6 +30,21 @@ export interface LegacyFindingInfo {
   severity: string;
   agent?: string;
   summary: string;
+}
+
+// ReplyMarker is Phase 2's counterpart to FindingMarker (design doc §4.1,
+// §6.1) — appended to GSR's own rebuttal reply so a later run can recover
+// round/verdict/confidence/ack without any persistence. `round` starts at 1;
+// `ack` is the id of the newest developer reply GSR had seen when it spoke,
+// which is how "has GSR already answered this specific reply" gets a
+// precise, stateless answer (design doc §4.1's table).
+export interface ReplyMarker {
+  version: 'v1';
+  findingId: string;
+  round: number;
+  verdict: AdjudicationVerdict;
+  confidence: number;
+  ackCommentId: number;
 }
 
 // --- findingId ---
@@ -133,6 +148,80 @@ export function sanitizeForComment(text: string): string {
   return out;
 }
 
+// --- Phase 2 additions: rebuttal-text handling and code-point-safe truncation ---
+//
+// truncateByCodePoint moved here from feedbackLoop.ts (Phase 1) because
+// adjudicator.ts now needs the exact same code-point-safe truncation for
+// `reasoning`/`rebuttalMarkdown` \u2014 a plain .slice() can cut a surrogate pair
+// in half (e.g. an emoji), leaving a lone/invalid surrogate in the output.
+// Kept as one implementation rather than a second copy of an already-fixed
+// bug class.
+export function truncateByCodePoint(text: string, maxLen: number): { value: string; truncated: boolean } {
+  // PR #61 self-review finding: `text.length` (UTF-16 code units) is always
+  // >= the actual code-point count (a surrogate pair contributes 2 code
+  // units for 1 code point), so it's a safe upper bound — if it already
+  // fits within maxLen, no truncation could possibly be needed, and the
+  // per-character iteration below (one short-string allocation per
+  // code point) can be skipped entirely. This is the common case for most
+  // reply/finding text, so the fast path matters in practice, not just in
+  // the worst case.
+  if (text.length <= maxLen) return { value: text, truncated: false };
+
+  let count = 0;
+  let index = 0;
+  for (const ch of text) {
+    if (count === maxLen) return { value: text.slice(0, index), truncated: true };
+    index += ch.length; // 1 normally, 2 for a surrogate-pair code point
+    count++;
+  }
+  return { value: text, truncated: false };
+}
+
+// containsCodeFence detects a Markdown fenced code block (3+ backticks OR
+// 3+ tildes \u2014 GFM supports both) in RAW, unsanitized adjudicator output.
+// Used as a fail-closed signal in adjudicator.ts: if the model emitted a
+// fence despite the prompt explicitly forbidding one, that is itself
+// evidence of misbehavior or injection, so the caller forces the verdict to
+// `unclear` rather than trusting a sanitized-but-still-suspicious response.
+// This is checked on the RAW text, before neutralizeFences() below ever
+// touches it, so sanitization can't hide the signal from the caller.
+export function containsCodeFence(text: string): boolean {
+  return /[`~]{3,}/.test(text || '');
+}
+
+// neutralizeFences breaks up any run of 3+ backticks or 3+ tildes \u2014 the
+// same technique sanitizeForComment already uses for `@mentions`. This is
+// deliberately blanket (not scoped to ```suggestion specifically): GFM
+// tolerates leading-space indentation, info-string whitespace, fences
+// inside blockquotes, and casing quirks, so pattern-matching only the
+// exploitable ```suggestion form is a parser-differential game that's easy
+// to lose. Categorically preventing GSR's bot identity from ever rendering
+// ANY fenced code block in an argumentative rebuttal \u2014 not just GitHub's
+// "Apply suggestion"-triggering one \u2014 is simpler and strictly safer.
+//
+// PR #61 self-review finding: inserting a SINGLE zero-width space (after
+// the first character only) only neutralizes a run of EXACTLY 3 \u2014 a run of
+// 4+ (e.g. "````") left `seq.slice(1)` as 3 still-consecutive backticks,
+// still a valid fence GFM would render. A fence is any run of 3-OR-MORE, so
+// neutralizing it requires breaking every adjacent pair, not just the
+// first one: interleave a zero-width space between EVERY character so no
+// substring of length \u22653 (or even \u22652 wouldn't matter, but \u22653 is the
+// relevant threshold) survives intact, regardless of the run's length.
+const FENCE_RUN_PATTERN = /[`~]{3,}/g;
+function neutralizeFences(text: string): string {
+  return text.replace(FENCE_RUN_PATTERN, (seq) => seq.split('').join('\u200B'));
+}
+
+// sanitizeRebuttalMarkdown is the rebuttal-specific sibling of
+// sanitizeForComment \u2014 applied to `rebuttalMarkdown` (adjudicator.ts)
+// specifically for the "Apply suggestion" one-click-code-execution risk
+// (design doc \u00A79), in addition to (not instead of) the marker-forgery/
+// mention-ping hazards sanitizeForComment already covers.
+export function sanitizeRebuttalMarkdown(text: string): string {
+  if (!text) return text;
+  return sanitizeForComment(neutralizeFences(text));
+}
+
 // --- Marker build/parse ---
 
 function encodeField(value: string): string {
@@ -221,6 +310,103 @@ export function parseFindingMarker(body: string): FindingMarker | null {
     if (parsed) lastValid = parsed;
   }
   return lastValid;
+}
+
+// --- Reply marker build/parse (Phase 2) ---
+
+const VALID_VERDICTS = new Set<AdjudicationVerdict>(['pushback_correct', 'pushback_incorrect', 'unclear']);
+
+// buildReplyMarker renders the marker appended to every rebuttal GSR posts.
+// Callers must sanitize/truncate the reply BODY before appending this (same
+// last-appended-wins contract as buildFindingMarker) — this function only
+// renders the marker's own fields, all percent-encoded per encodeField.
+export function buildReplyMarker(marker: Omit<ReplyMarker, 'version'>): string {
+  const parts = [
+    `f=${encodeField(marker.findingId)}`,
+    `round=${marker.round}`,
+    `verdict=${encodeField(marker.verdict)}`,
+    `conf=${marker.confidence.toFixed(2)}`,
+    `ack=${marker.ackCommentId}`,
+  ];
+  return `<!-- gsr-reply:v1 ${parts.join(' ')} -->`;
+}
+
+function parseReplyMarkerFields(raw: string): ReplyMarker | null {
+  const fields: Record<string, string> = {};
+  for (const token of raw.trim().split(/\s+/)) {
+    if (!token) continue;
+    const eq = token.indexOf('=');
+    if (eq <= 0) continue;
+    const key = token.slice(0, eq);
+    fields[key] = decodeField(token.slice(eq + 1));
+  }
+
+  if (!fields.f || !/^[0-9a-f]+$/i.test(fields.f)) return null;
+
+  const round = Number(fields.round);
+  if (!Number.isInteger(round) || round < 1) return null;
+
+  if (!fields.verdict || !VALID_VERDICTS.has(fields.verdict as AdjudicationVerdict)) return null;
+
+  // PR #61 self-review finding: Number('') is 0, a finite, valid-looking
+  // integer — so a truncated/malformed marker with an empty `conf=` or
+  // `ack=` token would otherwise silently coerce to 0 and pass validation,
+  // rather than being rejected as the malformed field it actually is.
+  // `round`'s own `< 1` check already catches this for that field (0 fails
+  // it), but conf/ack both accept 0 as a legitimate value, so they need an
+  // explicit presence check first.
+  if (!fields.conf) return null;
+  const confidence = Number(fields.conf);
+  if (!Number.isFinite(confidence)) return null;
+
+  if (!fields.ack) return null;
+  const ackCommentId = Number(fields.ack);
+  if (!Number.isInteger(ackCommentId) || ackCommentId < 0) return null;
+
+  return {
+    version: 'v1',
+    findingId: fields.f,
+    round,
+    verdict: fields.verdict as AdjudicationVerdict,
+    confidence: Math.max(0, Math.min(1, confidence)),
+    ackCommentId,
+  };
+}
+
+// parseReplyMarker mirrors parseFindingMarker exactly: end-anchored /
+// last-match-wins, restricted to a `[^<>]` capture group for the same O(N)
+// ReDoS-safety reason. Returns null on ANY malformed field OR when there is
+// no marker at all — callers must NOT treat a null result as "GSR never
+// replied here" (that would be fail-OPEN: a format drift or parser bug
+// would silently re-enable a second rebuttal). github.ts's
+// deriveGsrLastReply treats every null uniformly — a trusted-login reply
+// with no marker and one with a broken marker both fail closed the same
+// way, so no separate presence-only check is needed here.
+export function parseReplyMarker(body: string): ReplyMarker | null {
+  if (!body) return null;
+  const pattern = /<!--\s*gsr-reply:v1\s+([^<>]*?)-->/g;
+  let match: RegExpExecArray | null;
+  let lastValid: ReplyMarker | null = null;
+  while ((match = pattern.exec(body)) !== null) {
+    const parsed = parseReplyMarkerFields(match[1]);
+    if (parsed) lastValid = parsed;
+  }
+  return lastValid;
+}
+
+// stripMarkers removes every gsr:v1 / gsr-reply:v1 marker comment from a
+// body, GLOBALLY — not just a trailing one. A GSR-authored body has its
+// marker trailing by construction (formatFindingBody / the reply builder
+// always append it last), but an edited comment might not, and this is
+// used to build clean context for the adjudicator prompt (design doc §8.3
+// item 1: "description and suggestion from the root comment body") — a
+// stray non-trailing marker fragment leaking into that context costs
+// nothing to also strip. Same restricted [^<>] capture group as the parsers
+// above, for the same ReDoS-safety reason.
+const MARKER_STRIP_PATTERN = /<!--\s*gsr(?:-reply)?:v1\s+[^<>]*?-->/g;
+export function stripMarkers(body: string): string {
+  if (!body) return body;
+  return body.replace(MARKER_STRIP_PATTERN, '').trim();
 }
 
 // --- Legacy (pre-marker) findings ---

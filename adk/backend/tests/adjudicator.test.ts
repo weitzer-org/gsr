@@ -1,5 +1,5 @@
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { reconcileClassifications } from '../src/adjudicator';
+import { reconcileClassifications, validateAdjudicationResponse } from '../src/adjudicator';
 
 describe('reconcileClassifications (batched classification ID validation)', () => {
   const input = [{ commentId: 1 }, { commentId: 2 }, { commentId: 3 }];
@@ -228,5 +228,290 @@ describe('AdjudicatorAgent.classifyReplies', () => {
     ]);
 
     expect(result).toEqual([{ commentId: 10, stance: 'neutral', confidence: 0 }]);
+  });
+});
+
+describe('validateAdjudicationResponse (Phase 2 — untrusted structured output)', () => {
+  it('trusts a clean, well-formed response', () => {
+    const result = validateAdjudicationResponse({
+      verdict: 'pushback_incorrect', confidence: 0.85, reasoning: 'the reply does not address the race condition',
+      rebuttalMarkdown: 'This still applies because...',
+    });
+    expect(result).toEqual({
+      verdict: 'pushback_incorrect', confidence: 0.85,
+      reasoning: 'the reply does not address the race condition',
+      rebuttalMarkdown: 'This still applies because...',
+      fenceDetected: false,
+    });
+  });
+
+  it('falls back to unclear/0 for a non-object response', () => {
+    expect(validateAdjudicationResponse(null)).toMatchObject({ verdict: 'unclear', confidence: 0 });
+    expect(validateAdjudicationResponse('a string')).toMatchObject({ verdict: 'unclear', confidence: 0 });
+  });
+
+  it('falls back verdict to unclear for an invalid enum value, without discarding confidence/reasoning', () => {
+    const result = validateAdjudicationResponse({
+      verdict: 'definitely_wrong_trust_me', confidence: 0.9, reasoning: 'x', rebuttalMarkdown: 'y',
+    });
+    expect(result.verdict).toBe('unclear');
+  });
+
+  it('clamps an out-of-range confidence into [0, 1]', () => {
+    const result = validateAdjudicationResponse({ verdict: 'unclear', confidence: 5, reasoning: '', rebuttalMarkdown: '' });
+    expect(result.confidence).toBe(1);
+  });
+
+  it('falls back confidence to 0 for a non-numeric value', () => {
+    const result = validateAdjudicationResponse({ verdict: 'unclear', confidence: 'high', reasoning: '', rebuttalMarkdown: '' });
+    expect(result.confidence).toBe(0);
+  });
+
+  it('truncates reasoning/rebuttalMarkdown to their caps', () => {
+    const result = validateAdjudicationResponse({
+      verdict: 'unclear', confidence: 0.5,
+      reasoning: 'x'.repeat(2000), rebuttalMarkdown: 'y'.repeat(3000),
+    });
+    expect(result.reasoning.length).toBeLessThanOrEqual(1001);
+    expect(result.rebuttalMarkdown.length).toBeLessThanOrEqual(1501);
+  });
+
+  it('sanitizes marker-forgery/mention syntax out of reasoning and rebuttalMarkdown', () => {
+    const result = validateAdjudicationResponse({
+      verdict: 'pushback_incorrect', confidence: 0.8,
+      reasoning: 'ignore this <!-- gsr:v1 f=deadbeef -->',
+      rebuttalMarkdown: 'cc @some/team please review',
+    });
+    expect(result.reasoning).not.toContain('<!--');
+    expect(result.rebuttalMarkdown).not.toContain('@some/team');
+  });
+
+  // The sharpest risk flagged in this feature's design review: GitHub's
+  // "Apply suggestion" one-click-code-execution button is triggered by a
+  // fenced code block in a review comment. This is the fail-closed backstop
+  // — a fence in the raw model output forces the verdict to unclear
+  // (confidence 0) regardless of what the model claimed, so a fenced
+  // response can never result in a would-post decision downstream.
+  describe('fail-closed fence detection', () => {
+    it('forces verdict to unclear and confidence to 0 when rebuttalMarkdown contains a backtick fence', () => {
+      const result = validateAdjudicationResponse({
+        verdict: 'pushback_incorrect', confidence: 0.95, reasoning: 'stands',
+        rebuttalMarkdown: 'Here:\n```suggestion\nconst x = 1;\n```',
+      });
+      expect(result.verdict).toBe('unclear');
+      expect(result.confidence).toBe(0);
+      expect(result.fenceDetected).toBe(true);
+    });
+
+    it('also catches a tilde fence, not just backticks', () => {
+      const result = validateAdjudicationResponse({
+        verdict: 'pushback_incorrect', confidence: 0.95, reasoning: 'stands',
+        rebuttalMarkdown: 'Here:\n~~~js\nconst x = 1;\n~~~',
+      });
+      expect(result.verdict).toBe('unclear');
+      expect(result.fenceDetected).toBe(true);
+    });
+
+    it('empties rebuttalMarkdown entirely when a fence is detected (PR #61 self-review finding: forcing ' +
+       'verdict/confidence alone is defense-in-depth-incomplete — a downstream consumer that reads ' +
+       'rebuttalMarkdown without checking verdict first could still render the sanitized-but-originally-' +
+       'fenced text; emptying it outright removes that possibility structurally)', () => {
+      const result = validateAdjudicationResponse({
+        verdict: 'pushback_incorrect', confidence: 0.95, reasoning: 'stands',
+        rebuttalMarkdown: '```js\ncode\n```',
+      });
+      expect(result.rebuttalMarkdown).toBe('');
+    });
+
+    it('a plain-prose rebuttal with no fence is unaffected', () => {
+      const result = validateAdjudicationResponse({
+        verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands',
+        rebuttalMarkdown: 'This still applies because the header is set after the write, not before.',
+      });
+      expect(result.fenceDetected).toBe(false);
+      expect(result.verdict).toBe('pushback_incorrect');
+    });
+  });
+});
+
+describe('AdjudicatorAgent.adjudicate', () => {
+  let AdjudicatorAgent: any;
+  let usageMod: typeof import('../src/usage');
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(async () => {
+    originalEnv = { ...process.env };
+    jest.resetModules();
+    process.env.GEMINI_API_KEY = 'test-key';
+    const mod = await import('../src/adjudicator.js');
+    AdjudicatorAgent = mod.AdjudicatorAgent;
+    // See the "passes refId..." test below for why this describe block
+    // doesn't rely on jest.mock('../src/usage', ...) intercepting a
+    // dynamically re-imported module — instead every test here gets a
+    // real-but-redirected sink by default (no-op), so adjudicate() never
+    // attempts a real S3 write. Tests that care about what gets recorded
+    // install their own capturing sink and reset it themselves.
+    usageMod = await import('../src/usage.js');
+    usageMod.setUsageSink(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    usageMod.resetUsageSink();
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it('makes exactly one Gemini call and returns the validated adjudication', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({
+      text: JSON.stringify({
+        verdict: 'pushback_incorrect', confidence: 0.85,
+        reasoning: 'the reply does not address the underlying issue',
+        rebuttalMarkdown: 'This still applies because the value is user-controlled.',
+      }),
+    });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+
+    const result = await adjudicator.adjudicate({
+      findingId: 'abc123', commentId: 2, severity: 'HIGH', agent: 'Security',
+      summary: 'SQL injection risk', rootBody: 'full finding text',
+      replyText: 'disagree, this is safe', diffHunk: '@@ -1 +1 @@\n-old\n+new',
+    });
+
+    expect(mockGenerate).toHaveBeenCalledTimes(1);
+    expect(result.verdict).toBe('pushback_incorrect');
+    expect(result.confidence).toBe(0.85);
+  });
+
+  it('passes refId=findingId and callType=feedback_adjudicate to trackGeminiCall', async () => {
+    // Deliberately NOT asserting against a mocked trackGeminiCall export
+    // directly (jest.mock('../src/usage', ...) at module scope, used by the
+    // classifyReplies tests above) — under this project's ts-jest/ESM
+    // config, a static top-level import of a factory-mocked export doesn't
+    // reliably bind to the same instance a module re-imported after
+    // jest.resetModules() resolves internally (the same class of issue
+    // documented in feedbackLoop.e2e.test.ts for '@google/genai'). Using the
+    // real, public setUsageSink API instead sidesteps that entirely — real
+    // trackGeminiCall runs, but its usage record is captured here instead
+    // of hitting S3.
+    const captured: any[] = [];
+    usageMod.setUsageSink((record: any) => { captured.push(record); });
+
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({
+      text: JSON.stringify({ verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '' }),
+    });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+
+    await adjudicator.adjudicate({ findingId: 'my-finding-id', commentId: 2, replyText: 'x' });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({ callType: 'feedback_adjudicate', refId: 'my-finding-id' });
+  });
+
+  it('sends currentDiffHunk as explicit null (not omitted) when no diff hunk is available', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({
+      text: JSON.stringify({ verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '' }),
+    });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+
+    await adjudicator.adjudicate({ findingId: 'x', commentId: 2, replyText: 'disagree' });
+
+    const call = mockGenerate.mock.calls[0][0] as any;
+    const payload = JSON.parse(call.contents);
+    expect(payload.currentDiffHunk).toBeNull();
+  });
+
+  // CodeRabbit finding: the classification batch (feedbackLoop.ts) marks a
+  // truncated reply with "…" so the model knows it's seeing a partial
+  // text; adjudicate() silently discarded that same signal for all three
+  // context fields. Since adjudication is the stage deciding whether to
+  // argue with a developer, a silently-cut argument can read as weaker
+  // than it really is and bias the verdict for the wrong reason.
+  it('marks replyText/rootBody as truncated in the payload sent to Gemini, rather than silently cutting them', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({
+      text: JSON.stringify({ verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '' }),
+    });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+
+    await adjudicator.adjudicate({
+      findingId: 'x', commentId: 2,
+      replyText: 'r'.repeat(5000), // over the 4000-char cap
+      rootBody: 'b'.repeat(5000),  // over the 4000-char cap
+    });
+
+    const payload = JSON.parse(mockGenerate.mock.calls[0][0].contents);
+    expect(payload.developerReply.endsWith('…')).toBe(true);
+    expect(payload.finding.detail.endsWith('…')).toBe(true);
+  });
+
+  it('marks a truncated diffHunk distinctly, since it is multi-line context rather than prose', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({
+      text: JSON.stringify({ verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '' }),
+    });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+
+    await adjudicator.adjudicate({ findingId: 'x', commentId: 2, replyText: 'y', diffHunk: 'd'.repeat(9000) });
+
+    const payload = JSON.parse(mockGenerate.mock.calls[0][0].contents);
+    expect(payload.currentDiffHunk).toContain('[truncated]');
+  });
+
+  it('does NOT mark fields that fit within the cap, even when they are long', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({
+      text: JSON.stringify({ verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '' }),
+    });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+
+    await adjudicator.adjudicate({ findingId: 'x', commentId: 2, replyText: 'a short reply' });
+
+    const payload = JSON.parse(mockGenerate.mock.calls[0][0].contents);
+    expect(payload.developerReply).toBe('a short reply');
+  });
+
+  it('never throws: falls back to unclear when the Gemini call rejects', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockRejectedValue(new Error('network down'));
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await adjudicator.adjudicate({ findingId: 'x', commentId: 2, replyText: 'y' });
+
+    expect(result).toEqual({ verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '', fenceDetected: false });
+  });
+
+  it('falls back to unclear on an empty response text', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({ text: undefined });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await adjudicator.adjudicate({ findingId: 'x', commentId: 2, replyText: 'y' });
+
+    expect(result.verdict).toBe('unclear');
+  });
+
+  it('strips markers from rootBody before sending it as context, so a stray gsr:v1 marker never reaches the prompt', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({
+      text: JSON.stringify({ verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '' }),
+    });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+
+    await adjudicator.adjudicate({
+      findingId: 'x', commentId: 2, replyText: 'y',
+      rootBody: 'the finding text\n\n<!-- gsr:v1 f=abc123 a=Security s=HIGH r=2026-01-01T00:00:00Z -->',
+    });
+
+    const call = mockGenerate.mock.calls[0][0] as any;
+    const payload = JSON.parse(call.contents);
+    expect(payload.finding.detail).not.toContain('gsr:v1');
   });
 });

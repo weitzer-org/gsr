@@ -722,6 +722,26 @@ heuristic, because it knows *why*.
   `review-quality-design.md` §5.1 Tier 2. Only if diff-hunk context proves thin.
 - **D5** — Feeding accepted/conceded findings into repeat-suppression (§11.4).
 - **D6** — Web-UI display of thread state, which drags in §9's T6 escaping work.
+- **D7** — Run `runFeedbackPass` concurrently with the main review instead of
+  sequentially before it, in both `action-entrypoint.ts` and `app.ts`.
+  Raised repeatedly during Phase 0/1 self-review and deferred each time as
+  scope-limiting for a minimal first cut, not because it was wrong. Genuinely
+  low-risk: `runFeedbackPass` has zero data dependency on `chunks`/the
+  orchestrator's findings (and vice versa) in either direction, and it
+  already never throws (wraps its own work in try/catch, always resolves),
+  so `Promise.all([orchestrator.runReview(...), runFeedbackPass(...)])`
+  can't let a feedback-loop failure take down the main review — that was
+  the main coordination concern, and it's already handled by an existing
+  contract, not new work. Expected win: the feedback pass costs at most one
+  GitHub call + one Gemini call (a few seconds); the main review is ~21
+  Gemini calls across subagents (tens of seconds) — run concurrently, the
+  feedback pass's latency mostly hides behind the much longer main review
+  instead of adding to it. One wrinkle to check first: `app.ts` currently
+  writes the `feedback` NDJSON frame to the response *before* any progress
+  frames, which reads as intentional ordering — running it concurrently
+  with the orchestrators would let it land later/interleaved instead.
+  Confirm `adk/frontend/app.js` keys off each frame's `type` rather than
+  stream position before assuming that's harmless.
 
 ## 13. Failure modes
 

@@ -1,10 +1,11 @@
 import { Octokit } from '@octokit/rest';
-import { CandidateFinding, DiffChunk, FindingThread, ThreadReply } from './types.js';
+import { CandidateFinding, DiffChunk, FindingThread, ThreadReply, AdjudicationVerdict } from './types.js';
 import {
   buildFindingMarker,
   computeFindingId,
   parseFindingMarker,
   parseLegacyFindingBody,
+  parseReplyMarker,
   sanitizeForComment,
 } from './findingMarker.js';
 
@@ -193,6 +194,106 @@ export class GitHubClient {
     }
   }
 
+  // The outcome of a createThreadReply attempt. Deliberately NOT a plain
+  // boolean or a thrown error — Phase 2b's caller (feedbackLoop.ts, not yet
+  // wired up) needs to distinguish "this specific post failed" from "every
+  // further post this run will also fail" so it can stop attempting the
+  // rest of a capped batch instead of burning maxRepliesPosted more doomed
+  // calls one at a time (design doc §5.3: a fork PR's read-only
+  // GITHUB_TOKEN degrades the whole loop to observe, not just this one
+  // reply).
+  //
+  // Note: as of this build, nothing calls createThreadReply yet — Phase 2a
+  // computes and reports adjudication verdicts in dry-run only (see
+  // feedbackLoop.ts). This method exists and is unit-tested now so Phase
+  // 2b's interface doesn't have to change when posting is wired up.
+
+  /**
+   * Posts a reply into an existing review-comment thread — the write side
+   * of the PR comment feedback loop (design doc §5.2). `rootCommentId` must
+   * be the thread ROOT, not the comment being answered — passing the wrong
+   * id starts a sibling thread instead of replying into the existing one.
+   * Never throws.
+   */
+  public async createThreadReply(url: string, rootCommentId: number, body: string): Promise<
+    { posted: true } | { posted: false; reason: 'fork-read-only' | 'error'; message: string }
+  > {
+    // PR #61 self-review finding: parsePRUrl was called BEFORE the try
+    // block, so a malformed url threw synchronously (a rejected promise)
+    // instead of resolving to the structured failure shape this method's
+    // own docstring promises — moved inside the try so "never throws" is
+    // actually true for every input, not just Octokit failures.
+    try {
+      const { owner, repo, pull_number } = this.parsePRUrl(url);
+      await this.octokit.rest.pulls.createReplyForReviewComment({
+        owner, repo, pull_number,
+        comment_id: rootCommentId,
+        body,
+      });
+      return { posted: true };
+    } catch (error: any) {
+      if (error?.status === 403) {
+        return { posted: false, reason: 'fork-read-only', message: error.message || 'Forbidden' };
+      }
+      return { posted: false, reason: 'error', message: error?.message || String(error) };
+    }
+  }
+
+  // deriveGsrLastReply computes a thread's round/ack/verdict state from
+  // GSR's own previously-posted reply comments (already trust-checked by
+  // the caller — see TRUSTED_GSR_BOT_LOGIN). This is the only place that
+  // state exists; there is no database (design doc §4).
+  //
+  // Fail-closed by construction (design-review finding): a trusted-login
+  // reply comment that carries EITHER a well-formed gsr-reply:v1 marker OR
+  // malformed/absent marker syntax always counts as "GSR has already
+  // replied here" — never as round 0. A parser bug, a format drift, or a
+  // future code path that posts under this identity without appending a
+  // marker must suppress a further rebuttal, never silently permit a
+  // second one. The fail-closed round uses Number.MAX_SAFE_INTEGER rather
+  // than a fixed "1" specifically so it can't under-count against whatever
+  // round cap feedbackLoop.ts is configured with — this module doesn't need
+  // to know that cap's value to still fail safely.
+  //
+  // When multiple trusted replies exist in one thread (should be at most
+  // one per the product's "one rebuttal per thread, ever" rule, but a race
+  // between two concurrent runs could momentarily produce two), round and
+  // ack are each taken as independent maximums rather than "whichever
+  // comment has the highest round" — so a lower-ack duplicate can't
+  // un-suppress replies the other run already accounted for.
+  private static deriveGsrLastReply(
+    trustedReplyComments: { id: number; body?: string | null }[]
+  ): FindingThread['gsrLastReply'] {
+    if (trustedReplyComments.length === 0) return undefined;
+
+    let maxRound = 0;
+    let maxAck = 0;
+    let latestRoundSeen = -1;
+    let verdict: AdjudicationVerdict = 'unclear';
+    let confidence = 0;
+
+    for (const c of trustedReplyComments) {
+      const marker = parseReplyMarker(c.body || '');
+      if (marker) {
+        maxRound = Math.max(maxRound, marker.round);
+        maxAck = Math.max(maxAck, marker.ackCommentId);
+        if (marker.round >= latestRoundSeen) {
+          latestRoundSeen = marker.round;
+          verdict = marker.verdict;
+          confidence = marker.confidence;
+        }
+      } else {
+        // PR #61 self-review finding: Math.max against MAX_SAFE_INTEGER is
+        // always MAX_SAFE_INTEGER regardless of the other operand — a direct
+        // assignment says the same thing without the pointless call.
+        maxRound = Number.MAX_SAFE_INTEGER;
+        maxAck = Math.max(maxAck, c.id);
+      }
+    }
+
+    return { round: maxRound, ackCommentId: maxAck, verdict, confidence };
+  }
+
   // Hard cap on review comments fetched per listReviewThreads() call
   // (design doc §13's failure-modes table) — a pathological PR with
   // hundreds/thousands of comments shouldn't make the feedback pass scan
@@ -368,10 +469,23 @@ export class GitHubClient {
         severity = headerInfo.severity as CandidateFinding['severity'];
       }
 
-      // Exclude GSR's own comments from `replies` — Phase 2 will post
-      // rebuttals authored by TRUSTED_GSR_BOT_LOGIN into these same
-      // threads, and this loop only wants what a developer (or their coding
-      // agent) said back, not GSR talking to itself.
+      // Exclude GSR's own comments from `replies` — Phase 2 posts rebuttals
+      // authored by TRUSTED_GSR_BOT_LOGIN into these same threads, and this
+      // loop only wants what a developer (or their coding agent) said back,
+      // not GSR talking to itself. GSR's own replies are captured
+      // separately below to derive round/ack state (deriveGsrLastReply).
+      // PR #61 self-review finding: sorted by id, same as the `replies`
+      // list just below — deriveGsrLastReply's tie-break between two
+      // same-round entries (should be rare; only a genuine concurrent-run
+      // race produces one) depends on traversal order, so an unsorted
+      // input makes that specific edge case nondeterministic even though
+      // the API is requested with sort:'created', direction:'asc' (not a
+      // hard guarantee under replication/pagination edge cases).
+      const trustedReplyComments = (replyComments as any[])
+        .filter(c => c.user?.login === TRUSTED_GSR_BOT_LOGIN)
+        .sort((a, b) => a.id - b.id);
+      const gsrLastReply = GitHubClient.deriveGsrLastReply(trustedReplyComments);
+
       const replies: ThreadReply[] = (replyComments as any[])
         .filter(c => c.user?.login !== TRUSTED_GSR_BOT_LOGIN)
         .sort((a, b) => a.id - b.id)
@@ -391,6 +505,15 @@ export class GitHubClient {
         severity,
         promptVersion,
         summary: headerInfo?.summary,
+        // path/original_line come straight from the API, not the marker
+        // (the marker has no file= field) — used by feedbackLoop.ts to look
+        // up a matching diff hunk for adjudication context (design doc
+        // §8.3 item 3). original_line preferred over line for the same
+        // rebase-stability reason as the legacy-fallback path above.
+        path: root.path ?? undefined,
+        line: root.original_line ?? root.line ?? undefined,
+        rootBody,
+        gsrLastReply,
         replies,
       });
     }

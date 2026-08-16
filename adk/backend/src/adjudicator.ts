@@ -1,15 +1,22 @@
-// Stance classification for the PR comment feedback loop
-// (pr-comment-feedback-loop-design.md §6.2, §8.2). Named `adjudicator.ts` to
-// match the design doc's file layout — `AdjudicatorAgent` is meant to grow
-// an `adjudicate(finding, reply, context)` method in Phase 2 ("respond"),
-// which runs a second per-rejection Gemini call to decide whether a
-// developer's pushback holds up before GSR ever posts a rebuttal. That
-// method is deliberately NOT implemented here: Phase 1 ("observe") only
-// classifies and records, it never posts anything, so there is nothing yet
-// for an adjudication verdict to gate.
+// Stance classification + pushback adjudication for the PR comment feedback
+// loop (pr-comment-feedback-loop-design.md §6.2, §8.2, §8.3). `classifyReplies`
+// is Phase 1 ("observe") — one batched call per run, stance only, posts
+// nothing. `adjudicate` is Phase 2 ("respond") — one call per rejected
+// reply, capped, deciding whether the developer's pushback holds up. As of
+// this build, Phase 2 runs in dry-run mode only: feedbackLoop.ts computes
+// and reports what `adjudicate` decides but never calls
+// GitHubClient.createThreadReply with it — see feedbackLoop.ts for the 2a/2b
+// boundary.
 import { GoogleGenAI, Type } from '@google/genai';
-import { ReplyStance, ReplyClassification } from './types';
+import { ReplyStance, ReplyClassification, AdjudicationVerdict } from './types';
 import { trackGeminiCall } from './usage';
+import {
+  truncateByCodePoint,
+  sanitizeForComment,
+  sanitizeRebuttalMarkdown,
+  stripMarkers,
+  containsCodeFence,
+} from './findingMarker';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -20,10 +27,98 @@ export interface ClassifyReplyInput {
   replyText: string;
 }
 
+export interface AdjudicateInput {
+  findingId: string;
+  commentId: number;
+  severity?: string;
+  agent?: string;
+  summary?: string;
+  rootBody?: string;   // raw posted finding-comment body; stripped of markers here before use
+  replyText: string;
+  diffHunk?: string;   // current diff hunk for the finding's file, if available
+  promptVersion?: string;
+}
+
+export interface AdjudicationOutput {
+  verdict: AdjudicationVerdict;
+  confidence: number;
+  reasoning: string;
+  rebuttalMarkdown: string;
+  // True when the raw (pre-sanitization) model output contained a fenced
+  // code block despite the prompt forbidding one — the verdict/confidence
+  // above are ALREADY forced to unclear/0 when this is true; callers don't
+  // need to re-check it to stay safe, it's exposed for visibility/logging.
+  fenceDetected: boolean;
+}
+
 const VALID_STANCES = new Set<ReplyStance>(['accepted', 'rejected', 'question', 'neutral']);
 
 function neutralFallback(commentId: number): ReplyClassification {
   return { commentId, stance: 'neutral', confidence: 0 };
+}
+
+const VALID_VERDICTS = new Set<AdjudicationVerdict>(['pushback_correct', 'pushback_incorrect', 'unclear']);
+const MAX_REASONING_LENGTH = 1000;
+const MAX_REBUTTAL_LENGTH = 1500;
+
+function unclearFallback(): AdjudicationOutput {
+  return { verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '', fenceDetected: false };
+}
+
+// validateAdjudicationResponse is adjudicate()'s equivalent of
+// reconcileClassifications: the model's structured output is untrusted, not
+// a guarantee, and this is the single point that decides what of it can be
+// trusted before it's ever logged (dry-run) or, in a future build, posted.
+//
+// Fail-closed fence check (design doc §9's T1, and the sharpest risk flagged
+// in this feature's design review): the prompt explicitly forbids a fenced
+// code block in `rebuttalMarkdown` (the "Apply suggestion" one-click-code-
+// execution risk on GitHub). If the model produced one anyway, that isn't
+// just something to sanitize away — it's evidence the whole response
+// shouldn't be trusted, so the verdict is forced to `unclear` and confidence
+// to 0 regardless of what the model claimed. Since feedbackLoop.ts only ever
+// posts on `verdict === 'pushback_incorrect'`, this makes a fenced response
+// structurally unable to result in a post, independent of the sanitizer
+// that also runs below as a backstop.
+export function validateAdjudicationResponse(raw: unknown): AdjudicationOutput {
+  if (!raw || typeof raw !== 'object') return unclearFallback();
+
+  const verdictRaw = (raw as any).verdict;
+  const confidenceRaw = (raw as any).confidence;
+  const reasoningRaw = (raw as any).reasoning;
+  const rebuttalRaw = (raw as any).rebuttalMarkdown;
+
+  const verdict: AdjudicationVerdict = VALID_VERDICTS.has(verdictRaw) ? verdictRaw : 'unclear';
+  const confidence = typeof confidenceRaw === 'number' && Number.isFinite(confidenceRaw)
+    ? Math.max(0, Math.min(1, confidenceRaw))
+    : 0;
+  const reasoningText = typeof reasoningRaw === 'string' ? reasoningRaw : '';
+  const rebuttalText = typeof rebuttalRaw === 'string' ? rebuttalRaw : '';
+
+  const fenceDetected = containsCodeFence(rebuttalText);
+
+  const { value: reasoningTruncated } = truncateByCodePoint(reasoningText, MAX_REASONING_LENGTH);
+  const { value: rebuttalTruncated } = truncateByCodePoint(rebuttalText, MAX_REBUTTAL_LENGTH);
+
+  const reasoningSanitized = sanitizeForComment(reasoningTruncated) + (fenceDetected
+    ? ' [GSR: rebuttal discarded — response contained a fenced code block, which is not permitted.]'
+    : '');
+
+  return {
+    verdict: fenceDetected ? 'unclear' : verdict,
+    confidence: fenceDetected ? 0 : confidence,
+    reasoning: reasoningSanitized,
+    // PR #61 self-review finding: forcing verdict/confidence above is
+    // sufficient to block a POST (feedbackLoop.ts only posts on
+    // pushback_incorrect), but leaving the sanitized-but-originally-fenced
+    // text in rebuttalMarkdown means a downstream consumer that reads this
+    // field without checking verdict first (a logic bug, a future caller)
+    // could still render it. Emptying it outright when a fence was
+    // detected is strictly safer defense-in-depth, not just belt-and-
+    // suspenders on the verdict check.
+    rebuttalMarkdown: fenceDetected ? '' : sanitizeRebuttalMarkdown(rebuttalTruncated),
+    fenceDetected,
+  };
 }
 
 // reconcileClassifications enforces the batched-call output-validation rule
@@ -101,10 +196,9 @@ export function reconcileClassifications(
 // read; a module-level variable is fine since this module has no per-request
 // state otherwise.
 let cachedClassifierPrompt: string | undefined;
+let cachedAdjudicatorPrompt: string | undefined;
 
-function loadClassifierPrompt(): string {
-  if (cachedClassifierPrompt !== undefined) return cachedClassifierPrompt;
-
+function promptsRoot(): string {
   // adk/prompts/feedback/ is a sibling of system_prompts/ and
   // basic_prompt/, deliberately NOT inside either — Orchestrator.
   // initializeAgents globs every *.md file under whatever prompts dir it's
@@ -115,9 +209,19 @@ function loadClassifierPrompt(): string {
   const projectRoot = here
     ? (here.includes(path.join('dist', 'src')) ? path.resolve(here, '../../../../') : path.resolve(here, '../../../'))
     : path.resolve(process.cwd(), '../../');
-  const promptPath = path.join(projectRoot, 'adk', 'prompts', 'feedback', 'classifier.md');
-  cachedClassifierPrompt = fs.readFileSync(promptPath, 'utf8');
+  return path.join(projectRoot, 'adk', 'prompts', 'feedback');
+}
+
+function loadClassifierPrompt(): string {
+  if (cachedClassifierPrompt !== undefined) return cachedClassifierPrompt;
+  cachedClassifierPrompt = fs.readFileSync(path.join(promptsRoot(), 'classifier.md'), 'utf8');
   return cachedClassifierPrompt;
+}
+
+function loadAdjudicatorPrompt(): string {
+  if (cachedAdjudicatorPrompt !== undefined) return cachedAdjudicatorPrompt;
+  cachedAdjudicatorPrompt = fs.readFileSync(path.join(promptsRoot(), 'adjudicator.md'), 'utf8');
+  return cachedAdjudicatorPrompt;
 }
 
 export class AdjudicatorAgent {
@@ -175,6 +279,101 @@ export class AdjudicatorAgent {
     } catch (e) {
       console.error('[Adjudicator] Failed to classify replies:', e);
       return batch.map(b => neutralFallback(b.commentId));
+    }
+  }
+
+  // adjudicate runs ONE Gemini call per rejected reply (design doc §8.3) —
+  // never batched, unlike classifyReplies; the whole point is a deeper,
+  // slower, more expensive look at a single argument, capped by the caller
+  // (feedbackLoop.ts's maxAdjudications). Never throws — a broken/
+  // unreachable call degrades to `unclear`, the same "say nothing, argue
+  // nothing" fallback the design doc prefers over a confident guess.
+  async adjudicate(input: AdjudicateInput): Promise<AdjudicationOutput> {
+    try {
+      const systemInstruction = loadAdjudicatorPrompt();
+      const model = process.env.FEEDBACK_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+
+      // Same reasoning as feedbackLoop.ts's MAX_REPLY_TEXT_FOR_CLASSIFICATION:
+      // bound worst-case prompt size regardless of how long a GitHub comment
+      // or diff patch can legally be.
+      const MAX_REPLY_TEXT = 4000;
+      const MAX_ROOT_BODY = 4000;
+      const MAX_DIFF_HUNK = 8000;
+
+      // CodeRabbit finding: the classification batch (feedbackLoop.ts)
+      // already appends "…" when it truncates a reply, so the model knows
+      // it's seeing a partial text. This method discarded that same signal
+      // for all three fields — worse here than in classification, since
+      // adjudication is the stage deciding whether to argue with a
+      // developer at all; a silently-cut reply/finding-body/diff-hunk can
+      // read as weaker or more incomplete than it really is and bias
+      // toward `pushback_incorrect` for the wrong reason. Marking every
+      // truncated field explicitly lets the adjudicator prompt's "prefer
+      // unclear when uncertain" guidance actually apply to that case.
+      const markTruncated = (result: { value: string; truncated: boolean }, suffix = '…') =>
+        result.truncated ? `${result.value}${suffix}` : result.value;
+
+      const replyText = markTruncated(truncateByCodePoint(input.replyText, MAX_REPLY_TEXT));
+      const rootBodyClean = input.rootBody ? stripMarkers(input.rootBody) : '';
+      const rootBody = markTruncated(truncateByCodePoint(rootBodyClean, MAX_ROOT_BODY));
+      const diffHunk = input.diffHunk
+        ? markTruncated(truncateByCodePoint(input.diffHunk, MAX_DIFF_HUNK), '\n… [truncated]')
+        : null;
+
+      const payload = {
+        finding: {
+          severity: input.severity,
+          agent: input.agent,
+          summary: input.summary,
+          detail: rootBody,
+          promptVersion: input.promptVersion,
+        },
+        developerReply: replyText,
+        // Explicit `null` (not an omitted key) so the model is told plainly
+        // that no current code context is available for this file, rather
+        // than silently proceeding without it — the adjudicator prompt
+        // treats this as a strong reason to prefer "unclear".
+        currentDiffHunk: diffHunk,
+      };
+
+      const response = await trackGeminiCall(
+        { callType: 'feedback_adjudicate', model, refId: input.findingId },
+        () => this.ai.models.generateContent({
+          model,
+          contents: JSON.stringify(payload),
+          config: {
+            systemInstruction,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                verdict: { type: Type.STRING, enum: ['pushback_correct', 'pushback_incorrect', 'unclear'] },
+                confidence: { type: Type.NUMBER },
+                reasoning: { type: Type.STRING },
+                rebuttalMarkdown: { type: Type.STRING },
+              },
+              required: ['verdict', 'confidence', 'reasoning', 'rebuttalMarkdown'],
+            },
+          },
+        })
+      );
+
+      if (!response.text) {
+        // PR #61 self-review finding: commentId was defined on AdjudicateInput
+        // but never actually read anywhere in this method — dead data. Since
+        // runAdjudicationStage calls this in a Promise.all over several
+        // candidates, a log line with no way to tell which reply it was about
+        // is close to useless for debugging a real failure. Using it here
+        // (and in the catch block below) closes that gap by putting the field
+        // to its obvious use instead of just deleting it.
+        console.warn(`[Adjudicator] Empty adjudication response for commentId ${input.commentId} (finding ${input.findingId}); falling back to unclear.`);
+        return unclearFallback();
+      }
+
+      return validateAdjudicationResponse(JSON.parse(response.text));
+    } catch (e) {
+      console.error(`[Adjudicator] Failed to adjudicate commentId ${input.commentId} (finding ${input.findingId}):`, e);
+      return unclearFallback();
     }
   }
 }

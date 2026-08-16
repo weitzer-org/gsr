@@ -1,5 +1,5 @@
 import { GitHubClient } from '../src/github';
-import { buildFindingMarker, parseFindingMarker, computeFindingId } from '../src/findingMarker';
+import { buildFindingMarker, buildReplyMarker, parseFindingMarker, computeFindingId } from '../src/findingMarker';
 import { jest } from '@jest/globals';
 
 
@@ -518,6 +518,221 @@ index e69de29..d95f3ad 100644
             expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('capping feedback-loop scan'));
             // Restored unconditionally by the file-level afterEach above,
             // regardless of whether the assertion on the previous line passes.
+        });
+
+        describe('path/line/rootBody (Phase 2: adjudication context)', () => {
+            it('surfaces the root comment\'s path, original_line, and raw body on the thread', async () => {
+                const marker = buildFindingMarker({ findingId: 'abc123def4567890', agent: 'Logic', severity: 'HIGH' });
+                const rootBody = `🟠 **HIGH** · Logic — issue summary\n\ndescription text\n\n${marker}`;
+                mockComments([
+                    {
+                        id: 1, in_reply_to_id: undefined, path: 'src/a.ts', line: 12, original_line: 10,
+                        body: rootBody, user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T00:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r1'
+                    }
+                ]);
+
+                const threads = await client.listReviewThreads(url);
+                expect(threads[0].path).toBe('src/a.ts');
+                expect(threads[0].line).toBe(10); // original_line preferred over the current (possibly shifted) line
+                expect(threads[0].rootBody).toBe(rootBody);
+            });
+
+            it('falls back to `line` when original_line is absent', async () => {
+                const marker = buildFindingMarker({ findingId: 'abc123def4567890', agent: 'Logic', severity: 'HIGH' });
+                mockComments([
+                    {
+                        id: 1, in_reply_to_id: undefined, path: 'src/a.ts', line: 12,
+                        body: `🟠 **HIGH** · Logic — issue summary\n\n${marker}`,
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T00:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r1'
+                    }
+                ]);
+
+                const threads = await client.listReviewThreads(url);
+                expect(threads[0].line).toBe(12);
+            });
+        });
+
+        describe('gsrLastReply derivation (Phase 2: round/ack state, no persistence)', () => {
+            it('derives round/ack/verdict/confidence from a well-formed gsr-reply:v1 marker on a trusted reply', async () => {
+                const findingMarker = buildFindingMarker({ findingId: 'abc123def4567890', agent: 'Logic', severity: 'HIGH' });
+                const replyMarker = buildReplyMarker({
+                    findingId: 'abc123def4567890', round: 1, verdict: 'pushback_incorrect', confidence: 0.82, ackCommentId: 2,
+                });
+                mockComments([
+                    {
+                        id: 1, in_reply_to_id: undefined, path: 'src/a.ts', line: 10,
+                        body: `🟠 **HIGH** · Logic — issue summary\n\n${findingMarker}`,
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T00:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r1'
+                    },
+                    {
+                        id: 2, in_reply_to_id: 1, path: 'src/a.ts', line: 10,
+                        body: 'disagree, false positive', user: { login: 'a-developer', type: 'User' },
+                        created_at: '2026-08-15T01:00:00Z', html_url: 'https://github.com/x/y/pull/123#discussion_r2'
+                    },
+                    {
+                        id: 3, in_reply_to_id: 1, path: 'src/a.ts', line: 10,
+                        body: `Here is why it still stands.\n\n${replyMarker}`,
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T02:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r3'
+                    }
+                ]);
+
+                const threads = await client.listReviewThreads(url);
+                expect(threads[0].gsrLastReply).toEqual({
+                    round: 1, ackCommentId: 2, verdict: 'pushback_incorrect', confidence: 0.82,
+                });
+                // GSR's own reply must not show up in the developer-facing replies list.
+                expect(threads[0].replies.map(r => r.commentId)).toEqual([2]);
+            });
+
+            it('is undefined when GSR has never replied in this thread', async () => {
+                const marker = buildFindingMarker({ findingId: 'abc123def4567890', agent: 'Logic', severity: 'HIGH' });
+                mockComments([
+                    {
+                        id: 1, in_reply_to_id: undefined, path: 'src/a.ts', line: 10,
+                        body: `🟠 **HIGH** · Logic — issue summary\n\n${marker}`,
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T00:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r1'
+                    },
+                    {
+                        id: 2, in_reply_to_id: 1, path: 'src/a.ts', line: 10,
+                        body: 'disagree', user: { login: 'a-developer', type: 'User' },
+                        created_at: '2026-08-15T01:00:00Z', html_url: 'https://github.com/x/y/pull/123#discussion_r2'
+                    }
+                ]);
+
+                const threads = await client.listReviewThreads(url);
+                expect(threads[0].gsrLastReply).toBeUndefined();
+            });
+
+            it('FAILS CLOSED: a trusted-login reply with malformed gsr-reply:v1 syntax still counts as "GSR has ' +
+               'replied" (round pinned at Number.MAX_SAFE_INTEGER), never as round 0 — a parser bug must suppress ' +
+               'a further rebuttal, never silently permit a second one', async () => {
+                const marker = buildFindingMarker({ findingId: 'abc123def4567890', agent: 'Logic', severity: 'HIGH' });
+                mockComments([
+                    {
+                        id: 1, in_reply_to_id: undefined, path: 'src/a.ts', line: 10,
+                        body: `🟠 **HIGH** · Logic — issue summary\n\n${marker}`,
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T00:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r1'
+                    },
+                    {
+                        // Malformed marker: round=0 is invalid, so parseReplyMarker returns null.
+                        id: 2, in_reply_to_id: 1, path: 'src/a.ts', line: 10,
+                        body: '<!-- gsr-reply:v1 f=abc123def4567890 round=0 verdict=unclear conf=0.5 ack=1 -->',
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T01:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r2'
+                    }
+                ]);
+
+                const threads = await client.listReviewThreads(url);
+                expect(threads[0].gsrLastReply?.round).toBe(Number.MAX_SAFE_INTEGER);
+                expect(threads[0].gsrLastReply?.ackCommentId).toBe(2); // falls back to the comment's own id
+            });
+
+            it('FAILS CLOSED: a trusted-login reply with NO marker syntax at all still counts as "GSR has replied"', async () => {
+                const marker = buildFindingMarker({ findingId: 'abc123def4567890', agent: 'Logic', severity: 'HIGH' });
+                mockComments([
+                    {
+                        id: 1, in_reply_to_id: undefined, path: 'src/a.ts', line: 10,
+                        body: `🟠 **HIGH** · Logic — issue summary\n\n${marker}`,
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T00:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r1'
+                    },
+                    {
+                        // A trusted-login reply that forgot to append a marker at all (bug, or future code path).
+                        id: 2, in_reply_to_id: 1, path: 'src/a.ts', line: 10,
+                        body: 'a GSR reply with no marker somehow',
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T01:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r2'
+                    }
+                ]);
+
+                const threads = await client.listReviewThreads(url);
+                expect(threads[0].gsrLastReply?.round).toBe(Number.MAX_SAFE_INTEGER);
+            });
+
+            it('takes independent maximums of round and ack across multiple trusted replies (race-condition safety)', async () => {
+                const findingMarker = buildFindingMarker({ findingId: 'abc123def4567890', agent: 'Logic', severity: 'HIGH' });
+                // Two GSR replies from a hypothetical concurrent-run race: one has
+                // a higher round but a LOWER ack than the other — the derivation
+                // must not simply pick "whichever comment has the highest round"
+                // and inherit its (lower) ack, which would un-suppress replies the
+                // other run already accounted for.
+                const replyA = buildReplyMarker({ findingId: 'abc123def4567890', round: 2, verdict: 'unclear', confidence: 0.4, ackCommentId: 10 });
+                const replyB = buildReplyMarker({ findingId: 'abc123def4567890', round: 1, verdict: 'pushback_incorrect', confidence: 0.9, ackCommentId: 50 });
+                mockComments([
+                    {
+                        id: 1, in_reply_to_id: undefined, path: 'src/a.ts', line: 10,
+                        body: `🟠 **HIGH** · Logic — issue summary\n\n${findingMarker}`,
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T00:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r1'
+                    },
+                    {
+                        id: 2, in_reply_to_id: 1, path: 'src/a.ts', line: 10, body: `text\n\n${replyA}`,
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T01:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r2'
+                    },
+                    {
+                        id: 3, in_reply_to_id: 1, path: 'src/a.ts', line: 10, body: `text\n\n${replyB}`,
+                        user: { login: GSR_LOGIN, type: 'Bot' }, created_at: '2026-08-15T02:00:00Z',
+                        html_url: 'https://github.com/x/y/pull/123#discussion_r3'
+                    }
+                ]);
+
+                const threads = await client.listReviewThreads(url);
+                expect(threads[0].gsrLastReply?.round).toBe(2); // max round
+                expect(threads[0].gsrLastReply?.ackCommentId).toBe(50); // max ack, independently
+            });
+        });
+    });
+
+    describe('createThreadReply', () => {
+        const url = 'https://github.com/GoogleCloudPlatform/scion/pull/123';
+
+        it('posts a reply into the thread rooted at rootCommentId and returns { posted: true }', async () => {
+            const createReplyForReviewComment = (jest.fn() as any).mockResolvedValue({ data: {} });
+            (client as any).octokit = { rest: { pulls: { createReplyForReviewComment } } };
+
+            const result = await client.createThreadReply(url, 42, 'a rebuttal');
+
+            expect(result).toEqual({ posted: true });
+            expect(createReplyForReviewComment).toHaveBeenCalledWith(expect.objectContaining({
+                comment_id: 42, body: 'a rebuttal',
+            }));
+        });
+
+        it('never throws: a 403 (fork PR, read-only GITHUB_TOKEN) resolves to a "fork-read-only" outcome', async () => {
+            const error: any = new Error('Forbidden');
+            error.status = 403;
+            const createReplyForReviewComment = (jest.fn() as any).mockRejectedValue(error);
+            (client as any).octokit = { rest: { pulls: { createReplyForReviewComment } } };
+
+            const result = await client.createThreadReply(url, 42, 'a rebuttal');
+
+            expect(result).toEqual({ posted: false, reason: 'fork-read-only', message: 'Forbidden' });
+        });
+
+        it('never throws: any other error resolves to a generic "error" outcome', async () => {
+            const createReplyForReviewComment = (jest.fn() as any).mockRejectedValue(new Error('thread was deleted'));
+            (client as any).octokit = { rest: { pulls: { createReplyForReviewComment } } };
+
+            const result = await client.createThreadReply(url, 42, 'a rebuttal');
+
+            expect(result).toEqual({ posted: false, reason: 'error', message: 'thread was deleted' });
+        });
+
+        it('never throws: a malformed URL resolves to a generic "error" outcome instead of rejecting ' +
+           '(PR #61 self-review finding: parsePRUrl used to be called BEFORE the try block, so this threw ' +
+           'synchronously despite the docstring promising "never throws")', async () => {
+            (client as any).octokit = { rest: { pulls: { createReplyForReviewComment: jest.fn() } } };
+
+            const result = await client.createThreadReply('not-a-valid-pr-url', 42, 'a rebuttal');
+
+            expect(result).toEqual({ posted: false, reason: 'error', message: 'Invalid GitHub Pull Request URL.' });
         });
     });
 

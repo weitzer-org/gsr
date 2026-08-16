@@ -5,7 +5,8 @@ import { shouldFailOnSeverity } from './severityGate';
 import { resolveAgentSelectionForMode } from './agentSelection';
 import { setUsageSink, UsageRecord, aggregate, formatUsageSummaryMarkdown } from './usage';
 import { reportUsage } from './usageReporter';
-import { runFeedbackPass, FeedbackLoopMode, FeedbackPassResult, formatFeedbackSummaryMarkdown } from './feedbackLoop';
+import { runFeedbackPass, FeedbackPassResult, formatFeedbackSummaryMarkdown } from './feedbackLoop';
+import { resolveFeedbackLoopMode, resolveFeedbackMinConfidence, resolveFeedbackMaxReplies } from './feedbackConfig';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -51,21 +52,6 @@ function writeJobSummary(records: UsageRecord[]): void {
 function writeFeedbackJobSummary(result: FeedbackPassResult): void {
   if (result.mode === 'off' || !process.env.GITHUB_STEP_SUMMARY) return;
   fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatFeedbackSummaryMarkdown(result) + '\n');
-}
-
-// resolveFeedbackLoopMode validates FEEDBACK_LOOP_MODE (the `feedback-loop`
-// Action input, off by default — even observe mode spends the consumer's
-// own Gemini quota, so this never silently turns itself on). An unrecognized
-// value degrades to 'off' with a warning rather than failing the whole run
-// over a typo in an opt-in input.
-function resolveFeedbackLoopMode(): FeedbackLoopMode {
-  // Self-review finding: YAML block scalars / accidental trailing
-  // whitespace in a workflow file (e.g. "observe ") would otherwise fail
-  // this comparison silently and fall back to "off" with no indication why.
-  const raw = (process.env.FEEDBACK_LOOP_MODE || 'off').trim().toLowerCase();
-  if (raw === 'off' || raw === 'observe' || raw === 'respond') return raw;
-  console.warn(`[GSR Action] Unrecognized feedback-loop mode "${raw}" — must be "off", "observe", or "respond". Disabling the feedback loop for this run.`);
-  return 'off';
 }
 
 // maybeReportUsage is the opt-in, off-by-default centralized reporting path
@@ -127,9 +113,18 @@ async function main() {
     // *previous* finding, and runFeedbackPass never throws (see
     // feedbackLoop.ts), so it can't turn a no-op diff run into a failed one.
     const feedbackMode = resolveFeedbackLoopMode();
-    feedbackResult = await runFeedbackPass(ghClient, url, { mode: feedbackMode });
+    feedbackResult = await runFeedbackPass(ghClient, url, {
+      mode: feedbackMode,
+      // currentDiff is already fetched above regardless of feedback-loop
+      // mode — passing it through costs nothing and is only actually used
+      // by 'respond' mode's adjudication stage (design doc §8.3 item 3).
+      currentDiff: chunks,
+      minConfidence: resolveFeedbackMinConfidence(),
+      maxRepliesPosted: resolveFeedbackMaxReplies(),
+    });
     if (!feedbackResult.skipped) {
-      console.log(`[GSR Action] Feedback loop: scanned ${feedbackResult.threadsScanned} thread(s), classified ${feedbackResult.repliesClassified} repl(y/ies), ${feedbackResult.findings.length} finding(s) with new activity.`);
+      const adjudicatedNote = feedbackMode === 'respond' ? `, adjudicated ${feedbackResult.repliesAdjudicated} rejection(s)` : '';
+      console.log(`[GSR Action] Feedback loop: scanned ${feedbackResult.threadsScanned} thread(s), classified ${feedbackResult.repliesClassified} repl(y/ies)${adjudicatedNote}, ${feedbackResult.findings.length} finding(s) with new activity.`);
     }
 
     if (chunks.length === 0) {

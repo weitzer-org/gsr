@@ -157,6 +157,16 @@ export function sanitizeForComment(text: string): string {
 // Kept as one implementation rather than a second copy of an already-fixed
 // bug class.
 export function truncateByCodePoint(text: string, maxLen: number): { value: string; truncated: boolean } {
+  // PR #61 self-review finding: `text.length` (UTF-16 code units) is always
+  // >= the actual code-point count (a surrogate pair contributes 2 code
+  // units for 1 code point), so it's a safe upper bound — if it already
+  // fits within maxLen, no truncation could possibly be needed, and the
+  // per-character iteration below (one short-string allocation per
+  // code point) can be skipped entirely. This is the common case for most
+  // reply/finding text, so the fast path matters in practice, not just in
+  // the worst case.
+  if (text.length <= maxLen) return { value: text, truncated: false };
+
   let count = 0;
   let index = 0;
   for (const ch of text) {
@@ -197,7 +207,7 @@ export function containsCodeFence(text: string): boolean {
 // first one: interleave a zero-width space between EVERY character so no
 // substring of length \u22653 (or even \u22652 wouldn't matter, but \u22653 is the
 // relevant threshold) survives intact, regardless of the run's length.
-const FENCE_RUN_PATTERN = /([`~]{3,})/g;
+const FENCE_RUN_PATTERN = /[`~]{3,}/g;
 function neutralizeFences(text: string): string {
   return text.replace(FENCE_RUN_PATTERN, (seq) => seq.split('').join('\u200B'));
 }
@@ -338,9 +348,18 @@ function parseReplyMarkerFields(raw: string): ReplyMarker | null {
 
   if (!fields.verdict || !VALID_VERDICTS.has(fields.verdict as AdjudicationVerdict)) return null;
 
+  // PR #61 self-review finding: Number('') is 0, a finite, valid-looking
+  // integer — so a truncated/malformed marker with an empty `conf=` or
+  // `ack=` token would otherwise silently coerce to 0 and pass validation,
+  // rather than being rejected as the malformed field it actually is.
+  // `round`'s own `< 1` check already catches this for that field (0 fails
+  // it), but conf/ack both accept 0 as a legitimate value, so they need an
+  // explicit presence check first.
+  if (!fields.conf) return null;
   const confidence = Number(fields.conf);
   if (!Number.isFinite(confidence)) return null;
 
+  if (!fields.ack) return null;
   const ackCommentId = Number(fields.ack);
   if (!Number.isInteger(ackCommentId) || ackCommentId < 0) return null;
 

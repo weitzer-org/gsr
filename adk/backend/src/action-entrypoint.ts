@@ -5,7 +5,8 @@ import { shouldFailOnSeverity } from './severityGate';
 import { resolveAgentSelectionForMode } from './agentSelection';
 import { setUsageSink, UsageRecord, aggregate, formatUsageSummaryMarkdown } from './usage';
 import { reportUsage } from './usageReporter';
-import { runFeedbackPass, FeedbackLoopMode, FeedbackPassResult, formatFeedbackSummaryMarkdown } from './feedbackLoop';
+import { runFeedbackPass, FeedbackPassResult, formatFeedbackSummaryMarkdown } from './feedbackLoop';
+import { resolveFeedbackLoopMode, resolveFeedbackMinConfidence, resolveFeedbackMaxReplies } from './feedbackConfig';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -51,56 +52,6 @@ function writeJobSummary(records: UsageRecord[]): void {
 function writeFeedbackJobSummary(result: FeedbackPassResult): void {
   if (result.mode === 'off' || !process.env.GITHUB_STEP_SUMMARY) return;
   fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatFeedbackSummaryMarkdown(result) + '\n');
-}
-
-// resolveFeedbackLoopMode validates FEEDBACK_LOOP_MODE (the `feedback-loop`
-// Action input, off by default — even observe mode spends the consumer's
-// own Gemini quota, so this never silently turns itself on). An unrecognized
-// value degrades to 'off' with a warning rather than failing the whole run
-// over a typo in an opt-in input.
-function resolveFeedbackLoopMode(): FeedbackLoopMode {
-  // Self-review finding: YAML block scalars / accidental trailing
-  // whitespace in a workflow file (e.g. "observe ") would otherwise fail
-  // this comparison silently and fall back to "off" with no indication why.
-  const raw = (process.env.FEEDBACK_LOOP_MODE || 'off').trim().toLowerCase();
-  if (raw === 'off' || raw === 'observe' || raw === 'respond') return raw;
-  console.warn(`[GSR Action] Unrecognized feedback-loop mode "${raw}" — must be "off", "observe", or "respond". Disabling the feedback loop for this run.`);
-  return 'off';
-}
-
-// resolveFeedbackMinConfidence / resolveFeedbackMaxReplies (Phase 2 inputs,
-// design doc §7.2) follow resolveFeedbackLoopMode's same "warn and fall
-// back to a safe default" pattern rather than throwing over a typo'd input.
-// PR #61 self-review + CodeRabbit finding: `parseFloat`/`parseInt` are too
-// permissive to rely on for this — they parse a leading numeric prefix and
-// silently discard trailing garbage, so `parseFloat("0..7")` is `0` (not
-// NaN, despite what an earlier version of this comment claimed) and
-// `parseInt("3.5", 10)` is `3`. A `minConfidence` of `0` clears the floor
-// for every `pushback_incorrect` verdict — worse than the failure this
-// function exists to guard against, and with no warning logged. `Number()`
-// rejects any trailing/malformed characters outright (`Number("0..7")` is
-// NaN), so the existing `Number.isFinite`/`Number.isInteger` checks below
-// now actually catch what they're meant to.
-function resolveFeedbackMinConfidence(): number {
-  const raw = process.env.FEEDBACK_MIN_CONFIDENCE;
-  if (raw === undefined || raw.trim() === '') return 0.7;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
-    console.warn(`[GSR Action] Invalid feedback-min-confidence "${raw}" — must be a number between 0 and 1. Using default 0.7.`);
-    return 0.7;
-  }
-  return parsed;
-}
-
-function resolveFeedbackMaxReplies(): number {
-  const raw = process.env.FEEDBACK_MAX_REPLIES;
-  if (raw === undefined || raw.trim() === '') return 3;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    console.warn(`[GSR Action] Invalid feedback-max-replies "${raw}" — must be a non-negative integer. Using default 3.`);
-    return 3;
-  }
-  return parsed;
 }
 
 // maybeReportUsage is the opt-in, off-by-default centralized reporting path

@@ -367,7 +367,12 @@ describe('stripMarkers (global, not just trailing)', () => {
   });
 
   it('leaves ordinary text with no marker untouched (aside from trimming)', () => {
-    expect(stripMarkers('  plain text  '.trim())).toBe('plain text');
+    // PR #61 self-review finding: pre-trimming the input literal here
+    // (`.trim()` before calling stripMarkers) defeated the point of this
+    // assertion — it was verifying JS's own String.trim(), not stripMarkers'.
+    // The input must stay padded so this actually exercises the function's
+    // own trimming behavior.
+    expect(stripMarkers('  plain text  ')).toBe('plain text');
   });
 
   it('passes through empty input without throwing', () => {

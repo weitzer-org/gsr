@@ -344,6 +344,45 @@ describe('runFeedbackPass', () => {
       expect(suppressed.suppressedReason).toBe('duplicate-thread-same-finding');
     });
 
+    it('still labels a SECOND duplicate correctly even when the FIRST duplicate never itself posted — both ' +
+       'suppressed by an unrelated finding\'s cap usage (PR #61 self-review finding, round 2: reordering the ' +
+       'checks alone was not enough — seenFindingIds only got populated in the would-post branch, so a finding ' +
+       'whose first occurrence was itself cap-suppressed (never added to the set) let a LATER duplicate of that ' +
+       'same finding also report per-run-cap instead of duplicate-thread-same-finding, since the set never learned ' +
+       'about it)', async () => {
+      const threadX = thread({
+        rootCommentId: 1, findingId: 'xxxx0000xxxx0000', severity: 'CRITICAL', // unrelated finding, uses the cap
+        replies: [{ commentId: 5, author: 'dev0', isBot: false, createdAt: 't', body: 'disagree X' }],
+      });
+      const threadA = thread({
+        rootCommentId: 2, findingId: 'dup1234dup123456', severity: 'HIGH',
+        replies: [{ commentId: 10, author: 'dev1', isBot: false, createdAt: 't', body: 'disagree A' }],
+      });
+      const threadB = thread({
+        rootCommentId: 3, findingId: 'dup1234dup123456', severity: 'HIGH', // duplicate of A
+        replies: [{ commentId: 20, author: 'dev2', isBot: false, createdAt: 't', body: 'disagree B' }],
+      });
+      const gh = mockGh([threadX, threadA, threadB]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 5, stance: 'rejected', confidence: 0.8 },
+        { commentId: 10, stance: 'rejected', confidence: 0.8 },
+        { commentId: 20, stance: 'rejected', confidence: 0.8 },
+      ]);
+      mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+      // maxRepliesPosted: 1 — X (CRITICAL, processed first by severity) uses
+      // the only slot. A and B never get a chance to post, regardless of
+      // which one is "first" — but B must still be recognized as a
+      // duplicate of A, not just another cap casualty.
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond', maxRepliesPosted: 1 });
+
+      const decisions = result.findings.flatMap(f => f.replies).map(r => r.adjudication!);
+      expect(decisions.filter(d => d.wouldPost)).toHaveLength(1); // only X posts
+      const dupFindingDecisions = result.findings.find(f => f.findingId === 'dup1234dup123456')!.replies.map(r => r.adjudication!);
+      expect(dupFindingDecisions.find(d => d.suppressedReason === 'per-run-cap')).toBeDefined(); // A: first occurrence, cap-suppressed
+      expect(dupFindingDecisions.find(d => d.suppressedReason === 'duplicate-thread-same-finding')).toBeDefined(); // B: duplicate of A
+    });
+
     it('maxAdjudications caps how many rejections get an adjudicate() call, preferring higher severity', async () => {
       const lowThread = thread({
         rootCommentId: 1, findingId: 'low1111low111111', severity: 'LOW',
@@ -727,7 +766,9 @@ describe('runFeedbackPass', () => {
     // Phase 2a exists to provide): a rebuttal or finding summary containing
     // a literal `</details>` must not be able to prematurely close the
     // disclosure block or otherwise break the rendered structure.
-    it('HTML-escapes a literal </details> in the rebuttal so it cannot break out of the <details> block', () => {
+    it('neutralizes a literal </details> in the rebuttal so it cannot break out of the <details> block ' +
+       '(narrow tag-boundary escaping — see escapeMarkdownUnsafeTags — not blanket HTML-entity escaping: ' +
+       'only "<" immediately before a tag-starting character is touched, so ">" stays literal)', () => {
       const md = formatFeedbackSummaryMarkdown(respondResultWith([{
         commentId: 2, author: 'a-dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
         adjudication: {
@@ -736,10 +777,34 @@ describe('runFeedbackPass', () => {
         },
       }]));
       expect(md).not.toContain('</details><script>');
-      expect(md).toContain('&lt;/details&gt;');
-      // Exactly two real </details> closing tags: one per <details> block
-      // this test's fixture opens (the finding-level would-post entry).
+      expect(md).toContain('&lt;/details>');
+      expect(md).toContain('&lt;script>');
+      // Exactly one real </details> closing tag: the one this function
+      // itself appends to close the block — the injected one is neutralized.
       expect((md.match(/<\/details>/g) || []).length).toBe(1);
+    });
+
+    it('leaves a legitimate "<" comparison operator inside inline code untouched (the readability cost ' +
+       'blanket escaping would have had — CodeRabbit finding, corrected)', () => {
+      const md = formatFeedbackSummaryMarkdown(respondResultWith([{
+        commentId: 2, author: 'a-dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
+        adjudication: {
+          verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands',
+          rebuttalMarkdown: 'The check `x < 5` is still wrong here.', wouldPost: true,
+        },
+      }]));
+      expect(md).toContain('`x < 5`');
+    });
+
+    it('leaves a blockquote-style ">" at the start of a line untouched', () => {
+      const md = formatFeedbackSummaryMarkdown(respondResultWith([{
+        commentId: 2, author: 'a-dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
+        adjudication: {
+          verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands',
+          rebuttalMarkdown: '> quoting the original finding here', wouldPost: true,
+        },
+      }]));
+      expect(md).toContain('> quoting the original finding here');
     });
 
     it('HTML-escapes a literal </summary> or angle brackets in the finding summary / author fields, within the ' +

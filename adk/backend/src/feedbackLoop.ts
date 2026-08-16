@@ -217,6 +217,30 @@ function escapeHtmlEntities(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// escapeMarkdownUnsafeTags is deliberately narrower than escapeHtmlEntities
+// above — used only for rebuttalMarkdown's rendering into the Job Summary
+// (appendAdjudicationSections), which is markdown SOURCE fed through
+// GitHub's Markdown-then-HTML pipeline, not a JSON/HTTP-response boundary.
+// CodeRabbit finding on PR #61 (correcting my own earlier full-escape fix):
+// blanket-escaping '<'/'>' there is real overkill — CommonMark doesn't
+// re-decode HTML entities inside an inline code span, so a legitimate
+// rebuttal referencing `x < 5` in backticks would show a literal "&lt;"
+// instead of "<", and a line starting with '>' would lose its blockquote
+// formatting. The actual threat is a REAL tag boundary breaking the
+// surrounding <details> structure (e.g. an injected `</details>` or
+// `<script>`), which only requires neutralizing '<' when it's immediately
+// followed by a tag-starting character (a letter, '/', '!', or '?') — the
+// only characters that begin a real tag, closing tag, comment, or
+// processing instruction. A bare '<' followed by a space/digit/other (as
+// in a comparison operator) can never open a tag even to a browser's own
+// parser, so leaving it alone is both safe and necessary for readability.
+// '>' is never escaped here: with no way to open a tag, a lone '>' can't
+// close one either, so it's inert on its own — and leaving it alone is
+// what keeps blockquote syntax intact.
+function escapeMarkdownUnsafeTags(text: string): string {
+  return text.replace(/<(?=[a-zA-Z!/?])/g, '&lt;');
+}
+
 // excerpt() feeds FeedbackFindingReport.bodyExcerpt, which /api/review
 // streams verbatim to the browser as part of the 'feedback' NDJSON frame and
 // the final 'done' payload (app.ts) — a raw, untrusted GitHub reply body.
@@ -414,6 +438,15 @@ async function runAdjudicationStage(
   // artifact a human reads to decide whether Phase 2b is safe to enable.
   // Reporting 'per-run-cap' on a permanently-deduplicated candidate would
   // wrongly suggest raising feedback-max-replies unlocks a real rebuttal.
+  //
+  // PR #61 self-review finding, round 2: reordering alone wasn't enough —
+  // `seenFindingIds.add` only ran in the actual would-post branch, so TWO
+  // duplicate candidates for a finding that was itself suppressed by an
+  // earlier, unrelated finding's cap usage would BOTH report 'per-run-cap'
+  // (neither ever got added to the set). The finding must be marked "seen"
+  // the moment it's encountered as an eligible candidate at all — whether
+  // or not it goes on to actually post — so a later duplicate of it is
+  // correctly recognized regardless of why the first one didn't post.
   const seenFindingIds = new Set<string>();
   let posted = 0;
   for (const { thread, reply, output } of adjudicated) {
@@ -424,12 +457,14 @@ async function runAdjudicationStage(
     if (eligible) {
       if (seenFindingIds.has(thread.findingId)) {
         suppressedReason = 'duplicate-thread-same-finding';
-      } else if (posted >= maxRepliesPosted) {
-        suppressedReason = 'per-run-cap';
       } else {
-        wouldPost = true;
         seenFindingIds.add(thread.findingId);
-        posted++;
+        if (posted >= maxRepliesPosted) {
+          suppressedReason = 'per-run-cap';
+        } else {
+          wouldPost = true;
+          posted++;
+        }
       }
     }
 
@@ -645,24 +680,25 @@ export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): strin
 // rebuttalMarkdown is already sanitized + length-capped by adjudicator.ts
 // before it ever reaches this function.
 //
-// CodeRabbit finding, corrected from this PR's own earlier (wrong) call:
+// This went through two rounds of correction, both worth keeping visible:
 // `<details>`/`<summary>` below are raw HTML tags — new in this file (Phase
-// 1's Job Summary only ever used Markdown table syntax) — and `label`
-// (LLM-influenced finding summary), `reply.author`, and `rebuttalMarkdown`
-// (LLM-generated) are HTML-entity-escaped via escapeHtmlEntities right at
-// this render boundary, same helper already used for the API-response path
-// above. An earlier version of this comment argued escaping here would
-// show literal `&lt;`/`&gt;` to the reader and left it unescaped — that
-// reasoning was wrong: this is RENDERED Markdown/HTML, not raw source a
-// human reads directly, so `&gt;` decodes back to a normal `>` on screen.
-// The only thing escaping actually removes is the ability for injected
-// text to inject a real `<tag>` GitHub's renderer would act on (e.g. a
-// `</details>` that prematurely closes the block, or a fresh tag entirely)
-// — which matters here specifically because a malformed/misleading Job
-// Summary undermines the human-review gate this entire dry-run stage
-// exists to provide. Markdown formatting (`**bold**`, lists, backticks) is
-// untouched by HTML-entity escaping, so the rebuttal still renders as
-// intended prose.
+// 1's Job Summary only ever used Markdown table syntax). Round 1 (my own
+// /security-review pass) left them unescaped, reasoning escaping would
+// degrade readability — wrong, since rendered HTML entities decode
+// transparently. Round 2 (CodeRabbit, on the fix for round 1) correctly
+// pointed out that full escaping is ALSO wrong in the other direction: it
+// breaks legitimate content, since CommonMark doesn't re-decode entities
+// inside an inline code span (`x &lt; 5` shows literally instead of
+// `x < 5`) and a `>`-led blockquote line loses its formatting once escaped
+// to `&gt;` before the markdown parser ever sees it. `label`/`author` are
+// short identifiers never meant to carry markdown formatting, so full
+// escapeHtmlEntities is fine for them — but `rebuttalMarkdown` is prose the
+// adjudicator prompt allows inline code references in, so it goes through
+// escapeMarkdownUnsafeTags instead: narrow enough to preserve that, still
+// enough to stop an injected `</details>`/`<script>` from acting on the
+// surrounding structure, which is the actual risk (a misleading Job
+// Summary undermines the human-review gate this whole dry-run stage exists
+// to provide).
 function appendAdjudicationSections(lines: string[], findings: FeedbackFindingReport[]): void {
   const wouldPost: { finding: FeedbackFindingReport; reply: FeedbackReplyReport }[] = [];
   const suppressed: { finding: FeedbackFindingReport; reply: FeedbackReplyReport }[] = [];
@@ -687,7 +723,7 @@ function appendAdjudicationSections(lines: string[], findings: FeedbackFindingRe
       lines.push('');
       lines.push(`<details><summary>${label} — reply from ${author} (confidence ${reply.adjudication!.confidence.toFixed(2)})</summary>`);
       lines.push('');
-      lines.push(reply.adjudication!.rebuttalMarkdown ? escapeHtmlEntities(reply.adjudication!.rebuttalMarkdown) : '_(empty rebuttal)_');
+      lines.push(reply.adjudication!.rebuttalMarkdown ? escapeMarkdownUnsafeTags(reply.adjudication!.rebuttalMarkdown) : '_(empty rebuttal)_');
       lines.push('');
       lines.push('</details>');
     }

@@ -22,7 +22,9 @@ import { uploadJson, listFiles, getFileStream } from './storage';
 import { PromisePool } from './pool';
 
 export interface UsageEvent {
-  callType: string; // e.g. "legacy", "discovery", "remediation", "deduplicate", "evaluate"
+  callType: string; // e.g. "legacy", "discovery", "remediation", "deduplicate", "evaluate",
+                     // "feedback_classify" (PR comment feedback loop Phase 1, adjudicator.ts).
+                     // "feedback_adjudicate" is reserved for Phase 2 ("respond") — not emitted yet.
   refId?: string;
   model: string;
   inputTokens: number;

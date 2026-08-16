@@ -1,0 +1,396 @@
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { runFeedbackPass, formatFeedbackSummaryMarkdown, escapeFeedbackResultForApiResponse, FeedbackPassResult } from '../src/feedbackLoop';
+import { AdjudicatorAgent } from '../src/adjudicator';
+import { FindingThread } from '../src/types';
+
+function thread(overrides: Partial<FindingThread> = {}): FindingThread {
+  return {
+    rootCommentId: 1,
+    htmlUrl: 'https://github.com/x/y/pull/1#discussion_r1',
+    findingId: 'abc123def4567890',
+    agent: 'Logic',
+    severity: 'HIGH',
+    promptVersion: 'system_prompts',
+    summary: 'some finding',
+    replies: [],
+    ...overrides,
+  };
+}
+
+function mockGh(threads: FindingThread[], opts: { throws?: Error } = {}) {
+  return {
+    listReviewThreads: opts.throws
+      ? (jest.fn() as any).mockRejectedValue(opts.throws)
+      : (jest.fn() as any).mockResolvedValue(threads),
+  } as any;
+}
+
+describe('runFeedbackPass', () => {
+  // Self-review finding: process.env is process-global — restore it after
+  // each test so setting GEMINI_API_KEY here can't leak into a later test
+  // file in the same worker. Matches tests/agent.test.ts's convention.
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+    process.env.GEMINI_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    // Self-review finding, confirmed by direct testing: process.env = X
+    // replaces Node's special environment binding with a plain object,
+    // permanently losing its auto-stringification (and OS-sync) behavior
+    // for the rest of the process — verified empirically that a value
+    // assigned to process.env AFTER a wholesale reassignment like this no
+    // longer coerces to a string the way it does before one. Restoring
+    // key-by-key onto the still-special object avoids that.
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it('mode "off": returns a skipped result and never calls listReviewThreads', async () => {
+    const gh = mockGh([]);
+    const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'off' });
+
+    expect(result).toMatchObject({ mode: 'off', skipped: true, threadsScanned: 0, findings: [] });
+    expect(gh.listReviewThreads).not.toHaveBeenCalled();
+  });
+
+  it('mode "observe" with no threads: scans and returns an empty, non-skipped result with no Gemini call', async () => {
+    const gh = mockGh([]);
+    const classifySpy = jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies');
+
+    const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+    expect(result.skipped).toBe(false);
+    expect(result.threadsScanned).toBe(0);
+    expect(result.findings).toEqual([]);
+    expect(classifySpy).not.toHaveBeenCalled();
+  });
+
+  it('stage 0 is free: zero surviving replies after filtering means zero Gemini calls', async () => {
+    const t = thread({
+      replies: [
+        { commentId: 2, author: 'coderabbitai[bot]', isBot: true, createdAt: 't', body: 'looks good to me' },
+        { commentId: 3, author: 'a-developer', isBot: false, createdAt: 't', body: '👍' },
+      ],
+    });
+    const gh = mockGh([t]);
+    const classifySpy = jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies');
+
+    const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+    expect(result.repliesClassified).toBe(0);
+    expect(result.findings).toEqual([]);
+    expect(classifySpy).not.toHaveBeenCalled();
+  });
+
+  it('never throws: a listReviewThreads failure yields a skipped result instead of propagating', async () => {
+    const gh = mockGh([], { throws: new Error('GitHub API down') });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+    expect(result.skipped).toBe(true);
+    expect(result.skipReason).toContain('GitHub API down');
+  });
+
+  it('mode "respond" degrades to observe-only (no posting) and still classifies', async () => {
+    const t = thread({
+      replies: [{ commentId: 2, author: 'a-developer', isBot: false, createdAt: 't', body: 'fixed it' }],
+    });
+    const gh = mockGh([t]);
+    jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+      { commentId: 2, stance: 'accepted', confidence: 0.9 },
+    ]);
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond' });
+
+    expect(result.mode).toBe('respond');
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].replies[0].stance).toBe('accepted');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('respond'));
+  });
+
+  describe('bodyExcerpt sanitization (security-review finding: raw reply text reached the HTTP response)', () => {
+    it('HTML-entity-escapes a reply body before it reaches the report, since /api/review streams it to the browser', async () => {
+      const t = thread({
+        replies: [{
+          commentId: 2, author: 'attacker', isBot: false, createdAt: 't',
+          body: '<img src=x onerror=alert(document.cookie)> & "quoted"',
+        }],
+      });
+      const gh = mockGh([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'neutral', confidence: 0.5 },
+      ]);
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+      const excerpt = result.findings[0].replies[0].bodyExcerpt;
+      expect(excerpt).not.toContain('<img');
+      expect(excerpt).not.toContain('"quoted"');
+      expect(excerpt).toBe('&lt;img src=x onerror=alert(document.cookie)&gt; &amp; &quot;quoted&quot;');
+    });
+
+    it('runFeedbackPass itself leaves finding-level summary/agent/promptVersion RAW (self-review finding: ' +
+       'these used to get HTML-escaped inside groupByFinding, but that\'s a shared shape also consumed by the ' +
+       'Markdown-only Job Summary formatter, which doesn\'t want HTML entities — escaping now happens only at ' +
+       'the actual API-response boundary, via escapeFeedbackResultForApiResponse, see the next test)', async () => {
+      const t = thread({
+        agent: '<script>alert(1)</script>',
+        summary: 'finding with "quotes" & <tags>',
+        promptVersion: 'v<1>',
+        replies: [{ commentId: 2, author: 'a-dev', isBot: false, createdAt: 't', body: 'fixed' }],
+      });
+      const gh = mockGh([t]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'accepted', confidence: 0.9 },
+      ]);
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+      const finding = result.findings[0];
+      expect(finding.agent).toBe('<script>alert(1)</script>');
+      expect(finding.summary).toBe('finding with "quotes" & <tags>');
+      expect(finding.promptVersion).toBe('v<1>');
+    });
+
+    it('escapeFeedbackResultForApiResponse HTML-entity-escapes summary/agent/promptVersion for the ' +
+       '/api/review JSON response, without mutating the raw result', () => {
+      const raw: FeedbackPassResult = {
+        mode: 'observe', skipped: false, threadsScanned: 1, repliesClassified: 1,
+        findings: [{
+          findingId: 'abc123def4567890', threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
+          agent: '<script>alert(1)</script>', severity: 'HIGH', promptVersion: 'v<1>',
+          summary: 'finding with "quotes" & <tags>',
+          replies: [{ commentId: 2, author: 'a-dev', isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'ok' }],
+        }],
+      };
+
+      const escaped = escapeFeedbackResultForApiResponse(raw);
+
+      expect(escaped.findings[0].agent).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
+      expect(escaped.findings[0].summary).toBe('finding with &quot;quotes&quot; &amp; &lt;tags&gt;');
+      expect(escaped.findings[0].promptVersion).toBe('v&lt;1&gt;');
+      // The raw object passed in must be untouched — formatFeedbackSummaryMarkdown
+      // (the Job Summary path) needs the unescaped version.
+      expect(raw.findings[0].agent).toBe('<script>alert(1)</script>');
+    });
+  });
+
+  describe('stage-0 bot filtering (review-amendment #4)', () => {
+    it('drops known other-reviewer-bot replies (coderabbitai, gemini-code-assist) without classifying them', async () => {
+      const t = thread({
+        replies: [
+          { commentId: 2, author: 'coderabbitai[bot]', isBot: true, createdAt: 't', body: 'nit: consider renaming' },
+          { commentId: 3, author: 'gemini-code-assist[bot]', isBot: true, createdAt: 't', body: 'looks fine to me' },
+          { commentId: 4, author: 'a-developer', isBot: false, createdAt: 't', body: 'fixed it' },
+        ],
+      });
+      const gh = mockGh([t]);
+      const classifySpy = jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 4, stance: 'accepted', confidence: 0.9 },
+      ]);
+
+      await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+      const batch = classifySpy.mock.calls[0][0] as any[];
+      expect(batch.map(b => b.commentId)).toEqual([4]);
+    });
+
+    it('does NOT blanket-drop other bot-authored replies — an AI coding agent reply is classified', async () => {
+      const t = thread({
+        replies: [
+          { commentId: 5, author: 'some-coding-agent[bot]', isBot: true, createdAt: 't', body: 'pushed a fix for this' },
+        ],
+      });
+      const gh = mockGh([t]);
+      const classifySpy = jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 5, stance: 'accepted', confidence: 0.8 },
+      ]);
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+      expect(classifySpy).toHaveBeenCalledTimes(1);
+      const batch = classifySpy.mock.calls[0][0] as any[];
+      expect(batch.map(b => b.commentId)).toEqual([5]);
+      expect(result.findings[0].replies[0].isBot).toBe(true);
+    });
+  });
+
+  describe('grouping by findingId (review-amendment #5)', () => {
+    it('merges two DIFFERENT threads that share the same findingId (duplicate-thread bug scenario) into one report entry', async () => {
+      const threadA = thread({
+        rootCommentId: 1,
+        htmlUrl: 'https://github.com/x/y/pull/1#discussion_r1',
+        findingId: 'dup1234dup123456',
+        replies: [{ commentId: 10, author: 'a-developer', isBot: false, createdAt: 't', body: 'fixed' }],
+      });
+      const threadB = thread({
+        rootCommentId: 100,
+        htmlUrl: 'https://github.com/x/y/pull/1#discussion_r100',
+        findingId: 'dup1234dup123456', // same finding, duplicate thread — the known review-quality-design.md §2 bug
+        replies: [{ commentId: 11, author: 'a-developer', isBot: false, createdAt: 't', body: 'already fixed this' }],
+      });
+      const gh = mockGh([threadA, threadB]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 10, stance: 'accepted', confidence: 0.9 },
+        { commentId: 11, stance: 'accepted', confidence: 0.9 },
+      ]);
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+      expect(result.findings).toHaveLength(1);
+      expect(result.findings[0].findingId).toBe('dup1234dup123456');
+      expect(result.findings[0].threadUrls).toHaveLength(2);
+      // Self-review finding: default .sort() coerces to strings, which
+      // happens to give the right order for [10, 11] but is fragile — an
+      // explicit numeric comparator makes the intent correct regardless of
+      // which numbers are used.
+      expect(result.findings[0].replies.map(r => r.commentId).sort((a, b) => a - b)).toEqual([10, 11]);
+    });
+
+    it('keeps distinct findingIds as separate report entries', async () => {
+      const threadA = thread({
+        findingId: 'aaaa1111aaaa1111',
+        replies: [{ commentId: 20, author: 'a-developer', isBot: false, createdAt: 't', body: 'fixed' }],
+      });
+      const threadB = thread({
+        rootCommentId: 2,
+        findingId: 'bbbb2222bbbb2222',
+        replies: [{ commentId: 21, author: 'a-developer', isBot: false, createdAt: 't', body: 'disagree' }],
+      });
+      const gh = mockGh([threadA, threadB]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 20, stance: 'accepted', confidence: 0.9 },
+        { commentId: 21, stance: 'rejected', confidence: 0.6 },
+      ]);
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+      expect(result.findings).toHaveLength(2);
+      expect(result.findings.map(f => f.findingId).sort()).toEqual(['aaaa1111aaaa1111', 'bbbb2222bbbb2222']);
+    });
+  });
+
+  describe('maxRepliesClassified cap', () => {
+    it('caps the batch sent to Gemini, preferring higher-severity findings', async () => {
+      const lowThread = thread({
+        rootCommentId: 1, findingId: 'low1111low111111', severity: 'LOW',
+        replies: [{ commentId: 1, author: 'dev1', isBot: false, createdAt: 't', body: 'reply 1' }],
+      });
+      const criticalThread = thread({
+        rootCommentId: 2, findingId: 'crit222crit222222', severity: 'CRITICAL',
+        replies: [{ commentId: 2, author: 'dev2', isBot: false, createdAt: 't', body: 'reply 2' }],
+      });
+      const gh = mockGh([lowThread, criticalThread]);
+      const classifySpy = jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'accepted', confidence: 0.9 },
+      ]);
+
+      await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe', maxRepliesClassified: 1 });
+
+      const batch = classifySpy.mock.calls[0][0] as any[];
+      expect(batch).toHaveLength(1);
+      expect(batch[0].commentId).toBe(2); // the CRITICAL finding's reply, not the LOW one
+    });
+
+    it('truncates an individual reply\'s text before sending it to Gemini (self-review finding: ' +
+       'maxRepliesClassified bounds the batch COUNT, but nothing bounded a single reply\'s own length — a ' +
+       'GitHub comment can be up to ~65KB, so an unbounded batch could blow through the model\'s token limit)', async () => {
+      const hugeReply = 'x'.repeat(10_000);
+      const t = thread({ replies: [{ commentId: 2, author: 'dev', isBot: false, createdAt: 't', body: hugeReply }] });
+      const gh = mockGh([t]);
+      const classifySpy = jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 2, stance: 'neutral', confidence: 0.5 },
+      ]);
+
+      await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'observe' });
+
+      const batch = classifySpy.mock.calls[0][0] as any[];
+      expect(batch[0].replyText.length).toBeLessThan(hugeReply.length);
+      expect(batch[0].replyText.length).toBeLessThanOrEqual(4001); // cap + the truncation-marker char
+    });
+  });
+
+  describe('formatFeedbackSummaryMarkdown (quick-review finding: pipe-escaping)', () => {
+    function resultWith(summary: string, agent: string, author: string): FeedbackPassResult {
+      return {
+        mode: 'observe',
+        skipped: false,
+        threadsScanned: 1,
+        repliesClassified: 1,
+        findings: [
+          {
+            findingId: 'abc123def4567890',
+            threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
+            agent,
+            severity: 'HIGH',
+            summary,
+            replies: [{ commentId: 2, author, isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'ok' }],
+          },
+        ],
+      };
+    }
+
+    it('escapes a literal "|" in the finding summary so it cannot corrupt the table', () => {
+      const md = formatFeedbackSummaryMarkdown(resultWith('uses `cmd | sh` unsafely', 'Security', 'a-dev'));
+      const dataRow = md.split('\n').find(l => l.startsWith('| uses'));
+      expect(dataRow).toBeDefined();
+      // GFM treats a backslash-escaped pipe as a literal character, not a column
+      // separator — the unescaped source "|" must never appear in the output.
+      expect(dataRow).toContain('cmd \\| sh');
+      expect(dataRow).not.toContain('cmd | sh');
+    });
+
+    it('escapes "|" in the agent and reply-author fields too', () => {
+      const md = formatFeedbackSummaryMarkdown(resultWith('fine', 'Security|Logic', 'weird|login'));
+      expect(md).toContain('Security\\|Logic');
+      expect(md).toContain('weird\\|login');
+    });
+
+    it('does not let a pre-existing backslash-pipe defeat the escaping (self-review finding: escaping "|" alone ' +
+       'turns an existing "\\|" into "\\\\|", which GFM reads as an escaped backslash followed by an UNESCAPED ' +
+       'pipe — a real column separator again)', () => {
+      const md = formatFeedbackSummaryMarkdown(resultWith('a value ending in \\| right here', 'Security', 'a-dev'));
+      const dataRow = md.split('\n').find(l => l.startsWith('| a value'));
+      expect(dataRow).toBeDefined();
+      // Correctly escaped: the pre-existing backslash becomes "\\", and the
+      // pipe becomes "\|" — four characters total, not three.
+      expect(dataRow).toContain('a value ending in \\\\\\| right here');
+      // The table must still be exactly 4 cells — an unescaped "|" here
+      // would split it into 5.
+      const cells = dataRow!.split(/(?<!\\)\|/); // split on pipes NOT preceded by a backslash
+      expect(cells).toHaveLength(6); // leading/trailing empty strings from the outer pipes + 4 cells
+    });
+
+    it('collapses a standalone "\\r" (not just "\\r\\n"/"\\n") to a space (self-review finding: CommonMark ' +
+       'treats a lone \\r as a line ending too, which the old \\r?\\n pattern missed)', () => {
+      const md = formatFeedbackSummaryMarkdown(resultWith('line one\rline two', 'Security', 'a-dev'));
+      const dataRow = md.split('\n').find(l => l.startsWith('| line one'));
+      expect(dataRow).toBeDefined();
+      expect(dataRow).toContain('line one line two');
+      expect(dataRow).not.toContain('\r');
+    });
+
+    it('escapes "|" in the severity field too (self-review finding: defense-in-depth, ' +
+       'even though severity is enum-constrained by the Gemini schema on every path that produces it today)', () => {
+      const result: FeedbackPassResult = {
+        mode: 'observe', skipped: false, threadsScanned: 1, repliesClassified: 1,
+        findings: [{
+          findingId: 'abc123def4567890', threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
+          agent: 'Security', severity: 'HIGH|INJECTED', summary: 'fine',
+          replies: [{ commentId: 2, author: 'a-dev', isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'ok' }],
+        }],
+      };
+      const md = formatFeedbackSummaryMarkdown(result);
+      expect(md).toContain('HIGH\\|INJECTED');
+      expect(md).not.toContain('HIGH|INJECTED');
+    });
+  });
+});

@@ -5,6 +5,7 @@ import { shouldFailOnSeverity } from './severityGate';
 import { resolveAgentSelectionForMode } from './agentSelection';
 import { setUsageSink, UsageRecord, aggregate, formatUsageSummaryMarkdown } from './usage';
 import { reportUsage } from './usageReporter';
+import { runFeedbackPass, FeedbackLoopMode, FeedbackPassResult, formatFeedbackSummaryMarkdown } from './feedbackLoop';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -42,6 +43,31 @@ function writeJobSummary(records: UsageRecord[]): void {
   fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatUsageSummaryMarkdown(rollup) + '\n');
 }
 
+// writeFeedbackJobSummary writes Phase 1's report to the same Job Summary
+// the usage rollup goes to. A `mode: 'off'` result (the input default) is
+// intentionally skipped rather than writing a "disabled" line every run —
+// that would just be noise for the vast majority of consumers who haven't
+// opted in.
+function writeFeedbackJobSummary(result: FeedbackPassResult): void {
+  if (result.mode === 'off' || !process.env.GITHUB_STEP_SUMMARY) return;
+  fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatFeedbackSummaryMarkdown(result) + '\n');
+}
+
+// resolveFeedbackLoopMode validates FEEDBACK_LOOP_MODE (the `feedback-loop`
+// Action input, off by default — even observe mode spends the consumer's
+// own Gemini quota, so this never silently turns itself on). An unrecognized
+// value degrades to 'off' with a warning rather than failing the whole run
+// over a typo in an opt-in input.
+function resolveFeedbackLoopMode(): FeedbackLoopMode {
+  // Self-review finding: YAML block scalars / accidental trailing
+  // whitespace in a workflow file (e.g. "observe ") would otherwise fail
+  // this comparison silently and fall back to "off" with no indication why.
+  const raw = (process.env.FEEDBACK_LOOP_MODE || 'off').trim().toLowerCase();
+  if (raw === 'off' || raw === 'observe' || raw === 'respond') return raw;
+  console.warn(`[GSR Action] Unrecognized feedback-loop mode "${raw}" — must be "off", "observe", or "respond". Disabling the feedback loop for this run.`);
+  return 'off';
+}
+
 // maybeReportUsage is the opt-in, off-by-default centralized reporting path
 // — see ACTION.md's "Usage reporting" section. No-ops unless both env vars
 // are set, which only happens for repos the GSR maintainer has explicitly
@@ -60,6 +86,8 @@ async function main() {
   setUsageSink(record => {
     collectedUsage.push(record);
   });
+
+  let feedbackResult: FeedbackPassResult | undefined;
 
   try {
     const githubToken = process.env.GITHUB_TOKEN;
@@ -92,6 +120,18 @@ async function main() {
     const chunks = await ghClient.getPRDiff(url);
     console.log(`[GSR Action] Found ${chunks.length} reviewable file(s).`);
 
+    // PR comment feedback loop, Phase 1 ("observe") — off by default, since
+    // even observe mode spends the consumer's own Gemini quota. Runs before
+    // the "no reviewable files" early return below: whether *this* push has
+    // a diff to review is unrelated to whether a developer replied to a
+    // *previous* finding, and runFeedbackPass never throws (see
+    // feedbackLoop.ts), so it can't turn a no-op diff run into a failed one.
+    const feedbackMode = resolveFeedbackLoopMode();
+    feedbackResult = await runFeedbackPass(ghClient, url, { mode: feedbackMode });
+    if (!feedbackResult.skipped) {
+      console.log(`[GSR Action] Feedback loop: scanned ${feedbackResult.threadsScanned} thread(s), classified ${feedbackResult.repliesClassified} repl(y/ies), ${feedbackResult.findings.length} finding(s) with new activity.`);
+    }
+
     if (chunks.length === 0) {
       console.log('[GSR Action] No reviewable file changes — skipping review.');
       return;
@@ -122,6 +162,13 @@ async function main() {
       writeJobSummary(collectedUsage);
     } catch (err) {
       console.warn('[GSR Action] Failed to write usage job summary:', err);
+    }
+    if (feedbackResult) {
+      try {
+        writeFeedbackJobSummary(feedbackResult);
+      } catch (err) {
+        console.warn('[GSR Action] Failed to write feedback loop job summary:', err);
+      }
     }
     await maybeReportUsage(collectedUsage).catch(err => console.warn('[GSR Action] Failed to report usage:', err));
   }

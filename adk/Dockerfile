@@ -31,6 +31,11 @@ COPY adk/frontend/ ./frontend/
 COPY adk/prompts/system_prompts/ /adk/prompts/system_prompts/
 COPY adk/prompts/system_prompts_v2/ /adk/prompts/system_prompts_v2/
 COPY adk/prompts/basic_prompt/ /adk/prompts/basic_prompt/
+# adk/prompts/feedback/ holds the PR comment feedback loop's classifier
+# persona (adjudicator.ts), read by /api/review when feedbackPass is
+# requested. Deliberately its own sibling dir, NOT under system_prompts/ —
+# see action.Dockerfile's identical COPY for why.
+COPY adk/prompts/feedback/ /adk/prompts/feedback/
 
 # Set working directory to backend so process.cwd() points to /app/backend
 WORKDIR /app/backend

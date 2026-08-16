@@ -6,7 +6,7 @@ import { resolveAgentSelectionForMode } from './agentSelection';
 import { setUsageSink, UsageRecord, aggregate, formatUsageSummaryMarkdown } from './usage';
 import { reportUsage } from './usageReporter';
 import { runFeedbackPass, FeedbackPassResult, formatFeedbackSummaryMarkdown } from './feedbackLoop';
-import { resolveFeedbackLoopMode, resolveFeedbackMinConfidence, resolveFeedbackMaxReplies } from './feedbackConfig';
+import { resolveFeedbackLoopMode, resolveFeedbackMinConfidence, resolveFeedbackMaxReplies, resolveFeedbackPostEnabled, feedbackPostMisconfigurationWarning } from './feedbackConfig';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -113,6 +113,14 @@ async function main() {
     // *previous* finding, and runFeedbackPass never throws (see
     // feedbackLoop.ts), so it can't turn a no-op diff run into a failed one.
     const feedbackMode = resolveFeedbackLoopMode();
+    const feedbackPostEnabled = resolveFeedbackPostEnabled();
+    // Phase 2b's arm switch only does anything when mode is "respond" —
+    // resolveFeedbackPostEnabled has no way to know that on its own, so the
+    // cross-check lives in feedbackPostMisconfigurationWarning, where both
+    // resolved values are available.
+    const misconfigWarning = feedbackPostMisconfigurationWarning(feedbackMode, feedbackPostEnabled);
+    if (misconfigWarning) console.warn(misconfigWarning);
+
     feedbackResult = await runFeedbackPass(ghClient, url, {
       mode: feedbackMode,
       // currentDiff is already fetched above regardless of feedback-loop
@@ -121,10 +129,12 @@ async function main() {
       currentDiff: chunks,
       minConfidence: resolveFeedbackMinConfidence(),
       maxRepliesPosted: resolveFeedbackMaxReplies(),
+      postRebuttals: feedbackPostEnabled,
     });
     if (!feedbackResult.skipped) {
       const adjudicatedNote = feedbackMode === 'respond' ? `, adjudicated ${feedbackResult.repliesAdjudicated} rejection(s)` : '';
-      console.log(`[GSR Action] Feedback loop: scanned ${feedbackResult.threadsScanned} thread(s), classified ${feedbackResult.repliesClassified} repl(y/ies)${adjudicatedNote}, ${feedbackResult.findings.length} finding(s) with new activity.`);
+      const postingNote = feedbackResult.postingEnabled ? `, posted ${feedbackResult.repliesPosted} repl(y/ies) (${feedbackResult.repliesPostFailed} failed)` : '';
+      console.log(`[GSR Action] Feedback loop: scanned ${feedbackResult.threadsScanned} thread(s), classified ${feedbackResult.repliesClassified} repl(y/ies)${adjudicatedNote}${postingNote}, ${feedbackResult.findings.length} finding(s) with new activity.`);
     }
 
     if (chunks.length === 0) {

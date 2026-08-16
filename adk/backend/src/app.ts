@@ -146,6 +146,10 @@ app.post('/api/review', async (req, res) => {
     // Opt-in per request (`feedbackPass: true` in the body) since it spends
     // the requester's own Gemini quota. runFeedbackPass never throws, so
     // this can't turn a feedback-loop hiccup into a failed review.
+    // Phase 2b (real posting, gated by `postRebuttals`) is deliberately
+    // never passed here — mode never reaches 'respond' either, so
+    // runAdjudicationStage/runPostingStage never run on this surface at
+    // all; this is belt-and-suspenders, not the only protection.
     const feedbackResultRaw = await runFeedbackPass(ghClient, url, { mode: feedbackPass ? 'observe' : 'off' });
     // HTML-entity-escaped once here, right at the boundary where this
     // result becomes part of an HTTP JSON response a browser will parse —

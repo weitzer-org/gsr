@@ -53,8 +53,9 @@ so the action's `GITHUB_TOKEN` can post review comments.
 | `usage-report-url` | no | (unset) | OPTIONAL. URL of a hosted GSR usage-ingest endpoint to also report this run's usage to. Only set if the GSR maintainer has given you this value — see "Usage reporting" below. |
 | `usage-report-key` | no | (unset) | OPTIONAL. Shared secret paired with `usage-report-url`, provided by the GSR maintainer alongside it. Store as a repo secret. |
 | `feedback-loop` | no | `off` | OPTIONAL. `off`, `observe`, or `respond` — see "PR comment feedback loop" below. |
-| `feedback-max-replies` | no | `3` | OPTIONAL. Only relevant when `feedback-loop` is `respond`. Caps rebuttal decisions reported as "would post" per run — see below. |
+| `feedback-max-replies` | no | `3` | OPTIONAL. Only relevant when `feedback-loop` is `respond`. Caps rebuttal decisions reported as "would post" per run, and caps real posts once `feedback-post` is enabled — see below. |
 | `feedback-min-confidence` | no | `0.7` | OPTIONAL. Only relevant when `feedback-loop` is `respond`. Adjudicator confidence floor (0-1) for a "would post" decision — see below. |
+| `feedback-post` | no | `false` | OPTIONAL. Only relevant when `feedback-loop` is `respond`. When `true`, rebuttals GSR would post are actually posted to GitHub — see below. |
 
 ## PR comment feedback loop (opt-in)
 
@@ -75,18 +76,57 @@ input in this action does.
 Setting `feedback-loop: respond` additionally runs a second, per-rejection
 Gemini call ("adjudication") that judges whether a developer's rejection of
 a finding actually holds up against the finding, the reply, and the file's
-current diff hunk. **As of this release, `respond` still posts nothing to
-GitHub** — it's a dry run: the Job Summary reports each adjudication verdict
-and, for rejections the adjudicator says still stand, the full text of the
-rebuttal it *would* post, clearly marked as not actually sent. Posting is a
-separate, not-yet-enabled stage — this dry-run period exists so real output
-can be reviewed before that's turned on. `respond` costs more than `observe`
-(one extra Gemini call per adjudicated rejection, capped and reported), and
-because nothing is ever posted in this release, that dry-run adjudication
-cost repeats on every run for as long as a rejection stands unaddressed —
-there's no persisted state to skip re-adjudicating something already looked
-at. `feedback-max-replies` and `feedback-min-confidence` only shape that
-preview today; they'll cap and gate real posts once posting is enabled.
+current diff hunk. **By itself, `respond` still posts nothing to GitHub** —
+it's a dry run: the Job Summary reports each adjudication verdict and, for
+rejections the adjudicator says still stand, the full text of the rebuttal
+it *would* post, clearly marked as not actually sent. `respond` costs more
+than `observe` (one extra Gemini call per adjudicated rejection, capped and
+reported), and while posting stays disabled, that dry-run adjudication cost
+repeats on every run for as long as a rejection stands unaddressed — there's
+no persisted state to skip re-adjudicating something already looked at.
+
+### Actually posting rebuttals (`feedback-post`)
+
+Setting `feedback-post: true` **in addition to** `feedback-loop: respond`
+arms real posting: rejections the adjudicator says still stand — verdict
+`pushback_incorrect`, confidence at or above `feedback-min-confidence` —
+are posted as an actual reply in that GitHub thread, once per finding ever,
+capped at `feedback-max-replies` per run (design doc §8.4's five
+independent stop-condition layers all still apply; `feedback-post` doesn't
+relax any of them). This is a **separate switch from `feedback-loop`
+deliberately** — flipping `respond` itself to start posting would silently
+change behavior for every consumer who already set it for the dry-run
+preview. `feedback-post` defaults to `false`; nothing changes unless you
+add it explicitly.
+
+Before enabling `feedback-post`:
+
+- **Fork PRs get no replies.** A `pull_request` event from a fork carries a
+  read-only `GITHUB_TOKEN`, so the reply POST fails with a 403. GSR detects
+  this on the first failed attempt and degrades to observe-only for the
+  rest of that run (no further posts are attempted) — it never fails the
+  workflow. `pull_request_target` avoids this by using a token with write
+  access even on fork PRs, but carries its own well-known security
+  implications for running against untrusted fork code — don't switch to
+  it solely to enable posting on forks without understanding those first.
+- **Add a concurrency group.** Two pushes in quick succession can trigger
+  two overlapping runs; GSR's round marker and a pre-post re-check both
+  make a double-reply unlikely, but a workflow-level `concurrency` group is
+  the only mitigation that makes it *impossible*, and only your workflow
+  YAML can provide it:
+  ```yaml
+  concurrency:
+    group: gsr-feedback-${{ github.event.pull_request.number }}
+    cancel-in-progress: false
+  ```
+- **The Job Summary now reports real outcomes, not just previews**: how
+  many rebuttals were actually posted, how many failed and why (including
+  a link to each posted comment), alongside the same suppressed-by-cap/
+  duplicate/empty-rebuttal reporting `respond`-only already had.
+
+`feedback-max-replies` and `feedback-min-confidence` shape the dry-run
+preview either way, and additionally cap/gate real posts once
+`feedback-post` is `true`.
 
 ## Usage reporting (opt-in)
 

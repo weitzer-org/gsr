@@ -1,6 +1,7 @@
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { runFeedbackPass, formatFeedbackSummaryMarkdown, escapeFeedbackResultForApiResponse, FeedbackPassResult } from '../src/feedbackLoop';
 import { AdjudicatorAgent } from '../src/adjudicator';
+import { parseReplyMarker } from '../src/findingMarker';
 import { FindingThread } from '../src/types';
 
 function thread(overrides: Partial<FindingThread> = {}): FindingThread {
@@ -627,8 +628,9 @@ describe('runFeedbackPass', () => {
       } as any;
     }
 
-    it('posts a real reply for a wouldPost candidate: rootCommentId as the thread root, sanitized rebuttal ' +
-       'then the gsr-reply:v1 marker appended LAST (same sanitize-then-marker-last contract as formatFindingBody)', async () => {
+    it('posts a real reply for a wouldPost candidate: rootCommentId as the thread root, a fixed disclaimer, ' +
+       'then the sanitized rebuttal, then the gsr-reply:v1 marker appended LAST (same sanitize-then-marker-last ' +
+       'contract as formatFindingBody) — verified by parsing the marker with the real parser, not string matching', async () => {
       const t = thread({
         rootCommentId: 42, findingId: 'abc123def4567890',
         replies: [{ commentId: 2, author: 'a-developer', isBot: false, createdAt: 't', body: 'disagree' }],
@@ -647,17 +649,28 @@ describe('runFeedbackPass', () => {
       const [calledUrl, calledRootId, calledBody] = gh.createThreadReply.mock.calls[0];
       expect(calledUrl).toBe('https://github.com/x/y/pull/1');
       expect(calledRootId).toBe(42);
-      // Body starts with the sanitized rebuttal text...
-      expect(calledBody.indexOf('Here is why it still stands.')).toBe(0);
+      // A fixed, non-attacker-derived disclaimer precedes the rebuttal text
+      // (self-review finding: cheap defense-in-depth against a human
+      // over-trusting a confidently-worded but possibly-injection-steered
+      // reply just because it's posted under GSR's identity) — then the
+      // sanitized rebuttal text...
+      const rebuttalIndex = calledBody.indexOf('Here is why it still stands.');
+      expect(rebuttalIndex).toBeGreaterThan(0);
+      expect(calledBody.slice(0, rebuttalIndex)).toContain('AI-generated');
       // ...and the marker is the LAST thing in the body, not interspersed —
       // same contract formatFindingBody uses for finding comments.
       const markerIndex = calledBody.indexOf('<!-- gsr-reply:v1');
-      expect(markerIndex).toBeGreaterThan(0);
+      expect(markerIndex).toBeGreaterThan(rebuttalIndex);
       expect(calledBody.trim().endsWith('-->')).toBe(true);
-      expect(calledBody).toContain('f=abc123def4567890');
-      expect(calledBody).toContain('round=1');
-      expect(calledBody).toContain('verdict=pushback_incorrect');
-      expect(calledBody).toContain('ack=2'); // the newest (only) reply in the thread
+      // Parsed with the REAL parser, not raw string matching (self-review
+      // finding: a toContain-based assertion doesn't verify the marker
+      // round-trips correctly, only that certain substrings appear
+      // somewhere in the body).
+      const marker = parseReplyMarker(calledBody);
+      expect(marker).toMatchObject({
+        findingId: 'abc123def4567890', round: 1, verdict: 'pushback_incorrect', ackCommentId: 2,
+      });
+      expect(marker!.confidence).toBeCloseTo(0.9);
 
       expect(result.postingEnabled).toBe(true);
       expect(result.repliesPosted).toBe(1);
@@ -685,7 +698,7 @@ describe('runFeedbackPass', () => {
       await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond', postRebuttals: true, postDelayMs: 0 });
 
       const calledBody = gh.createThreadReply.mock.calls[0][2];
-      expect(calledBody).toContain('ack=5');
+      expect(parseReplyMarker(calledBody)?.ackCommentId).toBe(5);
     });
 
     it('sticky fork-read-only: once one post 403s, every LATER wouldPost candidate this run is skipped ' +
@@ -855,6 +868,45 @@ describe('runFeedbackPass', () => {
 
       expect(gh.listReviewThreads).toHaveBeenCalledTimes(1); // only the initial scan — no posting stage ran
       expect(gh.createThreadReply).not.toHaveBeenCalled();
+    });
+
+    it('spaces out successive real POSTs by postDelayMs, but not after the final one (self-review finding: ' +
+       'this branch had no coverage since every other test in this file passes postDelayMs: 0)', async () => {
+      jest.useFakeTimers();
+      try {
+        const threadA = thread({
+          rootCommentId: 1, findingId: 'aaaa1111aaaa1111', severity: 'CRITICAL',
+          replies: [{ commentId: 10, author: 'dev1', isBot: false, createdAt: 't', body: 'disagree A' }],
+        });
+        const threadB = thread({
+          rootCommentId: 2, findingId: 'bbbb2222bbbb2222', severity: 'HIGH',
+          replies: [{ commentId: 20, author: 'dev2', isBot: false, createdAt: 't', body: 'disagree B' }],
+        });
+        const gh = mockGhWithPosting([threadA, threadB]);
+        jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+          { commentId: 10, stance: 'rejected', confidence: 0.8 },
+          { commentId: 20, stance: 'rejected', confidence: 0.8 },
+        ]);
+        mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+        const passPromise = runFeedbackPass(gh, 'https://github.com/x/y/pull/1', {
+          mode: 'respond', postRebuttals: true, postDelayMs: 5000,
+        });
+
+        // Flush the classify/adjudicate/first-post microtask chain without
+        // advancing real time yet — A (CRITICAL, processed first) should
+        // already be posted, and B should be waiting out the delay.
+        await jest.advanceTimersByTimeAsync(0);
+        expect(gh.createThreadReply).toHaveBeenCalledTimes(1);
+
+        await jest.advanceTimersByTimeAsync(5000);
+        const result = await passPromise;
+
+        expect(gh.createThreadReply).toHaveBeenCalledTimes(2); // B posted once the delay elapsed
+        expect(result.repliesPosted).toBe(2);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('mode "observe" never posts even with postRebuttals: true — posting only runs in "respond" mode', async () => {

@@ -123,6 +123,11 @@ Before enabling `feedback-post`:
   many rebuttals were actually posted, how many failed and why (including
   a link to each posted comment), alongside the same suppressed-by-cap/
   duplicate/empty-rebuttal reporting `respond`-only already had.
+- **Every posted rebuttal opens with a fixed disclaimer** — "Automated
+  rebuttal from GSR. AI-generated — please verify independently." — before
+  the adjudicator's argument. This isn't shown in the dry-run preview since
+  it's only added to the real posted body, not the reported
+  `rebuttalMarkdown`.
 
 `feedback-max-replies` and `feedback-min-confidence` shape the dry-run
 preview either way, and additionally cap/gate real posts once

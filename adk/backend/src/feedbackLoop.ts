@@ -677,7 +677,17 @@ async function runPostingStage(
     const existing = out.get(reply.commentId);
     if (!existing) continue; // unreachable — every wouldPostEntries item was set in runAdjudicationStage
 
-    if (freshMaxRoundByFinding && (freshMaxRoundByFinding.get(thread.findingId) ?? 0) >= FEEDBACK_MAX_ROUNDS) {
+    // The round THIS post is about to claim — not FEEDBACK_MAX_ROUNDS
+    // (self-review finding: comparing the concurrency re-check directly
+    // against the global cap constant silently coupled two independent
+    // things — "how many rounds are allowed at all" and "what round is
+    // this specific post" — that happen to be equal only because the cap
+    // is hardcoded to 1 today. Computing the actual intended round keeps
+    // the check correct on its own terms if that cap ever changes, without
+    // this function needing to know why).
+    const intendedRound = (thread.gsrLastReply?.round ?? 0) + 1;
+
+    if (freshMaxRoundByFinding && (freshMaxRoundByFinding.get(thread.findingId) ?? 0) >= intendedRound) {
       console.warn(`[FeedbackLoop] Finding ${thread.findingId} already has a reply on GitHub as of the pre-post re-check — a concurrent run likely posted first. Skipping.`);
       out.set(reply.commentId, { ...existing, posted: false, postFailedReason: 'concurrent-post-detected' });
       postFailed++;
@@ -701,15 +711,9 @@ async function runPostingStage(
     const ackCommentId = thread.replies.length > 0
       ? thread.replies[thread.replies.length - 1].commentId
       : reply.commentId;
-    // Always 1 in practice: the candidate filter above already excludes any
-    // finding whose max round (across ALL its threads) is >= 1, so this
-    // thread's own gsrLastReply is always undefined here. Computed from the
-    // formula anyway, not hardcoded, so it stays correct if that filter's
-    // scope ever changes.
-    const round = (thread.gsrLastReply?.round ?? 0) + 1;
     const marker = buildReplyMarker({
       findingId: thread.findingId,
-      round,
+      round: intendedRound,
       verdict: existing.verdict,
       confidence: existing.confidence,
       ackCommentId,
@@ -722,7 +726,23 @@ async function runPostingStage(
     // / last-match-wins (findingMarker.ts), so even if sanitization somehow
     // let a fake marker delimiter through, GSR's own real marker — appended
     // last, here — is still the one a later run trusts.
-    const body = `${existing.rebuttalMarkdown}\n\n${marker}`;
+    //
+    // Self-review finding: design doc §9 T1 already accepts, as residual
+    // risk, that a determined prompt injector can steer rebuttalMarkdown's
+    // CONTENT (the code-level mitigations only constrain whether GSR posts,
+    // not what the sanctioned text says) — "impact is bounded... not code
+    // execution or data access," but a human reading a confidently-worded
+    // reply under a trusted bot identity has no reason to weigh it
+    // differently from a genuine finding. REBUTTAL_DISCLAIMER is cheap
+    // defense-in-depth directly against that: fixed, non-attacker-derived
+    // text (never influenced by rebuttalMarkdown/reasoning/thread content),
+    // so it can't itself be a new injection surface, prepended — not
+    // appended — so it's the first thing a reader sees, before the argument
+    // itself. Deliberately only on the POSTED body, not on
+    // existing.rebuttalMarkdown/the stored report value, which stays the
+    // model's actual argument for anyone auditing adjudication quality.
+    const REBUTTAL_DISCLAIMER = '> 🤖 **Automated rebuttal from GSR.** AI-generated — please verify independently.\n\n';
+    const body = `${REBUTTAL_DISCLAIMER}${existing.rebuttalMarkdown}\n\n${marker}`;
 
     const outcome = await gh.createThreadReply(prUrl, thread.rootCommentId, body);
     if (outcome.posted) {

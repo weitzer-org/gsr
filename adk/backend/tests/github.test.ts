@@ -724,6 +724,16 @@ index e69de29..d95f3ad 100644
 
             expect(result).toEqual({ posted: false, reason: 'error', message: 'thread was deleted' });
         });
+
+        it('never throws: a malformed URL resolves to a generic "error" outcome instead of rejecting ' +
+           '(PR #61 self-review finding: parsePRUrl used to be called BEFORE the try block, so this threw ' +
+           'synchronously despite the docstring promising "never throws")', async () => {
+            (client as any).octokit = { rest: { pulls: { createReplyForReviewComment: jest.fn() } } };
+
+            const result = await client.createThreadReply('not-a-valid-pr-url', 42, 'a rebuttal');
+
+            expect(result).toEqual({ posted: false, reason: 'error', message: 'Invalid GitHub Pull Request URL.' });
+        });
     });
 
 });

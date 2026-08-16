@@ -405,6 +405,15 @@ async function runAdjudicationStage(
   // one finding even though each individual thread only ever gets one.
   // `adjudicated` is already severity-sorted from the candidate list above,
   // so higher-severity findings win ties for the cap.
+  //
+  // PR #61 self-review + CodeRabbit finding (independently flagged twice):
+  // the duplicate-thread check must run BEFORE the per-run-cap check, not
+  // after. A candidate that's both past the cap AND a duplicate of an
+  // already-counted finding is unconditionally suppressed either way — but
+  // which reason gets reported matters, because this report is the exact
+  // artifact a human reads to decide whether Phase 2b is safe to enable.
+  // Reporting 'per-run-cap' on a permanently-deduplicated candidate would
+  // wrongly suggest raising feedback-max-replies unlocks a real rebuttal.
   const seenFindingIds = new Set<string>();
   let posted = 0;
   for (const { thread, reply, output } of adjudicated) {
@@ -413,10 +422,10 @@ async function runAdjudicationStage(
     let suppressedReason: AdjudicationSuppressedReason | undefined;
 
     if (eligible) {
-      if (posted >= maxRepliesPosted) {
-        suppressedReason = 'per-run-cap';
-      } else if (seenFindingIds.has(thread.findingId)) {
+      if (seenFindingIds.has(thread.findingId)) {
         suppressedReason = 'duplicate-thread-same-finding';
+      } else if (posted >= maxRepliesPosted) {
+        suppressedReason = 'per-run-cap';
       } else {
         wouldPost = true;
         seenFindingIds.add(thread.findingId);
@@ -636,21 +645,24 @@ export function formatFeedbackSummaryMarkdown(result: FeedbackPassResult): strin
 // rebuttalMarkdown is already sanitized + length-capped by adjudicator.ts
 // before it ever reaches this function.
 //
-// Security-review note: `<details>`/`<summary>` below are raw HTML tags —
-// new in this file (Phase 1's Job Summary only ever used Markdown table
-// syntax), wrapping `label` (LLM-influenced finding summary) and
-// `rebuttalMarkdown` (LLM-generated) with no HTML-tag escaping. Neither
-// sanitizeForComment nor escapeMarkdownTableCell strips general `<`/`>`.
-// Left unescaped deliberately: this renders inside GitHub's own Job-Summary
-// Markdown pipeline, the same trust boundary this codebase already relies
-// on for the pre-existing finding-summary/reply-excerpt table cells (GitHub
-// sanitizes raw HTML in rendered Markdown the same way it does for PR
-// comments) — HTML-escaping here would show literal `&lt;`/`&gt;` entities
-// in what's meant to be readable rebuttal prose, defeating the point of
-// showing it in full. Flagged as PLAUSIBLE rather than silently assumed
-// safe: this is the first raw-HTML-tag sink in this file, and the actual
-// guarantee is GitHub's renderer, not anything in this repo — worth
-// revisiting if that assumption is ever tested and found wrong.
+// CodeRabbit finding, corrected from this PR's own earlier (wrong) call:
+// `<details>`/`<summary>` below are raw HTML tags — new in this file (Phase
+// 1's Job Summary only ever used Markdown table syntax) — and `label`
+// (LLM-influenced finding summary), `reply.author`, and `rebuttalMarkdown`
+// (LLM-generated) are HTML-entity-escaped via escapeHtmlEntities right at
+// this render boundary, same helper already used for the API-response path
+// above. An earlier version of this comment argued escaping here would
+// show literal `&lt;`/`&gt;` to the reader and left it unescaped — that
+// reasoning was wrong: this is RENDERED Markdown/HTML, not raw source a
+// human reads directly, so `&gt;` decodes back to a normal `>` on screen.
+// The only thing escaping actually removes is the ability for injected
+// text to inject a real `<tag>` GitHub's renderer would act on (e.g. a
+// `</details>` that prematurely closes the block, or a fresh tag entirely)
+// — which matters here specifically because a malformed/misleading Job
+// Summary undermines the human-review gate this entire dry-run stage
+// exists to provide. Markdown formatting (`**bold**`, lists, backticks) is
+// untouched by HTML-entity escaping, so the rebuttal still renders as
+// intended prose.
 function appendAdjudicationSections(lines: string[], findings: FeedbackFindingReport[]): void {
   const wouldPost: { finding: FeedbackFindingReport; reply: FeedbackReplyReport }[] = [];
   const suppressed: { finding: FeedbackFindingReport; reply: FeedbackReplyReport }[] = [];
@@ -670,11 +682,12 @@ function appendAdjudicationSections(lines: string[], findings: FeedbackFindingRe
     lines.push('');
     lines.push(`### Would post (${wouldPost.length}) — dry run, nothing was actually sent`);
     for (const { finding, reply } of wouldPost) {
-      const label = finding.summary ? escapeMarkdownTableCell(finding.summary) : finding.findingId;
+      const label = escapeHtmlEntities(finding.summary ? escapeMarkdownTableCell(finding.summary) : finding.findingId);
+      const author = escapeHtmlEntities(escapeMarkdownTableCell(reply.author));
       lines.push('');
-      lines.push(`<details><summary>${label} — reply from ${escapeMarkdownTableCell(reply.author)} (confidence ${reply.adjudication!.confidence.toFixed(2)})</summary>`);
+      lines.push(`<details><summary>${label} — reply from ${author} (confidence ${reply.adjudication!.confidence.toFixed(2)})</summary>`);
       lines.push('');
-      lines.push(reply.adjudication!.rebuttalMarkdown || '_(empty rebuttal)_');
+      lines.push(reply.adjudication!.rebuttalMarkdown ? escapeHtmlEntities(reply.adjudication!.rebuttalMarkdown) : '_(empty rebuttal)_');
       lines.push('');
       lines.push('</details>');
     }

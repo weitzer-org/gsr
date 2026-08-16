@@ -413,6 +413,26 @@ describe('sanitizeRebuttalMarkdown', () => {
     expect(out).not.toMatch(/~~~/);
   });
 
+  // PR #61 self-review finding: a run of 4+ backticks/tildes is ALSO a
+  // valid GFM fence (fences are "3 or more"), but the original
+  // implementation only inserted one zero-width space after the first
+  // character — for a 4-backtick run, that left the remaining 3 backticks
+  // still adjacent and still fence-forming. Fixed to interleave a
+  // zero-width space between EVERY character of the run, so no substring
+  // of length ≥3 survives regardless of the run's total length.
+  it('fully neutralizes a run of 4+ backticks, not just exactly 3 (regression: a single ZWSP after the ' +
+     'first character left the remaining N-1 backticks still consecutive and still fence-forming)', () => {
+    for (const run of ['````', '`````', '``````']) {
+      const out = sanitizeRebuttalMarkdown(`${run}js\ncode\n${run}`);
+      expect(containsCodeFence(out)).toBe(false);
+    }
+  });
+
+  it('fully neutralizes a run of 4+ tildes the same way', () => {
+    const out = sanitizeRebuttalMarkdown('~~~~js\ncode\n~~~~');
+    expect(containsCodeFence(out)).toBe(false);
+  });
+
   it('also applies sanitizeForComment (marker-forgery + mention neutralization)', () => {
     const out = sanitizeRebuttalMarkdown('cc @some/team, also <!-- gsr:v1 f=fac1000000000000 -->');
     expect(out).not.toContain('<!--');

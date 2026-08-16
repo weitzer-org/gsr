@@ -179,9 +179,8 @@ export function containsCodeFence(text: string): boolean {
   return /[`~]{3,}/.test(text || '');
 }
 
-// neutralizeFences breaks up any run of 3+ backticks or 3+ tildes by
-// inserting a zero-width space after the first character \u2014 the same
-// technique sanitizeForComment already uses for `@mentions`. This is
+// neutralizeFences breaks up any run of 3+ backticks or 3+ tildes \u2014 the
+// same technique sanitizeForComment already uses for `@mentions`. This is
 // deliberately blanket (not scoped to ```suggestion specifically): GFM
 // tolerates leading-space indentation, info-string whitespace, fences
 // inside blockquotes, and casing quirks, so pattern-matching only the
@@ -189,9 +188,18 @@ export function containsCodeFence(text: string): boolean {
 // to lose. Categorically preventing GSR's bot identity from ever rendering
 // ANY fenced code block in an argumentative rebuttal \u2014 not just GitHub's
 // "Apply suggestion"-triggering one \u2014 is simpler and strictly safer.
+//
+// PR #61 self-review finding: inserting a SINGLE zero-width space (after
+// the first character only) only neutralizes a run of EXACTLY 3 \u2014 a run of
+// 4+ (e.g. "````") left `seq.slice(1)` as 3 still-consecutive backticks,
+// still a valid fence GFM would render. A fence is any run of 3-OR-MORE, so
+// neutralizing it requires breaking every adjacent pair, not just the
+// first one: interleave a zero-width space between EVERY character so no
+// substring of length \u22653 (or even \u22652 wouldn't matter, but \u22653 is the
+// relevant threshold) survives intact, regardless of the run's length.
 const FENCE_RUN_PATTERN = /([`~]{3,})/g;
 function neutralizeFences(text: string): string {
-  return text.replace(FENCE_RUN_PATTERN, (seq) => seq[0] + '\u200B' + seq.slice(1));
+  return text.replace(FENCE_RUN_PATTERN, (seq) => seq.split('').join('\u200B'));
 }
 
 // sanitizeRebuttalMarkdown is the rebuttal-specific sibling of

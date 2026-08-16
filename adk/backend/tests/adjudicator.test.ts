@@ -312,15 +312,15 @@ describe('validateAdjudicationResponse (Phase 2 — untrusted structured output)
       expect(result.fenceDetected).toBe(true);
     });
 
-    it('the resulting rebuttalMarkdown is still sanitized (fence-neutralized) for safe display even though it will never post', () => {
+    it('empties rebuttalMarkdown entirely when a fence is detected (PR #61 self-review finding: forcing ' +
+       'verdict/confidence alone is defense-in-depth-incomplete — a downstream consumer that reads ' +
+       'rebuttalMarkdown without checking verdict first could still render the sanitized-but-originally-' +
+       'fenced text; emptying it outright removes that possibility structurally)', () => {
       const result = validateAdjudicationResponse({
         verdict: 'pushback_incorrect', confidence: 0.95, reasoning: 'stands',
         rebuttalMarkdown: '```js\ncode\n```',
       });
-      // The raw triple-backtick run must not survive verbatim into the
-      // sanitized output, even for a discarded/unclear-forced response —
-      // this text may still be logged to a Job Summary.
-      expect(result.rebuttalMarkdown).not.toMatch(/```/);
+      expect(result.rebuttalMarkdown).toBe('');
     });
 
     it('a plain-prose rebuttal with no fence is unaffected', () => {
@@ -424,6 +424,56 @@ describe('AdjudicatorAgent.adjudicate', () => {
     const call = mockGenerate.mock.calls[0][0] as any;
     const payload = JSON.parse(call.contents);
     expect(payload.currentDiffHunk).toBeNull();
+  });
+
+  // CodeRabbit finding: the classification batch (feedbackLoop.ts) marks a
+  // truncated reply with "…" so the model knows it's seeing a partial
+  // text; adjudicate() silently discarded that same signal for all three
+  // context fields. Since adjudication is the stage deciding whether to
+  // argue with a developer, a silently-cut argument can read as weaker
+  // than it really is and bias the verdict for the wrong reason.
+  it('marks replyText/rootBody as truncated in the payload sent to Gemini, rather than silently cutting them', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({
+      text: JSON.stringify({ verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '' }),
+    });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+
+    await adjudicator.adjudicate({
+      findingId: 'x', commentId: 2,
+      replyText: 'r'.repeat(5000), // over the 4000-char cap
+      rootBody: 'b'.repeat(5000),  // over the 4000-char cap
+    });
+
+    const payload = JSON.parse(mockGenerate.mock.calls[0][0].contents);
+    expect(payload.developerReply.endsWith('…')).toBe(true);
+    expect(payload.finding.detail.endsWith('…')).toBe(true);
+  });
+
+  it('marks a truncated diffHunk distinctly, since it is multi-line context rather than prose', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({
+      text: JSON.stringify({ verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '' }),
+    });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+
+    await adjudicator.adjudicate({ findingId: 'x', commentId: 2, replyText: 'y', diffHunk: 'd'.repeat(9000) });
+
+    const payload = JSON.parse(mockGenerate.mock.calls[0][0].contents);
+    expect(payload.currentDiffHunk).toContain('[truncated]');
+  });
+
+  it('does NOT mark fields that fit within the cap, even when they are long', async () => {
+    const adjudicator = new AdjudicatorAgent();
+    const mockGenerate = (jest.fn() as any).mockResolvedValue({
+      text: JSON.stringify({ verdict: 'unclear', confidence: 0, reasoning: '', rebuttalMarkdown: '' }),
+    });
+    (adjudicator as any).ai = { models: { generateContent: mockGenerate } };
+
+    await adjudicator.adjudicate({ findingId: 'x', commentId: 2, replyText: 'a short reply' });
+
+    const payload = JSON.parse(mockGenerate.mock.calls[0][0].contents);
+    expect(payload.developerReply).toBe('a short reply');
   });
 
   it('never throws: falls back to unclear when the Gemini call rejects', async () => {

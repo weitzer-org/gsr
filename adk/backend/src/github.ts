@@ -218,8 +218,13 @@ export class GitHubClient {
   public async createThreadReply(url: string, rootCommentId: number, body: string): Promise<
     { posted: true } | { posted: false; reason: 'fork-read-only' | 'error'; message: string }
   > {
-    const { owner, repo, pull_number } = this.parsePRUrl(url);
+    // PR #61 self-review finding: parsePRUrl was called BEFORE the try
+    // block, so a malformed url threw synchronously (a rejected promise)
+    // instead of resolving to the structured failure shape this method's
+    // own docstring promises — moved inside the try so "never throws" is
+    // actually true for every input, not just Octokit failures.
     try {
+      const { owner, repo, pull_number } = this.parsePRUrl(url);
       await this.octokit.rest.pulls.createReplyForReviewComment({
         owner, repo, pull_number,
         comment_id: rootCommentId,
@@ -466,7 +471,16 @@ export class GitHubClient {
       // loop only wants what a developer (or their coding agent) said back,
       // not GSR talking to itself. GSR's own replies are captured
       // separately below to derive round/ack state (deriveGsrLastReply).
-      const trustedReplyComments = (replyComments as any[]).filter(c => c.user?.login === TRUSTED_GSR_BOT_LOGIN);
+      // PR #61 self-review finding: sorted by id, same as the `replies`
+      // list just below — deriveGsrLastReply's tie-break between two
+      // same-round entries (should be rare; only a genuine concurrent-run
+      // race produces one) depends on traversal order, so an unsorted
+      // input makes that specific edge case nondeterministic even though
+      // the API is requested with sort:'created', direction:'asc' (not a
+      // hard guarantee under replication/pagination edge cases).
+      const trustedReplyComments = (replyComments as any[])
+        .filter(c => c.user?.login === TRUSTED_GSR_BOT_LOGIN)
+        .sort((a, b) => a.id - b.id);
       const gsrLastReply = GitHubClient.deriveGsrLastReply(trustedReplyComments);
 
       const replies: ThreadReply[] = (replyComments as any[])

@@ -70,15 +70,21 @@ function resolveFeedbackLoopMode(): FeedbackLoopMode {
 
 // resolveFeedbackMinConfidence / resolveFeedbackMaxReplies (Phase 2 inputs,
 // design doc §7.2) follow resolveFeedbackLoopMode's same "warn and fall
-// back to a safe default" pattern rather than throwing over a typo'd input
-// — this matters more here than most numeric inputs: a typo like "0..7"
-// parses to NaN, and `confidence >= NaN` is always false, which would
-// silently make every dry-run adjudication look like it "would never post"
-// regardless of what the model actually decided.
+// back to a safe default" pattern rather than throwing over a typo'd input.
+// PR #61 self-review + CodeRabbit finding: `parseFloat`/`parseInt` are too
+// permissive to rely on for this — they parse a leading numeric prefix and
+// silently discard trailing garbage, so `parseFloat("0..7")` is `0` (not
+// NaN, despite what an earlier version of this comment claimed) and
+// `parseInt("3.5", 10)` is `3`. A `minConfidence` of `0` clears the floor
+// for every `pushback_incorrect` verdict — worse than the failure this
+// function exists to guard against, and with no warning logged. `Number()`
+// rejects any trailing/malformed characters outright (`Number("0..7")` is
+// NaN), so the existing `Number.isFinite`/`Number.isInteger` checks below
+// now actually catch what they're meant to.
 function resolveFeedbackMinConfidence(): number {
   const raw = process.env.FEEDBACK_MIN_CONFIDENCE;
   if (raw === undefined || raw.trim() === '') return 0.7;
-  const parsed = parseFloat(raw);
+  const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
     console.warn(`[GSR Action] Invalid feedback-min-confidence "${raw}" — must be a number between 0 and 1. Using default 0.7.`);
     return 0.7;
@@ -89,7 +95,7 @@ function resolveFeedbackMinConfidence(): number {
 function resolveFeedbackMaxReplies(): number {
   const raw = process.env.FEEDBACK_MAX_REPLIES;
   if (raw === undefined || raw.trim() === '') return 3;
-  const parsed = parseInt(raw, 10);
+  const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 0) {
     console.warn(`[GSR Action] Invalid feedback-max-replies "${raw}" — must be a non-negative integer. Using default 3.`);
     return 3;

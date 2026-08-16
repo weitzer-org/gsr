@@ -108,7 +108,15 @@ export function validateAdjudicationResponse(raw: unknown): AdjudicationOutput {
     verdict: fenceDetected ? 'unclear' : verdict,
     confidence: fenceDetected ? 0 : confidence,
     reasoning: reasoningSanitized,
-    rebuttalMarkdown: sanitizeRebuttalMarkdown(rebuttalTruncated),
+    // PR #61 self-review finding: forcing verdict/confidence above is
+    // sufficient to block a POST (feedbackLoop.ts only posts on
+    // pushback_incorrect), but leaving the sanitized-but-originally-fenced
+    // text in rebuttalMarkdown means a downstream consumer that reads this
+    // field without checking verdict first (a logic bug, a future caller)
+    // could still render it. Emptying it outright when a fence was
+    // detected is strictly safer defense-in-depth, not just belt-and-
+    // suspenders on the verdict check.
+    rebuttalMarkdown: fenceDetected ? '' : sanitizeRebuttalMarkdown(rebuttalTruncated),
     fenceDetected,
   };
 }
@@ -292,10 +300,25 @@ export class AdjudicatorAgent {
       const MAX_ROOT_BODY = 4000;
       const MAX_DIFF_HUNK = 8000;
 
-      const { value: replyText } = truncateByCodePoint(input.replyText, MAX_REPLY_TEXT);
+      // CodeRabbit finding: the classification batch (feedbackLoop.ts)
+      // already appends "…" when it truncates a reply, so the model knows
+      // it's seeing a partial text. This method discarded that same signal
+      // for all three fields — worse here than in classification, since
+      // adjudication is the stage deciding whether to argue with a
+      // developer at all; a silently-cut reply/finding-body/diff-hunk can
+      // read as weaker or more incomplete than it really is and bias
+      // toward `pushback_incorrect` for the wrong reason. Marking every
+      // truncated field explicitly lets the adjudicator prompt's "prefer
+      // unclear when uncertain" guidance actually apply to that case.
+      const markTruncated = (result: { value: string; truncated: boolean }, suffix = '…') =>
+        result.truncated ? `${result.value}${suffix}` : result.value;
+
+      const replyText = markTruncated(truncateByCodePoint(input.replyText, MAX_REPLY_TEXT));
       const rootBodyClean = input.rootBody ? stripMarkers(input.rootBody) : '';
-      const { value: rootBody } = truncateByCodePoint(rootBodyClean, MAX_ROOT_BODY);
-      const diffHunk = input.diffHunk ? truncateByCodePoint(input.diffHunk, MAX_DIFF_HUNK).value : null;
+      const rootBody = markTruncated(truncateByCodePoint(rootBodyClean, MAX_ROOT_BODY));
+      const diffHunk = input.diffHunk
+        ? markTruncated(truncateByCodePoint(input.diffHunk, MAX_DIFF_HUNK), '\n… [truncated]')
+        : null;
 
       const payload = {
         finding: {

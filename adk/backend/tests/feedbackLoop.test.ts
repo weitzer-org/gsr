@@ -314,6 +314,36 @@ describe('runFeedbackPass', () => {
       expect(decisions.filter(d => d.suppressedReason === 'duplicate-thread-same-finding')).toHaveLength(1);
     });
 
+    it('reports "duplicate-thread-same-finding", not "per-run-cap", when BOTH conditions hold at once — a ' +
+       'duplicate thread for a finding that already posted, arriving after the cap is also exhausted (PR #61 ' +
+       'self-review + CodeRabbit finding, independently flagged twice: the duplicate check must take precedence ' +
+       'since the report is what a human reads to decide whether raising the cap would help — it would not)', async () => {
+      const threadA = thread({
+        rootCommentId: 1, findingId: 'dup1234dup123456', severity: 'HIGH',
+        replies: [{ commentId: 10, author: 'dev1', isBot: false, createdAt: 't', body: 'disagree A' }],
+      });
+      const threadB = thread({
+        rootCommentId: 2, findingId: 'dup1234dup123456', severity: 'HIGH', // same finding as A
+        replies: [{ commentId: 20, author: 'dev2', isBot: false, createdAt: 't', body: 'disagree B' }],
+      });
+      const gh = mockGh([threadA, threadB]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 10, stance: 'rejected', confidence: 0.8 },
+        { commentId: 20, stance: 'rejected', confidence: 0.8 },
+      ]);
+      mockAdjudicate({ verdict: 'pushback_incorrect', confidence: 0.9 });
+
+      // maxRepliesPosted: 1 — A alone exhausts the cap, so by the time B is
+      // evaluated, BOTH "cap exhausted" and "duplicate of an already-posted
+      // finding" are true simultaneously.
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond', maxRepliesPosted: 1 });
+
+      const decisions = result.findings.flatMap(f => f.replies).map(r => r.adjudication!);
+      expect(decisions.filter(d => d.wouldPost)).toHaveLength(1);
+      const suppressed = decisions.find(d => !d.wouldPost)!;
+      expect(suppressed.suppressedReason).toBe('duplicate-thread-same-finding');
+    });
+
     it('maxAdjudications caps how many rejections get an adjudicate() call, preferring higher severity', async () => {
       const lowThread = thread({
         rootCommentId: 1, findingId: 'low1111low111111', severity: 'LOW',
@@ -689,6 +719,47 @@ describe('runFeedbackPass', () => {
       }]));
       expect(md).toContain('Would post (1)');
       expect(md).toContain(rebuttal);
+    });
+
+    // CodeRabbit finding (this PR's own /security-review pass flagged the
+    // same gap but initially left it as documented residual risk — wrong
+    // call, since a misleading Job Summary undermines the human-review gate
+    // Phase 2a exists to provide): a rebuttal or finding summary containing
+    // a literal `</details>` must not be able to prematurely close the
+    // disclosure block or otherwise break the rendered structure.
+    it('HTML-escapes a literal </details> in the rebuttal so it cannot break out of the <details> block', () => {
+      const md = formatFeedbackSummaryMarkdown(respondResultWith([{
+        commentId: 2, author: 'a-dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
+        adjudication: {
+          verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands',
+          rebuttalMarkdown: 'still applies</details><script>alert(1)</script>', wouldPost: true,
+        },
+      }]));
+      expect(md).not.toContain('</details><script>');
+      expect(md).toContain('&lt;/details&gt;');
+      // Exactly two real </details> closing tags: one per <details> block
+      // this test's fixture opens (the finding-level would-post entry).
+      expect((md.match(/<\/details>/g) || []).length).toBe(1);
+    });
+
+    it('HTML-escapes a literal </summary> or angle brackets in the finding summary / author fields, within the ' +
+       'new <details> section this PR adds (the pre-existing Phase 1 table row is a separate, out-of-scope gap ' +
+       'not touched by this fix — scoping the assertion to the "Would post" section specifically)', () => {
+      const md = formatFeedbackSummaryMarkdown({
+        mode: 'respond', skipped: false, threadsScanned: 1, repliesClassified: 1, repliesAdjudicated: 1,
+        findings: [{
+          findingId: 'abc123def4567890', threadUrls: ['https://github.com/x/y/pull/1#discussion_r1'],
+          agent: 'Logic', severity: 'HIGH', summary: 'finding</summary><img src=x onerror=alert(1)>',
+          replies: [{
+            commentId: 2, author: '<img src=x>', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'disagree',
+            adjudication: { verdict: 'pushback_incorrect', confidence: 0.9, reasoning: 'stands', rebuttalMarkdown: 'x', wouldPost: true },
+          }],
+        }],
+      });
+      const wouldPostSection = md.slice(md.indexOf('### Would post'));
+      expect(wouldPostSection).not.toContain('</summary><img');
+      expect(wouldPostSection).not.toContain('<img src=x>');
+      expect(wouldPostSection).toContain('&lt;');
     });
 
     it('reports a suppressed pushback_incorrect verdict distinctly from a would-post one', () => {

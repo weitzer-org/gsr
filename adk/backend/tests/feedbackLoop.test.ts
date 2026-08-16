@@ -406,6 +406,42 @@ describe('runFeedbackPass', () => {
       expect(result.repliesAdjudicated).toBe(1);
     });
 
+    it('isolates a single adjudicate() rejection to just that candidate, instead of losing the whole batch ' +
+       '(PR #61 self-review finding: adjudicate() is documented/tested to never throw, which makes a bare ' +
+       'Promise.all safe today, but that\'s an enforced-by-convention contract, not a type-system guarantee — ' +
+       'a bare Promise.all\'s fail-fast semantics would otherwise turn one future regression into losing every ' +
+       'other candidate\'s real work from the same run)', async () => {
+      const threadA = thread({
+        rootCommentId: 1, findingId: 'aaaa1111aaaa1111', severity: 'CRITICAL',
+        replies: [{ commentId: 10, author: 'dev1', isBot: false, createdAt: 't', body: 'disagree A' }],
+      });
+      const threadB = thread({
+        rootCommentId: 2, findingId: 'bbbb2222bbbb2222', severity: 'CRITICAL',
+        replies: [{ commentId: 20, author: 'dev2', isBot: false, createdAt: 't', body: 'disagree B' }],
+      });
+      const gh = mockGh([threadA, threadB]);
+      jest.spyOn(AdjudicatorAgent.prototype, 'classifyReplies').mockResolvedValue([
+        { commentId: 10, stance: 'rejected', confidence: 0.8 },
+        { commentId: 20, stance: 'rejected', confidence: 0.8 },
+      ]);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      jest.spyOn(AdjudicatorAgent.prototype, 'adjudicate').mockImplementation(async (input: any) => {
+        if (input.commentId === 10) throw new Error('simulated unexpected rejection'); // a hypothetical future regression
+        return { verdict: 'pushback_incorrect', confidence: 0.9, reasoning: '', rebuttalMarkdown: '', fenceDetected: false };
+      });
+
+      const result = await runFeedbackPass(gh, 'https://github.com/x/y/pull/1', { mode: 'respond' });
+
+      // B's real adjudication survives even though A's promise rejected.
+      expect(result.repliesAdjudicated).toBe(1);
+      const bAdjudication = result.findings.find(f => f.findingId === 'bbbb2222bbbb2222')!.replies[0].adjudication;
+      expect(bAdjudication?.wouldPost).toBe(true);
+      // A was classified (rejected) but has no adjudication data — dropped, not crashed.
+      const aFinding = result.findings.find(f => f.findingId === 'aaaa1111aaaa1111')!;
+      expect(aFinding.replies[0].adjudication).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('commentId 10'), expect.any(Error));
+    });
+
     it('passes the matching diff hunk for the thread\'s path, when currentDiff is provided', async () => {
       const t = thread({
         path: 'app.py',

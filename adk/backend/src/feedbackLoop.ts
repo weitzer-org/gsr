@@ -405,21 +405,38 @@ async function runAdjudicationStage(
     console.warn(`[FeedbackLoop] ${candidates.length} rejection(s) eligible for adjudication; adjudicating only the top ${cappedCandidates.length} by severity (maxAdjudications=${maxAdjudications}).`);
   }
 
-  const adjudicated = await Promise.all(cappedCandidates.map(async ({ thread, reply }) => {
-    const diffHunk = findDiffHunk(opts.currentDiff, thread.path);
-    const output: AdjudicationOutput = await adjudicator.adjudicate({
-      findingId: thread.findingId,
-      commentId: reply.commentId,
-      severity: thread.severity,
-      agent: thread.agent,
-      summary: thread.summary,
-      rootBody: thread.rootBody,
-      replyText: reply.body,
-      diffHunk,
-      promptVersion: thread.promptVersion,
-    });
-    return { thread, reply, output };
+  // PR #61 self-review finding: adjudicator.adjudicate() is documented and
+  // tested to never throw (it wraps its own body in try/catch and always
+  // resolves), which is what makes a bare Promise.all safe here today — but
+  // that's a contract enforced by convention, not the type system. Promise.all
+  // has fail-fast semantics: if a future change ever regressed that contract
+  // and one candidate's promise rejected, the WHOLE batch would be lost — not
+  // just that one candidate, but every other candidate's real classification
+  // and adjudication work already done this run. Catching per-candidate and
+  // dropping only the failed one is cheap insurance against exactly that,
+  // consistent with runFeedbackPass's own "one failure must never take down
+  // everything else" philosophy.
+  const adjudicatedResults = await Promise.all(cappedCandidates.map(async ({ thread, reply }) => {
+    try {
+      const diffHunk = findDiffHunk(opts.currentDiff, thread.path);
+      const output: AdjudicationOutput = await adjudicator.adjudicate({
+        findingId: thread.findingId,
+        commentId: reply.commentId,
+        severity: thread.severity,
+        agent: thread.agent,
+        summary: thread.summary,
+        rootBody: thread.rootBody,
+        replyText: reply.body,
+        diffHunk,
+        promptVersion: thread.promptVersion,
+      });
+      return { thread, reply, output };
+    } catch (err) {
+      console.warn(`[FeedbackLoop] Adjudication threw unexpectedly for commentId ${reply.commentId} (finding ${thread.findingId}) — dropping just this candidate:`, err);
+      return null;
+    }
   }));
+  const adjudicated = adjudicatedResults.filter((r): r is NonNullable<typeof r> => r !== null);
 
   // Layer 4 (only pushback_incorrect above threshold is eligible) + layer 5
   // (per-run posting cap). The per-run cap is deduplicated by findingId,

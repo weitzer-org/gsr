@@ -359,13 +359,20 @@ export class AdjudicatorAgent {
       );
 
       if (!response.text) {
-        console.warn('[Adjudicator] Empty adjudication response; falling back to unclear.');
+        // PR #61 self-review finding: commentId was defined on AdjudicateInput
+        // but never actually read anywhere in this method — dead data. Since
+        // runAdjudicationStage calls this in a Promise.all over several
+        // candidates, a log line with no way to tell which reply it was about
+        // is close to useless for debugging a real failure. Using it here
+        // (and in the catch block below) closes that gap by putting the field
+        // to its obvious use instead of just deleting it.
+        console.warn(`[Adjudicator] Empty adjudication response for commentId ${input.commentId} (finding ${input.findingId}); falling back to unclear.`);
         return unclearFallback();
       }
 
       return validateAdjudicationResponse(JSON.parse(response.text));
     } catch (e) {
-      console.error('[Adjudicator] Failed to adjudicate reply:', e);
+      console.error(`[Adjudicator] Failed to adjudicate commentId ${input.commentId} (finding ${input.findingId}):`, e);
       return unclearFallback();
     }
   }

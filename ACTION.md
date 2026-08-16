@@ -53,6 +53,8 @@ so the action's `GITHUB_TOKEN` can post review comments.
 | `usage-report-url` | no | (unset) | OPTIONAL. URL of a hosted GSR usage-ingest endpoint to also report this run's usage to. Only set if the GSR maintainer has given you this value — see "Usage reporting" below. |
 | `usage-report-key` | no | (unset) | OPTIONAL. Shared secret paired with `usage-report-url`, provided by the GSR maintainer alongside it. Store as a repo secret. |
 | `feedback-loop` | no | `off` | OPTIONAL. `off`, `observe`, or `respond` — see "PR comment feedback loop" below. |
+| `feedback-max-replies` | no | `3` | OPTIONAL. Only relevant when `feedback-loop` is `respond`. Caps rebuttal decisions reported as "would post" per run — see below. |
+| `feedback-min-confidence` | no | `0.7` | OPTIONAL. Only relevant when `feedback-loop` is `respond`. Adjudicator confidence floor (0-1) for a "would post" decision — see below. |
 
 ## PR comment feedback loop (opt-in)
 
@@ -70,10 +72,21 @@ This is off by default: even observe-only classification spends your own
 Gemini quota, and the feature ships opt-in the same way every cost-adding
 input in this action does.
 
-A `respond` value is accepted but currently behaves identically to
-`observe` — posting rebuttals is a planned future capability, not yet
-implemented in this action. Setting `feedback-loop: respond` today gets you
-the same read-only observation as `observe`, nothing more.
+Setting `feedback-loop: respond` additionally runs a second, per-rejection
+Gemini call ("adjudication") that judges whether a developer's rejection of
+a finding actually holds up against the finding, the reply, and the file's
+current diff hunk. **As of this release, `respond` still posts nothing to
+GitHub** — it's a dry run: the Job Summary reports each adjudication verdict
+and, for rejections the adjudicator says still stand, the full text of the
+rebuttal it *would* post, clearly marked as not actually sent. Posting is a
+separate, not-yet-enabled stage — this dry-run period exists so real output
+can be reviewed before that's turned on. `respond` costs more than `observe`
+(one extra Gemini call per adjudicated rejection, capped and reported), and
+because nothing is ever posted in this release, that dry-run adjudication
+cost repeats on every run for as long as a rejection stands unaddressed —
+there's no persisted state to skip re-adjudicating something already looked
+at. `feedback-max-replies` and `feedback-min-confidence` only shape that
+preview today; they'll cap and gate real posts once posting is enabled.
 
 ## Usage reporting (opt-in)
 

@@ -66,12 +66,31 @@ inputs:
       quota. Reads reply threads on findings GSR previously posted and
       classifies each reply's stance (accepted/rejected/question/neutral).
       One of "off" (default), "observe" (classify and report to this run's
-      Job Summary; posts nothing to GitHub), or "respond" (reserved for a
-      future release that will post rebuttals; currently behaves exactly
-      like "observe" since posting isn't implemented yet). No new
-      permissions or secrets are required for "observe".
+      Job Summary; posts nothing to GitHub), or "respond" (additionally
+      adjudicates rejected replies and reports what it would post — see
+      "PR comment feedback loop" in ACTION.md; posting itself is not yet
+      enabled in this release, so "respond" still posts nothing to GitHub).
+      No new permissions or secrets are required for either value.
     required: false
     default: 'off'
+  feedback-max-replies:
+    description: >
+      OPTIONAL. Only relevant when feedback-loop is "respond". Caps how
+      many rebuttal decisions the feedback loop reports as "would post" per
+      run (design doc §7.2, §8.4). Has no effect while posting itself is
+      disabled (see feedback-loop above), but shapes the dry-run preview
+      today and will cap real posts once posting is enabled.
+    required: false
+    default: '3'
+  feedback-min-confidence:
+    description: >
+      OPTIONAL. Only relevant when feedback-loop is "respond". Minimum
+      adjudicator confidence (0-1) required before a rejected finding's
+      pushback is reported as "would post". Same caveat as
+      feedback-max-replies — shapes the dry-run preview only until posting
+      is enabled.
+    required: false
+    default: '0.7'
 
 runs:
   using: 'docker'
@@ -87,3 +106,5 @@ runs:
     USAGE_INGEST_URL: ${{ inputs.usage-report-url }}
     USAGE_INGEST_SHARED_SECRET: ${{ inputs.usage-report-key }}
     FEEDBACK_LOOP_MODE: ${{ inputs.feedback-loop }}
+    FEEDBACK_MAX_REPLIES: ${{ inputs.feedback-max-replies }}
+    FEEDBACK_MIN_CONFIDENCE: ${{ inputs.feedback-min-confidence }}

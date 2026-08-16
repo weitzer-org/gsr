@@ -68,6 +68,35 @@ function resolveFeedbackLoopMode(): FeedbackLoopMode {
   return 'off';
 }
 
+// resolveFeedbackMinConfidence / resolveFeedbackMaxReplies (Phase 2 inputs,
+// design doc §7.2) follow resolveFeedbackLoopMode's same "warn and fall
+// back to a safe default" pattern rather than throwing over a typo'd input
+// — this matters more here than most numeric inputs: a typo like "0..7"
+// parses to NaN, and `confidence >= NaN` is always false, which would
+// silently make every dry-run adjudication look like it "would never post"
+// regardless of what the model actually decided.
+function resolveFeedbackMinConfidence(): number {
+  const raw = process.env.FEEDBACK_MIN_CONFIDENCE;
+  if (raw === undefined || raw.trim() === '') return 0.7;
+  const parsed = parseFloat(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    console.warn(`[GSR Action] Invalid feedback-min-confidence "${raw}" — must be a number between 0 and 1. Using default 0.7.`);
+    return 0.7;
+  }
+  return parsed;
+}
+
+function resolveFeedbackMaxReplies(): number {
+  const raw = process.env.FEEDBACK_MAX_REPLIES;
+  if (raw === undefined || raw.trim() === '') return 3;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    console.warn(`[GSR Action] Invalid feedback-max-replies "${raw}" — must be a non-negative integer. Using default 3.`);
+    return 3;
+  }
+  return parsed;
+}
+
 // maybeReportUsage is the opt-in, off-by-default centralized reporting path
 // — see ACTION.md's "Usage reporting" section. No-ops unless both env vars
 // are set, which only happens for repos the GSR maintainer has explicitly
@@ -127,9 +156,18 @@ async function main() {
     // *previous* finding, and runFeedbackPass never throws (see
     // feedbackLoop.ts), so it can't turn a no-op diff run into a failed one.
     const feedbackMode = resolveFeedbackLoopMode();
-    feedbackResult = await runFeedbackPass(ghClient, url, { mode: feedbackMode });
+    feedbackResult = await runFeedbackPass(ghClient, url, {
+      mode: feedbackMode,
+      // currentDiff is already fetched above regardless of feedback-loop
+      // mode — passing it through costs nothing and is only actually used
+      // by 'respond' mode's adjudication stage (design doc §8.3 item 3).
+      currentDiff: chunks,
+      minConfidence: resolveFeedbackMinConfidence(),
+      maxRepliesPosted: resolveFeedbackMaxReplies(),
+    });
     if (!feedbackResult.skipped) {
-      console.log(`[GSR Action] Feedback loop: scanned ${feedbackResult.threadsScanned} thread(s), classified ${feedbackResult.repliesClassified} repl(y/ies), ${feedbackResult.findings.length} finding(s) with new activity.`);
+      const adjudicatedNote = feedbackMode === 'respond' ? `, adjudicated ${feedbackResult.repliesAdjudicated} rejection(s)` : '';
+      console.log(`[GSR Action] Feedback loop: scanned ${feedbackResult.threadsScanned} thread(s), classified ${feedbackResult.repliesClassified} repl(y/ies)${adjudicatedNote}, ${feedbackResult.findings.length} finding(s) with new activity.`);
     }
 
     if (chunks.length === 0) {

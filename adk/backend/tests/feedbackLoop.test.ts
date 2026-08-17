@@ -1,5 +1,5 @@
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { runFeedbackPass, formatFeedbackSummaryMarkdown, escapeFeedbackResultForApiResponse, FeedbackPassResult } from '../src/feedbackLoop';
+import { runFeedbackPass, formatFeedbackSummaryMarkdown, escapeFeedbackResultForApiResponse, buildFeedbackRecords, FeedbackPassResult, FeedbackFindingReport } from '../src/feedbackLoop';
 import { AdjudicatorAgent } from '../src/adjudicator';
 import { parseReplyMarker } from '../src/findingMarker';
 import { FindingThread } from '../src/types';
@@ -1413,5 +1413,120 @@ describe('runFeedbackPass', () => {
       expect(md).not.toContain('Rebuttals (');
       expect(md).toContain('suppressed');
     });
+  });
+});
+
+// Self-review finding (GSR's own review of PR #63): buildFeedbackRecords
+// (and the private mapToFeedbackVerdict/unescapeHtmlEntities it composes)
+// had no dedicated coverage — a small regex/mapping-table change here could
+// silently corrupt the analytics sink's data with no test to catch it.
+describe('buildFeedbackRecords', () => {
+  function finding(overrides: Partial<FeedbackFindingReport> = {}): FeedbackFindingReport {
+    return {
+      findingId: 'f1', threadUrls: ['https://github.com/o/r/pull/1#discussion_r1'],
+      agent: 'Logic', severity: 'HIGH', promptVersion: 'system_prompts', summary: 'a real problem',
+      file: 'src/x.ts', line: 42, replies: [],
+      ...overrides,
+    };
+  }
+
+  function passResult(findings: FeedbackFindingReport[], mode: FeedbackPassResult['mode'] = 'respond'): FeedbackPassResult {
+    return {
+      mode, skipped: false, threadsScanned: findings.length, repliesClassified: findings.reduce((n, f) => n + f.replies.length, 0),
+      repliesAdjudicated: 0, postingEnabled: false, repliesPosted: 0, repliesPostFailed: 0, findings,
+    };
+  }
+
+  it('returns nothing for a skipped pass', () => {
+    const skipped: FeedbackPassResult = { mode: 'observe', skipped: true, skipReason: 'x', threadsScanned: 0, repliesClassified: 0, repliesAdjudicated: 0, postingEnabled: false, repliesPosted: 0, repliesPostFailed: 0, findings: [] };
+    expect(buildFeedbackRecords(skipped, 'https://github.com/o/r/pull/1')).toEqual([]);
+  });
+
+  it('maps an accepted reply (no adjudication) to verdict "valid"', () => {
+    const result = passResult([finding({
+      replies: [{ commentId: 1, author: 'dev', isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'fixed it' }],
+    })]);
+    const records = buildFeedbackRecords(result, 'https://github.com/o/r/pull/1');
+    expect(records).toHaveLength(1);
+    expect(records[0].verdict).toBe('valid');
+    expect(records[0].submittedBy).toBe('gsr-feedback-loop');
+    expect(records[0].source).toBe('pr-thread');
+    expect(records[0].stance).toBe('accepted');
+    expect(records[0].adjudication).toBeUndefined();
+  });
+
+  it.each([
+    ['pushback_correct', 'invalid'],
+    ['pushback_incorrect', 'valid'],
+    ['unclear', 'partial'],
+  ] as const)('maps a rejected reply adjudicated %s to verdict %s', (adjVerdict, expected) => {
+    const result = passResult([finding({
+      replies: [{
+        commentId: 1, author: 'dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'nope',
+        adjudication: { verdict: adjVerdict, confidence: 0.75, reasoning: 'because', rebuttalMarkdown: 'x', wouldPost: false, posted: false },
+      }],
+    })]);
+    const records = buildFeedbackRecords(result, 'https://github.com/o/r/pull/1');
+    expect(records).toHaveLength(1);
+    expect(records[0].verdict).toBe(expected);
+    expect(records[0].adjudication).toEqual({ verdict: adjVerdict, confidence: 0.75, reasoning: 'because' });
+  });
+
+  it('excludes a rejected reply with no adjudication (observe mode — no valid/invalid/partial signal yet)', () => {
+    const result = passResult([finding({
+      replies: [{ commentId: 1, author: 'dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'nope' }],
+    })], 'observe');
+    expect(buildFeedbackRecords(result, 'https://github.com/o/r/pull/1')).toEqual([]);
+  });
+
+  it.each(['question', 'neutral'] as const)('excludes a %s-stance reply', (stance) => {
+    const result = passResult([finding({
+      replies: [{ commentId: 1, author: 'dev', isBot: false, stance, confidence: 0.5, bodyExcerpt: 'hmm' }],
+    })]);
+    expect(buildFeedbackRecords(result, 'https://github.com/o/r/pull/1')).toEqual([]);
+  });
+
+  it('unescapes HTML entities in the comment field without double-decoding literal entity-like text', () => {
+    const result = passResult([finding({
+      replies: [{ commentId: 1, author: 'dev', isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'x &amp; y &lt;fixed&gt; &amp;lt; still text' }],
+    })]);
+    const records = buildFeedbackRecords(result, 'https://github.com/o/r/pull/1');
+    // "&amp;" -> "&", "&lt;"/"&gt;" -> "<"/">", and "&amp;lt;" (a literal
+    // "&lt;" that was itself escaped) decodes to "&lt;", NOT "<" — a naive
+    // iterative unescape would wrongly produce the latter.
+    expect(records[0].comment).toBe('x & y <fixed> &lt; still text');
+  });
+
+  it('carries file/line/severity/agent/summary/promptVersion/reviewUrl through, and threadUrl from the finding\'s first thread', () => {
+    const result = passResult([finding()]);
+    result.findings[0].replies = [{ commentId: 1, author: 'dev', isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'ok' }];
+    const records = buildFeedbackRecords(result, 'https://github.com/o/r/pull/9');
+    expect(records[0]).toMatchObject({
+      findingId: 'f1', file: 'src/x.ts', line: 42, severity: 'HIGH', agent: 'Logic',
+      summary: 'a real problem', promptVersion: 'system_prompts', reviewUrl: 'https://github.com/o/r/pull/9',
+      threadUrl: 'https://github.com/o/r/pull/1#discussion_r1',
+    });
+  });
+
+  it('falls back to safe defaults when optional finding-level fields are missing', () => {
+    const result = passResult([finding({
+      agent: undefined, severity: undefined, promptVersion: undefined, summary: undefined, file: undefined, line: undefined,
+      replies: [{ commentId: 1, author: 'dev', isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'ok' }],
+    })]);
+    const records = buildFeedbackRecords(result, 'https://github.com/o/r/pull/1');
+    expect(records[0]).toMatchObject({ file: 'unknown', line: 0, severity: 'UNKNOWN', agent: 'unknown', summary: 'f1' });
+  });
+
+  it('emits one record per reply, not one per finding', () => {
+    const result = passResult([finding({
+      replies: [
+        { commentId: 1, author: 'dev', isBot: false, stance: 'accepted', confidence: 0.9, bodyExcerpt: 'ok' },
+        { commentId: 2, author: 'dev', isBot: false, stance: 'rejected', confidence: 0.8, bodyExcerpt: 'wait no',
+          adjudication: { verdict: 'pushback_correct', confidence: 0.8, reasoning: 'y', rebuttalMarkdown: '', wouldPost: false, posted: false } },
+      ],
+    })]);
+    const records = buildFeedbackRecords(result, 'https://github.com/o/r/pull/1');
+    expect(records).toHaveLength(2);
+    expect(records.map(r => r.verdict).sort()).toEqual(['invalid', 'valid']);
   });
 });

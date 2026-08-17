@@ -95,6 +95,53 @@ export interface Adjudication {
   reasoning: string;  // sanitized + length-capped before this is ever constructed — see adjudicator.ts
 }
 
+// --- Finding feedback (finding-feedback-requirements.md §5.4) ---
+// The durable record POSTed to /api/findings/feedback. `source`, `threadUrl`,
+// `stance`, `adjudication` are pr-comment-feedback-loop-design.md §11.2's
+// additions — this repo's own PR-comment loop is one of (potentially several)
+// producers of this shape, alongside an external coding agent's direct push.
+
+export type FeedbackVerdict = 'valid' | 'invalid' | 'partial';
+
+export interface FindingFeedback {
+  // What finding this is about (self-contained snapshot, not a lookup —
+  // §5.3: the payload carries enough to stand on its own even for an Action
+  // run that never persisted the original finding).
+  findingId: string;
+  file: string;
+  line: number;
+  severity: string;
+  agent: string;
+  summary: string;
+
+  // Context
+  reviewUrl: string;
+  promptVersion?: string;
+
+  // The feedback itself
+  verdict: FeedbackVerdict;
+  comment: string;
+
+  // Optional: what the consumer actually did about it
+  exampleCodeBefore?: string;
+  exampleCodeAfter?: string;
+  codeFeedback?: string;
+
+  // Provenance
+  submittedBy: string;
+  submittedAt: string; // ISO 8601, server-assigned — any caller-provided value is ignored
+
+  // NEW (pr-comment-feedback-loop-design.md §11.2)
+  source?: 'agent-push' | 'pr-thread';
+  threadUrl?: string;
+  stance?: ReplyStance;
+  adjudication?: {
+    verdict: AdjudicationVerdict;
+    confidence: number;
+    reasoning: string;
+  };
+}
+
 export interface UsageMetadata {
   promptTokenCount: number;
   candidatesTokenCount: number;

@@ -51,7 +51,7 @@
 // own PAT, not a bot's — deferred to a future GitHub-App-identity project).
 import { GitHubClient } from './github';
 import { AdjudicatorAgent, ClassifyReplyInput, AdjudicationOutput } from './adjudicator';
-import { FindingThread, ThreadReply, ReplyClassification, ReplyStance, DiffChunk, AdjudicationVerdict } from './types';
+import { FindingThread, ThreadReply, ReplyClassification, ReplyStance, DiffChunk, AdjudicationVerdict, FindingFeedback, FeedbackVerdict } from './types';
 import { sanitizeForComment, truncateByCodePoint, buildReplyMarker } from './findingMarker';
 
 export type FeedbackLoopMode = 'off' | 'observe' | 'respond';
@@ -159,6 +159,14 @@ export interface FeedbackFindingReport {
   severity?: string;
   promptVersion?: string;
   summary?: string;
+  // NEW (Phase 3, buildFeedbackRecords below): the root comment's file/line,
+  // straight from FindingThread — not carried by the marker itself, but
+  // required fields on finding-feedback-requirements.md §5.4's FindingFeedback
+  // shape. A finding's content hash already includes file+line, so every
+  // thread sharing one findingId agrees on these; taking the first thread's
+  // values is safe.
+  file?: string;
+  line?: number;
   replies: FeedbackReplyReport[];
 }
 
@@ -203,6 +211,14 @@ export function escapeFeedbackResultForApiResponse(result: FeedbackPassResult): 
       severity: f.severity ? escapeHtmlEntities(f.severity) : f.severity,
       promptVersion: f.promptVersion ? escapeHtmlEntities(f.promptVersion) : f.promptVersion,
       summary: f.summary ? escapeHtmlEntities(f.summary) : f.summary,
+      // NEW (Phase 3): `file` is a PR diff filename, which CLAUDE.md's
+      // Security review section flags as attacker-controlled and already
+      // inconsistently escaped elsewhere in this codebase (app.js's
+      // renderFindings). Escaped here for the same reason agent/severity/
+      // summary already are — this field didn't reach the API response
+      // before Phase 3 added it to FeedbackFindingReport, so there's no prior
+      // gap to preserve.
+      file: f.file ? escapeHtmlEntities(f.file) : f.file,
       replies: f.replies.map(r => r.adjudication ? {
         ...r,
         adjudication: {
@@ -410,6 +426,8 @@ function groupByFinding(
         severity: thread.severity,
         promptVersion: thread.promptVersion,
         summary: thread.summary,
+        file: thread.path,
+        line: thread.line,
         replies: [],
       };
       byFindingId.set(thread.findingId, entry);
@@ -1089,4 +1107,94 @@ function appendAdjudicationSections(lines: string[], findings: FeedbackFindingRe
     lines.push(`_${suppressed.length} additional "pushback still incorrect" verdict(s) were suppressed by a stop condition ` +
       '(per-run cap, a duplicate thread for a finding already covered above, or an empty rebuttal) and would not have posted this run._');
   }
+}
+
+// --- Phase 3 ("report"): mapping onto finding-feedback-requirements.md's
+// FindingFeedback shape (design doc §11.2). Only called from
+// action-entrypoint.ts (feedbackReporter.ts's sink) — app.ts never reaches
+// this, since it forces mode: 'observe' and Stage 3 reporting is Action-only,
+// mirroring usageReporter.ts's own Action-only path.
+
+const HTML_ENTITY_DECODE_MAP: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" };
+
+// unescapeHtmlEntities inverts escapeHtmlEntities in a single regex pass
+// (not iterative unescape-then-rescan, which would double-decode legitimate
+// literal entity-like text — e.g. a reply that genuinely contains the text
+// "&lt;" would, after encoding to "&amp;lt;", incorrectly become "<" under an
+// iterative unescape instead of round-tripping back to "&lt;"). Needed
+// because bodyExcerpt (see excerpt(), above) is HTML-entity-escaped once at
+// creation time for its Job-Summary/API-response consumers — correct for
+// those, but wrong for `comment` below, which is meant to preserve the
+// developer's actual words for the eventual prompt-tuning dataset (§9.1),
+// not an HTML-safe rendering of them.
+function unescapeHtmlEntities(text: string): string {
+  return text.replace(/&(amp|lt|gt|quot|#39);/g, (_, entity) => HTML_ENTITY_DECODE_MAP[entity]);
+}
+
+// mapToFeedbackVerdict implements design doc §11.2's mapping table exactly.
+// Returns null for combinations the table doesn't cover — a 'rejected'
+// stance with no adjudication (e.g. this pass ran in 'observe' mode, or the
+// candidate never reached adjudication) carries no valid/invalid/partial
+// signal yet, and 'question'/'neutral' stances aren't verdicts at all.
+function mapToFeedbackVerdict(stance: ReplyStance, adjudicationVerdict?: AdjudicationVerdict): FeedbackVerdict | null {
+  if (adjudicationVerdict === 'pushback_correct') return 'invalid';   // GSR was wrong
+  if (adjudicationVerdict === 'pushback_incorrect') return 'valid';   // GSR stands by it
+  if (adjudicationVerdict === 'unclear') return 'partial';
+  if (stance === 'accepted') return 'valid';
+  return null;
+}
+
+// buildFeedbackRecords is Phase 3's export mapping (design doc §11.1/§11.2):
+// this loop's data is the right sink for finding-feedback-requirements.md's
+// FindingFeedback shape, not a second store. One record per classified reply
+// that resolves to a verdict (mapToFeedbackVerdict) — a finding with several
+// replies (e.g. a rejection, then GSR's rebuttal, then an acceptance) yields
+// one record per reply, not one per finding, since each reply is its own
+// independent piece of feedback with its own stance/adjudication.
+//
+// Known tradeoff: `comment` is built from bodyExcerpt, which excerpt() (above)
+// already truncates to 300 characters for its Job-Summary/API-response
+// consumers — well under FindingFeedback.comment's 4KB cap. A long reply's
+// full text never reaches this export. Reusing the existing excerpt avoids
+// plumbing a second, untruncated copy of every reply body through
+// FeedbackFindingReport for a field only this one consumer would use;
+// revisit if the eventual prompt-tuning dataset (§9.1) proves 300 characters
+// too lossy.
+export function buildFeedbackRecords(result: FeedbackPassResult, reviewUrl: string): Array<Omit<FindingFeedback, 'submittedAt'>> {
+  if (result.skipped) return [];
+
+  const records: Array<Omit<FindingFeedback, 'submittedAt'>> = [];
+  for (const finding of result.findings) {
+    for (const reply of finding.replies) {
+      const verdict = mapToFeedbackVerdict(reply.stance, reply.adjudication?.verdict);
+      if (!verdict) continue;
+
+      records.push({
+        findingId: finding.findingId,
+        file: finding.file || 'unknown',
+        line: finding.line ?? 0,
+        severity: finding.severity || 'UNKNOWN',
+        agent: finding.agent || 'unknown',
+        summary: finding.summary || finding.findingId,
+        reviewUrl,
+        promptVersion: finding.promptVersion,
+        verdict,
+        comment: unescapeHtmlEntities(reply.bodyExcerpt),
+        // submittedBy is always 'gsr-feedback-loop' — per §5.2.1's note on
+        // submittedBy being a self-reported attribution trail, this is
+        // honest about the record being GSR's own inference from a GitHub
+        // reply, not a human's/agent's directly stated position (§11.2).
+        submittedBy: 'gsr-feedback-loop',
+        source: 'pr-thread',
+        threadUrl: finding.threadUrls[0],
+        stance: reply.stance,
+        adjudication: reply.adjudication ? {
+          verdict: reply.adjudication.verdict,
+          confidence: reply.adjudication.confidence,
+          reasoning: reply.adjudication.reasoning,
+        } : undefined,
+      });
+    }
+  }
+  return records;
 }

@@ -90,3 +90,18 @@ export function feedbackPostMisconfigurationWarning(mode: FeedbackLoopMode, post
   }
   return undefined;
 }
+
+// resolveFeedbackReportConfig (Phase 3, design doc §7.2/§11.2) — mirrors
+// maybeReportUsage's pattern in action-entrypoint.ts exactly: no-ops unless
+// BOTH feedback-report-url and feedback-report-key are set, which only
+// happens for repos the GSR maintainer has explicitly handed a working
+// FEEDBACK_SHARED_SECRET to (same custody model as usage-report-key). The
+// env var is named FEEDBACK_SHARED_SECRET, not FEEDBACK_REPORT_KEY, because
+// it's the exact same value POST /api/findings/feedback validates
+// server-side (feedbackAuth.ts) — one secret, one name, on both ends.
+export function resolveFeedbackReportConfig(): { url: string; key: string } | null {
+  const url = process.env.FEEDBACK_REPORT_URL;
+  const key = process.env.FEEDBACK_SHARED_SECRET;
+  if (!url || !key) return null;
+  return { url, key };
+}

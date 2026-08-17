@@ -107,13 +107,33 @@ inputs:
       feedback-loop, so a consumer already relying on the "respond"
       dry-run preview is never silently upgraded to real posting by e.g. a
       default change. Not to be confused with feedback-report-url /
-      feedback-report-key (a different, not-yet-available stage that
-      reports feedback DATA to a hosted GSR endpoint) — this posts a REPLY
+      feedback-report-key (a separate stage that reports feedback DATA to a
+      hosted GSR endpoint) — this posts a REPLY
       COMMENT directly to the PR thread itself, under this Action's own
       GITHUB_TOKEN identity. See "PR comment feedback loop" in ACTION.md,
       including its fork-PR and concurrency-group guidance before enabling.
     required: false
     default: 'false'
+  feedback-report-url:
+    description: >
+      OPTIONAL, off by default. URL of a hosted GSR finding-feedback
+      endpoint (POST /api/findings/feedback) to additionally report this
+      run's feedback-loop outcomes (accepted/rejected/adjudicated verdicts
+      per finding — never diff or PR content) to. Only set this if the GSR
+      maintainer has explicitly given your repo this value and
+      feedback-report-key. Mirrors usage-report-url's opt-in shape exactly.
+      Has no effect unless feedback-loop is "observe" or "respond" (a run
+      with no classified replies reports nothing regardless).
+    required: false
+    default: ''
+  feedback-report-key:
+    description: >
+      OPTIONAL. Shared secret paired with feedback-report-url, provided by
+      the GSR maintainer alongside it — the same value the hosted endpoint
+      validates as FEEDBACK_SHARED_SECRET. Store as a repo secret. Has no
+      effect unless feedback-report-url is also set.
+    required: false
+    default: ''
 
 runs:
   using: 'docker'
@@ -132,3 +152,5 @@ runs:
     FEEDBACK_MAX_REPLIES: ${{ inputs.feedback-max-replies }}
     FEEDBACK_MIN_CONFIDENCE: ${{ inputs.feedback-min-confidence }}
     FEEDBACK_POST: ${{ inputs.feedback-post }}
+    FEEDBACK_REPORT_URL: ${{ inputs.feedback-report-url }}
+    FEEDBACK_SHARED_SECRET: ${{ inputs.feedback-report-key }}

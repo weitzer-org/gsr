@@ -56,6 +56,8 @@ so the action's `GITHUB_TOKEN` can post review comments.
 | `feedback-max-replies` | no | `3` | OPTIONAL. Only relevant when `feedback-loop` is `respond`. Caps rebuttal decisions reported as "would post" per run, and caps real posts once `feedback-post` is enabled — see below. |
 | `feedback-min-confidence` | no | `0.7` | OPTIONAL. Only relevant when `feedback-loop` is `respond`. Adjudicator confidence floor (0-1) for a "would post" decision — see below. |
 | `feedback-post` | no | `false` | OPTIONAL. Only relevant when `feedback-loop` is `respond`. When `true`, rebuttals GSR would post are actually posted to GitHub — see below. |
+| `feedback-report-url` | no | (unset) | OPTIONAL. URL of a hosted GSR finding-feedback endpoint to also report this run's feedback-loop outcomes to. Only set if the GSR maintainer has given you this value — see "Reporting feedback data" below. |
+| `feedback-report-key` | no | (unset) | OPTIONAL. Shared secret paired with `feedback-report-url`, provided by the GSR maintainer alongside it. Store as a repo secret. |
 
 ## PR comment feedback loop (opt-in)
 
@@ -132,6 +134,26 @@ Before enabling `feedback-post`:
 `feedback-max-replies` and `feedback-min-confidence` shape the dry-run
 preview either way, and additionally cap/gate real posts once
 `feedback-post` is `true`.
+
+### Reporting feedback data (`feedback-report-url` / `feedback-report-key`)
+
+Separate from `feedback-post` above — that switch posts a *reply comment*
+back to the PR thread; this reports the *feedback data itself* (which
+findings got accepted, rejected, or adjudicated, and why) to a hosted GSR
+endpoint for durable storage, off `feedback-loop`'s `observe`/`respond`
+Job-Summary-only output. Same opt-in shape as usage reporting below: unset
+by default, and only usable by repos the GSR maintainer has explicitly
+handed a working `feedback-report-key` to. If you've been given
+`feedback-report-url` and `feedback-report-key` values, add them as repo
+secrets and pass them as inputs; otherwise leave both unset — nothing
+changes. A run with no classified replies reports nothing regardless. A
+failure to report never fails your workflow.
+
+`POST /api/findings/feedback` (the endpoint this reports to) is also a
+general-purpose write surface any consumer can call directly — see
+`finding-feedback-requirements.md` in this repo for the full API shape if
+you're building your own integration rather than using this Action's
+built-in reporting.
 
 ## Usage reporting (opt-in)
 

@@ -16,6 +16,15 @@ name: GSR Self-Review
 # USAGE_REPORT_KEY repo secret, matching the same distribution model as
 # GEMINI_API_KEY above. Every run also always writes its own usage summary
 # to this workflow run's Job Summary regardless of these two inputs.
+#
+# feedback-loop: observe turns on Stage 1-2 classification of replies to
+# prior findings (pr-comment-feedback-loop-design.md) without posting
+# anything — no `feedback-post`, so it's purely additive/observational,
+# same posture as the swarm/basic reviews above. feedback-report-url/
+# feedback-report-key mirror usage-report-url/usage-report-key's opt-in
+# shape exactly, reporting classification outcomes to the same
+# FEEDBACK_SHARED_SECRET already live in production from PR #63, via the
+# GSR_FEEDBACK_KEY repo secret.
 on:
   pull_request:
     branches:
@@ -42,6 +51,9 @@ jobs:
           fail-on-severity: none
           usage-report-url: https://gsr-code-review.fly.dev/api/usage/ingest
           usage-report-key: ${{ secrets.USAGE_REPORT_KEY }}
+          feedback-loop: observe
+          feedback-report-url: https://gsr-code-review.fly.dev/api/findings/feedback
+          feedback-report-key: ${{ secrets.GSR_FEEDBACK_KEY }}
 
   self-review-basic:
     name: GSR self-review (basic)
@@ -55,3 +67,6 @@ jobs:
           fail-on-severity: none
           usage-report-url: https://gsr-code-review.fly.dev/api/usage/ingest
           usage-report-key: ${{ secrets.USAGE_REPORT_KEY }}
+          feedback-loop: observe
+          feedback-report-url: https://gsr-code-review.fly.dev/api/findings/feedback
+          feedback-report-key: ${{ secrets.GSR_FEEDBACK_KEY }}

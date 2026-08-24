@@ -80,7 +80,12 @@ export class GeminiAgent implements Subagent {
     try {
       console.log(`[${this.name}] Starting Pass 1 (Discovery) for ${aggregatedFiles}...`);
       
-      const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '180000', 10);
+      // 300000 (5min) matches deduplicator.ts's default — aggregateChunks
+      // (review-quality-design.md §5.1) means this discovery/remediation
+      // call can now cover a whole PR's worth of files in one request, and
+      // 180000 was timing out outright on PRs as small as 13-15 files,
+      // returning zero findings for the push instead of a partial result.
+      const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '300000', 10);
       
       // We wrap the API call logic to support retrying dropped files
       let chunksToProcess = [...chunks];

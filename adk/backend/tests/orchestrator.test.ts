@@ -198,6 +198,7 @@ describe('Orchestrator', () => {
     it('should handle errors in legacy mode when onProgress is defined', async () => {
         const orchestrator = new Orchestrator();
         (orchestrator as any).aggregateChunks = false;
+        (orchestrator as any).useDedup = false;
         
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockRejectedValue(new Error('Legacy Error'));
         
@@ -214,6 +215,7 @@ describe('Orchestrator', () => {
     it('should accumulate metrics in legacy mode', async () => {
         const orchestrator = new Orchestrator();
         (orchestrator as any).aggregateChunks = false;
+        (orchestrator as any).useDedup = false;
         
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ 
             findings: [{ file: 'i.ts', line: 1, severity: 'HIGH', summary: 'a', description: 'b', agent: 'A' }] as any,
@@ -231,6 +233,7 @@ describe('Orchestrator', () => {
     it('should report progress in legacy mode', async () => {
         const orchestrator = new Orchestrator();
         (orchestrator as any).aggregateChunks = false;
+        (orchestrator as any).useDedup = false;
         
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ findings: [] });
         

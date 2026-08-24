@@ -168,7 +168,10 @@ app.post('/api/review', async (req, res) => {
     const ghClient = new GitHubClient(pat);
     const useDeduplicator = process.env.USE_DEDUPLICATOR !== 'false';
     const subagentOrchestrator = new Orchestrator(5, SYSTEM_PROMPTS_DIR, useDeduplicator, selectedAgents);
-    const basicOrchestrator = new Orchestrator(5, BASIC_PROMPT_DIR, false); // Basic orchestrator shouldn't deduplicate
+    // useDedup: false (basic mode shouldn't deduplicate), aggregateChunks:
+    // true (review-quality-design.md §5.1 — still give it full cross-file
+    // context within the PR, independent of skipping the dedup pass)
+    const basicOrchestrator = new Orchestrator(5, BASIC_PROMPT_DIR, false, undefined, true);
 
     console.log(`Fetching diff for ${url}...`);
     const chunks = await ghClient.getPRDiff(url);

@@ -178,6 +178,15 @@ findings) is ever sent, and a failure to report never fails your workflow.
   submission is retried comment-by-comment; any that still fail are folded
   into the summary comment (with their full content, so nothing is lost)
   instead of failing the whole review.
+- **Repost suppression**: a finding GSR already posted on this PR, whose
+  flagged file's diff content hasn't changed since, is never posted a second
+  time — pushing unrelated commits no longer re-triggers the same inline
+  comment over and over. The review summary's finding count still reflects
+  everything currently outstanding either way. If the same finding keeps
+  legitimately recurring because the flagged file keeps changing, it's
+  reposted up to 3 times before collapsing into a single summary line
+  instead of a 4th+ full comment. See `review-quality-design.md` §2.1 and
+  `repostSuppression.ts` for the full policy.
 - This action is unrelated to the Fly.io-hosted `gsr-code-review` app or the
   `tools/eval` harness — it packages `adk/backend`'s orchestrator/agent code
   directly (see `action.yml` / `action.Dockerfile`).

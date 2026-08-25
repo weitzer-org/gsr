@@ -8,6 +8,7 @@ import { reportUsage } from './usageReporter';
 import { runFeedbackPass, FeedbackPassResult, formatFeedbackSummaryMarkdown, buildFeedbackRecords } from './feedbackLoop';
 import { resolveFeedbackLoopMode, resolveFeedbackMinConfidence, resolveFeedbackMaxReplies, resolveFeedbackPostEnabled, feedbackPostMisconfigurationWarning, resolveFeedbackReportConfig } from './feedbackConfig';
 import { reportFeedback } from './feedbackReporter';
+import { planRepost } from './repostSuppression';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -175,10 +176,29 @@ async function main() {
       console.log(`[GSR Action][${agentName}] ${file} — ${status}`);
     };
 
-    const result = await orchestrator.runReview(activeChunks);
+    // Repost-suppression (review-quality-design.md §2.1, addendum) — fetch
+    // what GSR itself already posted on this PR in parallel with the (much
+    // slower) Gemini review, so wall-clock isn't affected: this is a plain
+    // GitHub REST read, independent of the review's outcome, reusing
+    // listReviewThreads exactly as the PR-comment feedback loop already
+    // does above rather than re-implementing comment pagination.
+    const [result, priorThreads] = await Promise.all([
+      orchestrator.runReview(activeChunks),
+      ghClient.listReviewThreads(url),
+    ]);
     console.log(`[GSR Action] Review complete: ${result.findings.length} finding(s), ${result.metrics.calls} model call(s).`);
 
-    const { posted, skipped } = await ghClient.postReviewComments(url, result.findings);
+    const { toPost, collapsedCount, markerOverrides } = planRepost(result.findings, priorThreads, activeChunks);
+    const suppressedCount = result.findings.length - toPost.length - collapsedCount;
+    if (suppressedCount > 0 || collapsedCount > 0) {
+      console.log(`[GSR Action] Repost suppression: ${suppressedCount} unchanged finding(s) not reposted, ${collapsedCount} recurring finding(s) collapsed into the summary.`);
+    }
+
+    const { posted, skipped } = await ghClient.postReviewComments(url, toPost, {
+      summaryTotalCount: result.findings.length,
+      collapsedCount,
+      markerOverrides,
+    });
     console.log(`[GSR Action] Posted ${posted} inline comment(s)${skipped > 0 ? `, skipped ${skipped}` : ''}.`);
 
     if (shouldFailOnSeverity(result.findings, failOnSeverity)) {

@@ -24,6 +24,14 @@ export interface FindingMarker {
   severity?: string;
   promptVersion?: string;
   createdAt?: string;
+  // NEW (repost-suppression, review-quality-design.md §2.1 addendum's
+  // follow-up): `contentHash` and `repostCount` are only ever written on
+  // `v2` markers going forward — see repostSuppression.ts for how they're
+  // produced/consumed. A `v1` marker never carries either (both undefined),
+  // which is fine: repostSuppression.ts only trusts these fields on threads
+  // whose findingId could actually match a freshly-computed (v2-only) id.
+  contentHash?: string;
+  repostCount?: number;
 }
 
 export interface LegacyFindingInfo {
@@ -111,6 +119,22 @@ export function computeFindingId(input: { file: string; line: number; agent?: st
 // optional `category` field.
 export function findingIdFor(finding: Pick<CandidateFinding, 'file' | 'line' | 'agent'> & { category?: string }): string {
   return computeFindingId(finding);
+}
+
+// --- contentHash (repost-suppression) ---
+//
+// A cheap, deliberately coarse signal for "has anything about this file's
+// diff changed since GSR last posted this exact findingId" — see
+// repostSuppression.ts for the full policy this feeds into. This repo only
+// has each file's unified diff patch text to work with (no full-file
+// content), so the hash covers the whole file's patch, not just the
+// flagged line: an edit anywhere else in the file also changes this hash.
+// That's an intentional conservative bias — it can only make a finding look
+// "changed" more often than the flagged line alone strictly warrants, never
+// the reverse, so it can never cause a finding to be wrongly suppressed
+// forever.
+export function computeContentHash(diffContent: string): string {
+  return createHash('sha256').update(diffContent).digest('hex').slice(0, 16);
 }
 
 // --- sanitizeForComment ---
@@ -298,6 +322,8 @@ export function buildFindingMarker(marker: Omit<FindingMarker, 'version'>): stri
   if (marker.agent) parts.push(`a=${encodeField(marker.agent)}`);
   if (marker.severity) parts.push(`s=${encodeField(marker.severity)}`);
   if (marker.promptVersion) parts.push(`pv=${encodeField(marker.promptVersion)}`);
+  if (marker.contentHash) parts.push(`h=${encodeField(marker.contentHash)}`);
+  if (marker.repostCount !== undefined) parts.push(`n=${marker.repostCount}`);
   parts.push(`r=${encodeField(marker.createdAt || new Date().toISOString())}`);
   return `<!-- gsr:${CURRENT_MARKER_VERSION} ${parts.join(' ')} -->`;
 }
@@ -315,6 +341,19 @@ function parseMarkerFields(raw: string, version: 'v1' | 'v2'): FindingMarker | n
   // else means this isn't really a gsr marker, well-formed HTML comment
   // syntax notwithstanding.
   if (!fields.f || !/^[0-9a-f]+$/i.test(fields.f)) return null;
+
+  // `n=` (repostCount) is only trusted when it parses as a positive integer
+  // — repostSuppression.ts uses it as a threshold comparison, so a
+  // malformed/forged value silently becoming NaN or 0 must not slip through
+  // as a false "never posted before" signal. Same "reject just this
+  // optional field, not the whole marker" convention as every other
+  // optional field here.
+  let repostCount: number | undefined;
+  if (fields.n !== undefined) {
+    const n = Number(fields.n);
+    if (Number.isInteger(n) && n >= 1) repostCount = n;
+  }
+
   return {
     version,
     findingId: fields.f,
@@ -322,6 +361,8 @@ function parseMarkerFields(raw: string, version: 'v1' | 'v2'): FindingMarker | n
     severity: fields.s,
     promptVersion: fields.pv,
     createdAt: fields.r,
+    contentHash: fields.h,
+    repostCount,
   };
 }
 

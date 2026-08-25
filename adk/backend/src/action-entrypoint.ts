@@ -182,9 +182,22 @@ async function main() {
     // GitHub REST read, independent of the review's outcome, reusing
     // listReviewThreads exactly as the PR-comment feedback loop already
     // does above rather than re-implementing comment pagination.
+    //
+    // Never let a failure here throw away an already-completed (and
+    // already-paid-for) Gemini review: bundled into the same Promise.all as
+    // orchestrator.runReview, an uncaught rejection would abort the whole
+    // run and post nothing at all, despite the expensive part having
+    // already succeeded. Degrades to "treat every finding as unseen" (i.e.
+    // repost-suppression no-ops this run, identical to pre-this-feature
+    // behavior) instead — mirrors feedbackLoop.ts's own pre-post
+    // concurrency re-check, which wraps this exact same call the same way
+    // ("posting will proceed without it").
     const [result, priorThreads] = await Promise.all([
       orchestrator.runReview(activeChunks),
-      ghClient.listReviewThreads(url),
+      ghClient.listReviewThreads(url).catch(err => {
+        console.warn('[GSR Action] Failed to fetch prior GSR review threads; repost suppression will be skipped this run:', err);
+        return [];
+      }),
     ]);
     console.log(`[GSR Action] Review complete: ${result.findings.length} finding(s), ${result.metrics.calls} model call(s).`);
 

@@ -76,8 +76,23 @@ function bucketLine(line: number): number {
   return Math.floor(line / LINE_BUCKET_SIZE);
 }
 
+// Self-review finding: deduplicator.ts's prompt asks Gemini to "concatenate
+// the agent names with commas (e.g., 'Performance, Security')" for a merged
+// finding, with no ordering rule — an LLM restating the same merge across
+// two runs could plausibly emit "Performance, Security" once and "Security,
+// Performance" another time. Hashing that raw would reintroduce exactly the
+// restatement-instability this v2 scheme exists to fix, just moved from
+// `summary` to `agent`. Sorting the comma-separated components before
+// hashing makes the id invariant to the LLM's chosen order; a normal
+// single-agent finding (the common case, no comma) is unaffected since
+// sorting a one-element array is a no-op.
+function normalizeAgent(agent: string): string {
+  return agent.split(',').map(a => a.trim()).filter(Boolean).sort().join(', ');
+}
+
 export function computeFindingId(input: { file: string; line: number; agent?: string; category?: string }): string {
-  const key = `${input.file}|${bucketLine(input.line)}|${input.agent || ''}|${input.category || ''}`;
+  const agent = input.agent ? normalizeAgent(input.agent) : '';
+  const key = `${input.file}|${bucketLine(input.line)}|${agent}|${input.category || ''}`;
   return createHash('sha256').update(key).digest('hex').slice(0, 16);
 }
 

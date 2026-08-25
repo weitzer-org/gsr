@@ -58,6 +58,26 @@ describe('computeFindingId (v2 scheme — file | lineBucket | agent | category, 
     expect(computeFindingId({ ...base, category: 'correctness' })).not.toBe(computeFindingId({ ...base, category: 'security' }));
   });
 
+  it('is invariant to the order of a comma-joined multi-agent string (self-review finding: the ' +
+     'deduplicator\'s prompt asks Gemini to concatenate merged agent names with commas but never specifies ' +
+     'an order, so "Performance, Security" and "Security, Performance" for the same underlying merge must ' +
+     'hash identically, or restatement-instability just moves from `summary` to `agent`)', () => {
+    const base = { file: 'src/a.ts', line: 10 };
+    expect(computeFindingId({ ...base, agent: 'Performance, Security' }))
+      .toBe(computeFindingId({ ...base, agent: 'Security, Performance' }));
+  });
+
+  it('normalizes whitespace around comma-joined agent names the same way regardless of spacing style', () => {
+    const base = { file: 'src/a.ts', line: 10 };
+    expect(computeFindingId({ ...base, agent: 'Performance,Security' }))
+      .toBe(computeFindingId({ ...base, agent: 'Security,  Performance' }));
+  });
+
+  it('still differs for a genuinely different single agent (sorting a 1-element list is a no-op)', () => {
+    const base = { file: 'src/a.ts', line: 10 };
+    expect(computeFindingId({ ...base, agent: 'Logic' })).not.toBe(computeFindingId({ ...base, agent: 'Security' }));
+  });
+
   it('returns a 16-character lowercase hex string', () => {
     const id = computeFindingId({ file: 'a.ts', line: 1 });
     expect(id).toMatch(/^[0-9a-f]{16}$/);

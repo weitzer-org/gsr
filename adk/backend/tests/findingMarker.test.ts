@@ -78,6 +78,12 @@ describe('computeFindingId (v2 scheme — file | lineBucket | agent | category, 
     expect(computeFindingId({ ...base, agent: 'Logic' })).not.toBe(computeFindingId({ ...base, agent: 'Security' }));
   });
 
+  it('dedupes a repeated agent name in a merged string (self-review finding: "Logic, Logic" from an ' +
+     'LLM merge of two same-agent findings must hash the same as a restatement that only says "Logic")', () => {
+    const base = { file: 'src/a.ts', line: 10 };
+    expect(computeFindingId({ ...base, agent: 'Logic, Logic' })).toBe(computeFindingId({ ...base, agent: 'Logic' }));
+  });
+
   it('returns a 16-character lowercase hex string', () => {
     const id = computeFindingId({ file: 'a.ts', line: 1 });
     expect(id).toMatch(/^[0-9a-f]{16}$/);

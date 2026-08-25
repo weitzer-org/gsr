@@ -86,8 +86,15 @@ function bucketLine(line: number): number {
 // hashing makes the id invariant to the LLM's chosen order; a normal
 // single-agent finding (the common case, no comma) is unaffected since
 // sorting a one-element array is a no-op.
+//
+// Self-review finding: also dedupe, not just sort — if the LLM merges two
+// findings that were both attributed to the same agent (e.g. two Logic
+// findings on adjacent lines), "Logic, Logic" is a plausible output, and
+// without deduplication that hashes differently from a same-merge restatement
+// that happened to only mention "Logic" once.
 function normalizeAgent(agent: string): string {
-  return agent.split(',').map(a => a.trim()).filter(Boolean).sort().join(', ');
+  const parts = agent.split(',').map(a => a.trim()).filter(Boolean);
+  return Array.from(new Set(parts)).sort().join(', ');
 }
 
 export function computeFindingId(input: { file: string; line: number; agent?: string; category?: string }): string {

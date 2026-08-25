@@ -101,6 +101,58 @@ better scoped later, once the finding-feedback mechanism exists and can
 carry an explicit `verdict: "invalid"` from a human/agent rather than GSR
 inferring it from silence.
 
+### 2.1 addendum (2026-08-24) — the hash scheme above already shipped, and it's broken; here's the corrected plan for Phase 4
+
+The `findingId = sha256(file | line | agent | summary)` scheme described
+above didn't wait for Phase 4 — `finding-feedback-requirements.md` §5.3's
+identical scheme already shipped in `adk/backend/src/findingMarker.ts`'s
+`computeFindingId`, used by the PR-comment feedback loop (`gsr:v1` markers
+already live on posted comments across this repo, `job_tracker`, and
+`sound-profile-builder`). It doesn't work as repost-suppression identity:
+`summary` is LLM-generated prose that isn't byte-stable across two runs that
+found "the same" issue, and `line` shifts on every push even for an unmoved
+finding. Confirmed directly: 6 restatements of one finding on `job_tracker`
+PR #76 produced 6 different `f=` hashes, and this repo's own self-review
+restated 3 already-declined complaints across 3 review rounds on PR #66
+because there was never a stable id to recognize them by (see §12).
+
+**Phase 4 must therefore do more than "implement §2.1 as written" — it needs
+to fix the identity scheme, then build suppression on top of the fixed
+version:**
+
+1. Change `computeFindingId`'s inputs to something stable across restatement:
+   `file`, a normalized anchor (not raw `line` — needs a tolerance/bucketing
+   scheme, since line numbers shift on every push for an unmoved finding) or
+   a symbol/function-name anchor where available, `agent`, and `category` if
+   the finding carries one. **Not** `summary`.
+2. Version-bump the marker to `gsr:v2` (`buildFindingMarker`/
+   `parseFindingMarker`) but **keep parsing `gsr:v1`** — markers with the old
+   hash are already live in production across three repos. `parseFindingMarker`'s
+   regex is currently anchored to the literal string `gsr:v1`; it needs to
+   also match `gsr:v2` (or run a second pattern and merge), preserving the
+   existing end-anchored/last-match behavior (design doc §9, T2 — this is
+   security-relevant, re-read that section before touching the regex).
+3. Decide and document explicitly what happens when an old `v1`-fingerprinted
+   finding and a new `v2`-fingerprinted restatement of the same underlying
+   claim land on the same PR post-migration — they won't match by id across
+   the version boundary. Don't leave this implicit.
+4. Update every consumer, not just the definition: `orchestrator.ts`
+   (computes id at finding-creation), `github.ts` (re-derives ids for
+   legacy/pre-marker findings via `parseLegacyFindingBody`), and anywhere
+   `feedbackLoop.ts`/`adjudicator.ts` matches a `ReplyMarker.findingId`
+   against a `FindingMarker.findingId` — that cross-reference must survive
+   the version change or the feedback loop's round-tracking breaks silently.
+5. Extend, not just keep green: `findingMarker.test.ts`, `feedbackLoop.test.ts`,
+   `feedbackLoop.e2e.test.ts`, `adjudicator.test.ts`,
+   `feedback-integration.test.ts`. Add cases for two differently-worded
+   findings on the same file/anchor/agent now producing the *same* id, a
+   real `v1` marker still parsing correctly, and the documented v1→v2
+   boundary behavior from step 3.
+
+Scope this addendum's steps 1-5 as their own PR before building the actual
+repost-suppression logic (fetch-prior-comments, skip-if-seen, collapse-after-N)
+on top — same incremental-phase pattern as Phase 2's Tier 1/Tier 2 split.
+
 ## 3. Gap 2 — the subagent swarm has no production usage data
 
 **Evidence:** §1. `deep-review` was never applied to any of 19 PRs. Every
@@ -424,11 +476,13 @@ memory of this one) knows what's already landed.
 | Phase | Scope | Depends on | Status |
 |---|---|---|---|
 | 1 | Eval regression fixture: `must_catch` / `must_not_flag_high` / `must_resolve_cross_file` lists + deterministic scorer (§7.1), using the `job_tracker` audit as ground truth | none | ✅ |
-| 2 | Gap 4 Tier 1: decouple `useTriage` (aggregation) from `useDedup` (§5.1) | Phase 1 (to verify against `must_resolve_cross_file`) | ⬜ |
+| 2 | Gap 4 Tier 1: decouple `useTriage` (aggregation) from `useDedup` (§5.1) | Phase 1 (to verify against `must_resolve_cross_file`) | ✅ (PR #66, merged) |
 | 3 | Gap 3: `LOW_PRIORITY_PATH_PATTERNS` + severity dampening in `filterFindings` (§4.1) | Phase 1 (to verify against `must_not_flag_high`) | ⬜ |
-| 4 | Gap 1: content-hash finding identity + Action-side repost suppression/collapse (§2.1) + multi-push simulation test (§7.2) | none (independent of 2-3, but easiest after they're merged to avoid rebase noise) | ⬜ |
+| 4 | Gap 1: content-hash finding identity + Action-side repost suppression/collapse (§2.1, **hash formula corrected — see §2.1 addendum**) + multi-push simulation test (§7.2) | none (independent of 2-3, but easiest after they're merged to avoid rebase noise) | ⬜ — **next up**, see §2.1 addendum for the corrected (non-superseded) plan before starting |
 | 5 | Gap 2: `SHADOW_MODE` (§3.1) + `durationMs` latency instrumentation (§10) + standing basic-vs-subagent eval reporting (§7.3) | Phases 2-4 merged (shadow-run data is most useful once the fixes it'd be comparing are in place) | ⬜ |
-| 6 (conditional) | Gap 4 Tier 2: on-demand full-file fetch for out-of-diff symbol claims (§5.1 Tier 2) | Only open this if Phase 1's `must_resolve_cross_file` fixture still fails after Phase 2 — Tier 1 may already be sufficient | ⬜ (gate: rerun Phase 1's fixture after Phase 2 first) |
+| 6 (conditional) | Gap 4 Tier 2: on-demand full-file fetch for out-of-diff symbol claims (§5.1 Tier 2) | Only open this if Phase 1's `must_resolve_cross_file` fixture still fails after Phase 2 — Tier 1 may already be sufficient | **Gate resolved, Tier 2 not needed for now** — see Phase 2 note below |
+| 7 | Gap 5 (new, §12): same-run cross-agent self-consistency check (basic vs. swarm, or swarm-agent vs. swarm-agent, contradicting each other on one PR without acknowledgment) | none, but higher cost than it looks — basic and swarm currently run as separate CI jobs with no shared state; see §12 | ⬜ — not yet designed in detail, only diagnosed |
+| 8 | Feedback-loop investigation (§12): determine why `job_tracker`'s feedback loop has posted zero rebuttals across every observed run despite regularly adjudicating rejections | Needs either Cloudflare R2 read access to `gsr-review-feedback` or an authenticated `GET /api/findings/feedback` session — **not available from a plain local dev checkout**, blocked until whoever runs this phase has one of those | ⬜ — blocked on access, not on design |
 
 Each phase's session should re-read this file's relevant section(s) plus
 `finding-feedback-requirements.md` where cross-referenced (Phase 4 reuses its
@@ -469,3 +523,103 @@ that's already vacuously green:
   LLM non-determinism caveat as above, not evidence the gap is already closed
   — re-run after Phase 2 lands before using this to decide whether Tier 2
   (Phase 6) is needed, per §5.1.
+
+**Phase 2 note (2026-08-24, PR #66, merged):** decoupled `Orchestrator`'s
+constructor into an independent `aggregateChunks` flag (separate from
+`useDedup`, previously one shared `useTriage` parameter) and set
+`aggregateChunks: true` for both modes, exactly per §5.1 Tier 1. Verified,
+not just implemented:
+
+- Re-ran the Phase 1 fixture against a live local instance of this branch.
+  `must_resolve_cross_file` (`eval-applyConfig-cross-file`) **passes
+  meaningfully this time** — 5 real basic-mode findings present, none
+  repeating the false claim — resolving the "was this just non-determinism"
+  caveat above. **Tier 2 (Phase 6) is confirmed not needed for now**, per
+  the gate condition in §5.1/Phase 6.
+- This surfaced an unplanned regression the fixture also caught: aggregating
+  many files into one Gemini call pushed some basic-mode PRs (13-15 changed
+  files) past the 180s `GEMINI_TIMEOUT_MS` default, returning **zero**
+  findings for that push instead of a partial per-file result — worse than
+  pre-Phase-2 basic mode on reliability, even though better on accuracy.
+  Fixed by raising the default to 300000ms (`agent.ts`, matches
+  `deduplicator.ts`'s existing default) — re-confirmed via the same two
+  fixture PRs, both now pass with real (non-empty, non-timed-out) findings.
+  **Lesson for later phases:** aggregating more content into one call is a
+  reliability tradeoff, not just an accuracy one — check for this explicitly
+  whenever a phase changes what gets bundled into a single Gemini request.
+- A separate comparative-harness run (`evaluate.ts`, 10-PR generic sample,
+  branch vs. `main` both local — real production is unreachable for this
+  harness, `/api/review` requires a `UI_PASSWORD` session it can't supply)
+  found no regression on `basic`-mode output (21 vs. 20 findings, flat) and,
+  as a side effect, two **pre-existing eval-harness bugs**, unrelated to this
+  branch — see §12.4.
+
+## 12. External validation — `job_tracker` dogfooding report (2026-08-24)
+
+A second, larger `job_tracker` audit (20 of 69 PRs, #45-#76 — later and
+broader than §1's original 19-PR/pre-#45 audit) arrived as an external report
+from that repo's own team, independently re-checking GSR's review quality
+against live source. Every claim in it was re-verified against this repo's
+actual code (not taken at face value) before acting on it — methodology and
+corrections below, since a future session shouldn't have to redo that
+verification from scratch.
+
+### 12.1 How the report's 6 findings (R1-R6) map onto this doc's gaps
+
+| Report finding | Maps to | Verdict after re-verification |
+|---|---|---|
+| R1 — repeated findings, broken fingerprint | §2 / Phase 4 | Confirmed, and more precise than the report's own diagnosis — `computeFindingId` already includes file/line/agent, the destabilizer is specifically `summary` (LLM prose) and `line` (shifts per push), not a fully-content-hashed prose blob. See §2.1 addendum. |
+| R2 — confident false claims about existing code | §5 / Phase 2 (partially) | The report's own numbers show 3 of 4 false claims were about code inside that PR's own diff (not truly out-of-diff), so §5.1 Tier 1's aggregation fix (now shipped) addresses most of this class for free. Only genuinely out-of-diff symbol claims still need §5.1 Tier 2, which — per Phase 2's fixture re-run — isn't needed yet on the one case tested. |
+| R3 — same-run self-contradiction between basic and swarm (or swarm-agent vs. swarm-agent) | **No existing gap — new, tracked as Gap 5, Phase 7** | Real (e.g. PR #76: basic mode says "remove this redundant check," swarm mode later flags the resulting implicit reliance on the same check as a "dangerous architectural flaw," from a different agent, no acknowledgment). Costlier than it looks: basic and swarm run as **separate CI jobs** (`gsr-review.yml` / `gsr-review-deep.yml`), so there's no shared in-process state to check against — this needs either a cross-job read-back (similar shape to §2's repost-suppression, reusing the same `gsr:v1`/`v2` marker mechanism once Phase 4 lands) or accept it as a known limitation. Not designed in detail yet. |
+| R4 — architecture agent ignores repo conventions (CLAUDE.md), rates speculative-abstraction suggestions on par with real bugs | §4 / Phase 3 | Confirmed in code (`shouldRun` gives the Architecture agent no repo-conventions context) — same fix category as §4.1's severity dampening, just triggered by "conflicts with the repo's own CLAUDE.md" rather than "non-shipping path." **New risk flagged, not in the original §4:** a repo-controlled CLAUDE.md that can influence what GSR *posts* is a prompt-injection surface if it's ever used to *suppress* findings rather than discount severity — Phase 3 should discount only, never suppress, especially for Security findings. |
+| R5 — feedback loop has posted zero rebuttals ever, cause unknown | **No existing gap — new, tracked as Phase 8** | Confirmed with harder data than the report had: checked `job_tracker`'s actual Action run logs directly (`gh api repos/weitzer-org/job_tracker/actions/jobs/<id>/logs`) across 13 runs — feedback data **is** reaching `S3_FEEDBACK_BUCKET`/`gsr-review-feedback` successfully (`sent, 0 failed` every time), but **zero rebuttals posted across all 13 runs**, including runs that adjudicated up to 5 rejections in one pass. Root cause (feedback-min-confidence threshold too strict vs. genuine agreement every time) is still open — the per-run log only has aggregate counts, not per-finding confidence, and settling it needs either R2 bucket read access or an authenticated `GET /api/findings/feedback` call, neither available from a plain local dev checkout. Blocked on access, not on diagnosis. |
+| R6 — verbatim boilerplate filler sentence in later basic-mode passes | Not actionable as described | The report's "template artifact, quick fix" framing doesn't hold — the exact sentence doesn't appear anywhere in `adk/prompts/`, and there's no per-round prompt variation that could have introduced it. It's a raw Gemini output artifact, not a fixable location in this repo. No phase opened for this. |
+
+### 12.2 Methodology note for whoever picks up Phase 7 or 8
+
+Both new gaps were confirmed with primary evidence (real Action logs, real
+GitHub comment IDs), not by trusting the external report's summary — that
+report was itself rigorous (explicit scope caveats, walked back two of its
+own earlier-draft claims) but still had 2 of 6 root-cause mechanisms slightly
+wrong on first read (see R1/R2 above). Re-verify against live GitHub/Action
+data before building on top of either finding; don't assume the diagnosis
+above is still current if much time has passed.
+
+### 12.3 Self-review on PR #66 reproduced R1 and R3 live, on the PR that fixes part of R1
+
+Worth recording as a concrete illustration, not just an abstract risk: GSR's
+own self-review (`self-review.yml`, `feedback-loop: observe` on this repo)
+posted 19 comments across 3 review rounds on PR #66 itself. Of those: 4 were
+one claim (a false "this will trigger a live Gemini call in tests") restated
+by two different agents in one round, then restated *again* in each of the
+next two rounds after being publicly rebutted with evidence each time; 6 more
+were a "use a config object" refactor suggestion restated 3 times after being
+declined with a CLAUDE.md citation the first time. Zero acknowledgment of any
+prior reply, in a repo where `feedback-loop: observe` was specifically
+supposed to be collecting exactly this kind of data. Not evidence for
+anything not already in R1/R3 above — just an unusually clean example if one
+is useful later.
+
+### 12.4 Two eval-harness bugs found, not yet fixed (discovered running Phase 2's comparative-harness check)
+
+Neither is caused by any phase in this doc; both pre-date Phase 2 and are
+still open:
+
+1. **`npm run eval` (`tools/eval/evaluate.ts`) is currently broken on `main`.**
+   It imports `adk/backend/src/github.ts`, which uses NodeNext-style
+   `.js`-suffixed relative imports (e.g. `./findingMarker.js`) — `tools/eval`'s
+   plain-CommonJS `ts-node` config can't resolve those, so the harness crashes
+   at import time before running anything. Worked around out-of-repo (a
+   `Module._resolveFilename` `.js`→`.ts` shim in a throwaway driver script) to
+   get a comparison run working; the real fix (align `tools/eval`'s ts-node
+   config with the backend's module resolution, or stop using NodeNext-style
+   suffixed imports in files `tools/eval` needs to import) hasn't been made.
+2. **`generateAggregateReport` (`tools/eval/llm-comparator.ts` or
+   `llm-comparator-v2.ts`) mislabels its own output.** It states results
+   "assuming targetA is Production and targetB is Local" — backwards from
+   how `evaluate.ts` actually assigns targets — and separately hallucinates a
+   duplicate "PR #1" entry in the aggregate when the actual sample never
+   contains that PR. Trust the per-PR reports over the aggregate summary
+   until this is fixed. (Concretely, this made a real ~7-9% Gemini-call/token
+   *reduction* from Phase 2 read as an *increase* in the raw aggregate text —
+   caught only by manually re-deriving the per-target totals.)

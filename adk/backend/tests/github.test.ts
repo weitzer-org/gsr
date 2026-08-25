@@ -160,7 +160,7 @@ index e69de29..d95f3ad 100644
     describe('formatFindingBody (marker + sanitization, via postReviewComments)', () => {
         const url = 'https://github.com/GoogleCloudPlatform/scion/pull/123';
 
-        it('appends a well-formed, parseable gsr:v1 marker to every posted finding', async () => {
+        it('appends a well-formed, parseable gsr:v2 marker to every posted finding', async () => {
             const createReview = (jest.fn() as any).mockResolvedValue({});
             (client as any).octokit = { rest: { pulls: { createReview } } };
 
@@ -196,7 +196,7 @@ index e69de29..d95f3ad 100644
             const body = createReview.mock.calls[0][0].comments[0].body;
 
             // The injected '<!--'/'-->' delimiters in `summary` are stripped (the bare
-            // "gsr:v1 f=fac1..." text may still appear as harmless plain text — sanitization
+            // "gsr:v2 f=fac1..." text may still appear as harmless plain text — sanitization
             // only needs to remove the syntactic hazard, not every trace of the attempt), so
             // the only real HTML comment left in the body is GSR's own, appended-last marker.
             expect((body.match(/<!--/g) || []).length).toBe(1);
@@ -449,7 +449,7 @@ index e69de29..d95f3ad 100644
 
             const threads = await client.listReviewThreads(url);
             expect(threads[0].findingId).toBe(computeFindingId({
-                file: 'src/a.ts', line: 10, agent: 'Testing', summary: 'missing coverage for edge case',
+                file: 'src/a.ts', line: 10, agent: 'Testing',
             }));
         });
 

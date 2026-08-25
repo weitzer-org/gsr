@@ -13,29 +13,55 @@ import {
   sanitizeRebuttalMarkdown,
 } from '../src/findingMarker';
 
-describe('computeFindingId', () => {
+describe('computeFindingId (v2 scheme — file | lineBucket | agent | category, no summary; §2.1 addendum)', () => {
   it('is deterministic for identical input', () => {
-    const input = { file: 'src/a.ts', line: 10, agent: 'Logic', summary: 'issue' };
+    const input = { file: 'src/a.ts', line: 10, agent: 'Logic' };
     expect(computeFindingId(input)).toBe(computeFindingId({ ...input }));
   });
 
-  it('differs when any of file/line/agent/summary differs', () => {
-    const base = { file: 'src/a.ts', line: 10, agent: 'Logic', summary: 'issue' };
+  it('differs when file, agent, or the line bucket differs', () => {
+    const base = { file: 'src/a.ts', line: 10, agent: 'Logic' };
     const id = computeFindingId(base);
     expect(computeFindingId({ ...base, file: 'src/b.ts' })).not.toBe(id);
-    expect(computeFindingId({ ...base, line: 11 })).not.toBe(id);
     expect(computeFindingId({ ...base, agent: 'Security' })).not.toBe(id);
-    expect(computeFindingId({ ...base, summary: 'other issue' })).not.toBe(id);
+    // 10 -> next bucket at 20 (LINE_BUCKET_SIZE=10): a shift big enough to
+    // cross a bucket boundary must still change the id.
+    expect(computeFindingId({ ...base, line: 25 })).not.toBe(id);
+  });
+
+  it('is the whole point of this fix: two differently-worded restatements of the same underlying ' +
+     'finding (same file/anchor/agent, different summary) now produce the SAME id — this is what makes ' +
+     'repost-suppression possible at all (job_tracker PR #76: 6 restatements, 6 different ids under the old scheme)', () => {
+    const first = { file: 'internal/handler.go', line: 42, agent: 'Logic', summary: 'WriteHeader is called before Write, bypassing sniffing' };
+    const second = { file: 'internal/handler.go', line: 44, agent: 'Logic', summary: 'The header is written prior to the body, which skips content-type detection' };
+    // Both within the same 10-line bucket (40-49); summary is not hashed at all.
+    expect(computeFindingId(first)).toBe(computeFindingId(second));
+  });
+
+  it('tolerates a small line shift within the same bucket (an unmoved finding after an unrelated push)', () => {
+    const id = computeFindingId({ file: 'src/a.ts', line: 41, agent: 'Logic' });
+    expect(computeFindingId({ file: 'src/a.ts', line: 49, agent: 'Logic' })).toBe(id);
+    expect(computeFindingId({ file: 'src/a.ts', line: 40, agent: 'Logic' })).toBe(id);
+  });
+
+  it('is no longer affected by summary at all', () => {
+    const base = { file: 'src/a.ts', line: 10, agent: 'Logic' };
+    expect(computeFindingId({ ...base, summary: 'issue' } as any)).toBe(computeFindingId({ ...base, summary: 'a completely different issue' } as any));
+  });
+
+  it('differs by category when two findings otherwise share file/anchor/agent', () => {
+    const base = { file: 'src/a.ts', line: 10, agent: 'Logic' };
+    expect(computeFindingId({ ...base, category: 'correctness' })).not.toBe(computeFindingId({ ...base, category: 'security' }));
   });
 
   it('returns a 16-character lowercase hex string', () => {
-    const id = computeFindingId({ file: 'a.ts', line: 1, summary: 's' });
+    const id = computeFindingId({ file: 'a.ts', line: 1 });
     expect(id).toMatch(/^[0-9a-f]{16}$/);
   });
 });
 
 describe('buildFindingMarker / parseFindingMarker round-trip', () => {
-  it('round-trips all fields', () => {
+  it('round-trips all fields, writing the current (v2) marker version', () => {
     const marker = buildFindingMarker({
       findingId: 'abc123def4567890',
       agent: 'Logic',
@@ -44,11 +70,11 @@ describe('buildFindingMarker / parseFindingMarker round-trip', () => {
       createdAt: '2026-08-15T09:14:02.000Z',
     });
 
-    expect(marker).toMatch(/^<!-- gsr:v1 .* -->$/);
+    expect(marker).toMatch(/^<!-- gsr:v2 .* -->$/);
 
     const parsed = parseFindingMarker(marker);
     expect(parsed).toEqual({
-      version: 'v1',
+      version: 'v2',
       findingId: 'abc123def4567890',
       agent: 'Logic',
       severity: 'HIGH',
@@ -80,6 +106,58 @@ describe('buildFindingMarker / parseFindingMarker round-trip', () => {
     const body = `🟠 **HIGH** · Logic — summary text\n\ndescription text\n\n${marker}`;
     const parsed = parseFindingMarker(body);
     expect(parsed?.findingId).toBe('abc123def4567890');
+  });
+});
+
+describe('parseFindingMarker — v1/v2 coexistence (§2.1 addendum: v1 markers are already live on posted ' +
+  'comments in this repo, job_tracker, and sound-profile-builder and must keep parsing after the v2 hash cutover)', () => {
+  it('still parses a real gsr:v1 marker exactly as before, unchanged', () => {
+    const body = '🟠 **HIGH** · Logic — an old finding\n\ndescription\n\n<!-- gsr:v1 f=abc123def4567890 a=Logic s=HIGH r=2026-01-01T00:00:00.000Z -->';
+    const parsed = parseFindingMarker(body);
+    expect(parsed).toEqual({
+      version: 'v1',
+      findingId: 'abc123def4567890',
+      agent: 'Logic',
+      severity: 'HIGH',
+      promptVersion: undefined,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+  });
+
+  it('parses a gsr:v2 marker the same way, with version tagged v2', () => {
+    const body = '<!-- gsr:v2 f=fedcba9876543210 a=Security s=CRITICAL -->';
+    const parsed = parseFindingMarker(body);
+    expect(parsed).toEqual(expect.objectContaining({ version: 'v2', findingId: 'fedcba9876543210' }));
+  });
+
+  it('is still END-ANCHORED / LAST-MATCH across a v1-then-v2 mix, regardless of which version is last', () => {
+    const body =
+      '<!-- gsr:v1 f=fac1000000000000 a=Old s=LOW -->\n\n' +
+      '<!-- gsr:v2 f=abc123def4567890 a=New s=HIGH -->';
+    const parsed = parseFindingMarker(body);
+    expect(parsed).toEqual(expect.objectContaining({ version: 'v2', findingId: 'abc123def4567890' }));
+  });
+
+  it('and the reverse order: a v2-then-v1 mix recovers the trailing v1 marker, not the earlier v2 one', () => {
+    const body =
+      '<!-- gsr:v2 f=abc123def4567890 a=New s=HIGH -->\n\n' +
+      '<!-- gsr:v1 f=fac1000000000000 a=Old s=LOW -->';
+    const parsed = parseFindingMarker(body);
+    expect(parsed).toEqual(expect.objectContaining({ version: 'v1', findingId: 'fac1000000000000' }));
+  });
+
+  it('documents the accepted v1->v2 boundary behavior: a v1 marker\'s findingId and a freshly-computed ' +
+     'v2 id for the SAME underlying file/anchor/agent do NOT match — there is no retroactive linkage, ' +
+     'each version only dedups against findings of its own version going forward (§2.1 addendum, decision 3)', () => {
+    const v1Body = '<!-- gsr:v1 f=abc123def4567890 a=Logic s=HIGH -->';
+    const v1Id = parseFindingMarker(v1Body)!.findingId;
+    const v2Id = computeFindingId({ file: 'internal/handler.go', line: 42, agent: 'Logic' });
+    expect(v1Id).not.toBe(v2Id);
+  });
+
+  it('stripMarkers removes a gsr:v2 marker just as it already does gsr:v1', () => {
+    const body = 'finding text\n\n<!-- gsr:v2 f=abc123 a=Logic -->';
+    expect(stripMarkers(body)).toBe('finding text');
   });
 });
 

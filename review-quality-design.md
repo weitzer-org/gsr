@@ -136,6 +136,22 @@ version:**
    finding and a new `v2`-fingerprinted restatement of the same underlying
    claim land on the same PR post-migration — they won't match by id across
    the version boundary. Don't leave this implicit.
+
+   **Decided:** no retroactive linkage. A `v1` marker's `findingId` and a
+   freshly-computed `v2` id for the same file/anchor/agent are unrelated
+   hashes by construction (different formulas), and nothing attempts to
+   bridge them — `parseFindingMarker` returns whichever version it reads
+   verbatim, tagged with that marker's own `version`, and every consumer
+   (repost-suppression once it exists, feedback-loop round-tracking today)
+   compares ids as opaque strings with no version-aware fallback matching.
+   Practical effect: a finding already restated several times pre-migration
+   keeps whatever `v1` id its most recent post carries; the next restatement
+   after this ships computes a `v2` id and is treated as unseen — one
+   "reset" per already-live finding at the cutover, not a bug to work around.
+   Going forward (all-`v2`, no more restatements crossing the boundary)
+   identity is stable again. This mirrors the parser's existing
+   end-anchored/last-match contract (design doc §9, T2): whichever marker a
+   comment carries last is authoritative, full stop, regardless of version.
 4. Update every consumer, not just the definition: `orchestrator.ts`
    (computes id at finding-creation), `github.ts` (re-derives ids for
    legacy/pre-marker findings via `parseLegacyFindingBody`), and anywhere
@@ -478,7 +494,7 @@ memory of this one) knows what's already landed.
 | 1 | Eval regression fixture: `must_catch` / `must_not_flag_high` / `must_resolve_cross_file` lists + deterministic scorer (§7.1), using the `job_tracker` audit as ground truth | none | ✅ |
 | 2 | Gap 4 Tier 1: decouple `useTriage` (aggregation) from `useDedup` (§5.1) | Phase 1 (to verify against `must_resolve_cross_file`) | ✅ (PR #66, merged) |
 | 3 | Gap 3: `LOW_PRIORITY_PATH_PATTERNS` + severity dampening in `filterFindings` (§4.1) | Phase 1 (to verify against `must_not_flag_high`) | ⬜ |
-| 4 | Gap 1: content-hash finding identity + Action-side repost suppression/collapse (§2.1, **hash formula corrected — see §2.1 addendum**) + multi-push simulation test (§7.2) | none (independent of 2-3, but easiest after they're merged to avoid rebase noise) | ⬜ — **next up**, see §2.1 addendum for the corrected (non-superseded) plan before starting |
+| 4 | Gap 1: content-hash finding identity + Action-side repost suppression/collapse (§2.1, **hash formula corrected — see §2.1 addendum**) + multi-push simulation test (§7.2) | none (independent of 2-3, but easiest after they're merged to avoid rebase noise) | 🟨 — **addendum steps 1-5 (stable `findingId` + `gsr:v2` marker) done, PR open, not yet merged.** Repost-suppression itself (fetch-prior-comments, skip-if-seen, collapse-after-N, §7.2's multi-push test) is a separate follow-up PR, scoped on top of this one per the addendum's own instruction — not started |
 | 5 | Gap 2: `SHADOW_MODE` (§3.1) + `durationMs` latency instrumentation (§10) + standing basic-vs-subagent eval reporting (§7.3) | Phases 2-4 merged (shadow-run data is most useful once the fixes it'd be comparing are in place) | ⬜ |
 | 6 (conditional) | Gap 4 Tier 2: on-demand full-file fetch for out-of-diff symbol claims (§5.1 Tier 2) | Only open this if Phase 1's `must_resolve_cross_file` fixture still fails after Phase 2 — Tier 1 may already be sufficient | **Gate resolved, Tier 2 not needed for now** — see Phase 2 note below |
 | 7 | Gap 5 (new, §12): same-run cross-agent self-consistency check (basic vs. swarm, or swarm-agent vs. swarm-agent, contradicting each other on one PR without acknowledgment) | none, but higher cost than it looks — basic and swarm currently run as separate CI jobs with no shared state; see §12 | ⬜ — not yet designed in detail, only diagnosed |

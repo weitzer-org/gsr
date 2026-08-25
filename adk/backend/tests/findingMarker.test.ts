@@ -46,7 +46,11 @@ describe('computeFindingId (v2 scheme — file | lineBucket | agent | category, 
 
   it('is no longer affected by summary at all', () => {
     const base = { file: 'src/a.ts', line: 10, agent: 'Logic' };
-    expect(computeFindingId({ ...base, summary: 'issue' } as any)).toBe(computeFindingId({ ...base, summary: 'a completely different issue' } as any));
+    // Named consts (not inline literals) so passing the extra `summary`
+    // field relies on ordinary structural typing rather than `as any`.
+    const withSummaryA = { ...base, summary: 'issue' };
+    const withSummaryB = { ...base, summary: 'a completely different issue' };
+    expect(computeFindingId(withSummaryA)).toBe(computeFindingId(withSummaryB));
   });
 
   it('differs by category when two findings otherwise share file/anchor/agent', () => {

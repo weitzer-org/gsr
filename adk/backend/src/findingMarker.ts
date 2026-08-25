@@ -82,8 +82,12 @@ export function computeFindingId(input: { file: string; line: number; agent?: st
 }
 
 // findingIdFor is a small convenience wrapper so call sites can pass a
-// CandidateFinding directly without restating its fields.
-export function findingIdFor(finding: Pick<CandidateFinding, 'file' | 'line' | 'agent'>): string {
+// CandidateFinding directly without restating its fields. `category` isn't
+// on CandidateFinding (nothing produces one yet — see computeFindingId), so
+// it's added to the parameter type by intersection rather than Pick, same
+// forward-compatible-and-currently-unused status as computeFindingId's own
+// optional `category` field.
+export function findingIdFor(finding: Pick<CandidateFinding, 'file' | 'line' | 'agent'> & { category?: string }): string {
   return computeFindingId(finding);
 }
 

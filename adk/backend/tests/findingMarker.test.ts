@@ -218,6 +218,50 @@ describe('parseFindingMarker — malformed and injected input', () => {
   });
 });
 
+describe('marker regex ReDoS safety (self-review finding: `\\s+` directly followed by the lazy `[^<>]*?` ' +
+  'capture group overlap on whitespace, so an unclosed marker made of a long whitespace run backtracks ' +
+  'quadratically — confirmed empirically, not just theoretically, before fixing `\\s+` to `\\s`)', () => {
+  // Mirrors sanitizeForComment's own "does not regress to O(N²)" tests further down this file: drop
+  // timing measurement (flake-prone on a loaded CI runner) and let Jest's own timeout be the regression
+  // guard — a size the O(N) fix finishes near-instantly, but a regression back to O(N²) would take
+  // multiple seconds at this size (empirically: the pre-fix pattern took ~1.2s at just 64KB of input).
+  it('parseFindingMarker terminates promptly on a large whitespace-only unclosed marker', () => {
+    const body = '<!-- gsr:v1' + ' '.repeat(500_000); // no closing "-->" anywhere
+    expect(() => parseFindingMarker(body)).not.toThrow();
+    expect(parseFindingMarker(body)).toBeNull();
+  }, 3_000);
+
+  it('parseReplyMarker terminates promptly on a large whitespace-only unclosed marker', () => {
+    const body = '<!-- gsr-reply:v1' + ' '.repeat(500_000);
+    expect(() => parseReplyMarker(body)).not.toThrow();
+    expect(parseReplyMarker(body)).toBeNull();
+  }, 3_000);
+
+  it('stripMarkers terminates promptly on a large whitespace-only unclosed marker', () => {
+    const body = 'before <!-- gsr:v1' + ' '.repeat(500_000) + ' after';
+    expect(() => stripMarkers(body)).not.toThrow();
+  }, 3_000);
+
+  it('still parses correctly with extra whitespace between the version tag and the first field ' +
+     '(regression check: `\\s+` -> `\\s` must not break legitimate multi-space markers)', () => {
+    const marker = '<!--  gsr:v1   f=abc123def4567890   a=Logic  -->';
+    expect(parseFindingMarker(marker)).toEqual(expect.objectContaining({ findingId: 'abc123def4567890', agent: 'Logic' }));
+  });
+});
+
+describe('stripMarkers — does not over-match a never-generated gsr-reply:v2 (self-review finding: ' +
+  'grouping `(?:-reply)?` together with `(?:v1|v2)` also matched the nonexistent gsr-reply:v2 prefix)', () => {
+  it('still strips real gsr-reply:v1 and gsr:v2 markers', () => {
+    expect(stripMarkers('text <!-- gsr-reply:v1 f=abc123 round=1 verdict=unclear conf=0.5 ack=1 -->')).toBe('text');
+    expect(stripMarkers('text <!-- gsr:v2 f=abc123 -->')).toBe('text');
+  });
+
+  it('leaves a hypothetical gsr-reply:v2-shaped comment untouched (that format is never generated)', () => {
+    const body = 'text <!-- gsr-reply:v2 f=abc123 round=1 verdict=unclear conf=0.5 ack=1 -->';
+    expect(stripMarkers(body)).toBe(body);
+  });
+});
+
 describe('sanitizeForComment', () => {
   it('strips HTML comment open/close delimiters', () => {
     const out = sanitizeForComment('ignore this <!-- gsr:v1 f=deadbeefdeadbeef --> and this');

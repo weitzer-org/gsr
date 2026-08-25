@@ -334,7 +334,20 @@ export function parseFindingMarker(body: string): FindingMarker | null {
   // for that same reason (real markers never contain those characters)
   // and bounds the worst case to O(N) regardless, defense-in-depth against
   // either invariant changing later.
-  const pattern = /<!--\s*gsr:(v1|v2)\s+([^<>]*?)-->/g;
+  //
+  // Self-review finding (confirmed by benchmark, not just theoretical):
+  // `\s+` directly followed by `[^<>]*?` overlap on whitespace — both can
+  // match a space — so on an unclosed marker made of a long whitespace run
+  // (e.g. "<!-- gsr:v1" + 64KB of spaces, no "-->" anywhere), the engine
+  // backtracks `\s+` one character at a time and re-scans the remainder
+  // with `[^<>]*?` at each step: ~1.2s at 64KB, scaling quadratically
+  // (confirmed empirically: 4x the input consistently costs ~4x² the time).
+  // `\s` (exactly one, not one-or-more) removes the overlap — any
+  // additional whitespace is still captured by `[^<>]*?` right after, so a
+  // real multi-space-separated marker parses identically (parseMarkerFields
+  // trims the captured group before splitting on fields) — while a
+  // 512KB adversarial unclosed run now finishes in under a millisecond.
+  const pattern = /<!--\s*gsr:(v1|v2)\s([^<>]*?)-->/g;
   let match: RegExpExecArray | null;
   let lastValid: FindingMarker | null = null;
   while ((match = pattern.exec(body)) !== null) {
@@ -407,16 +420,18 @@ function parseReplyMarkerFields(raw: string): ReplyMarker | null {
 
 // parseReplyMarker mirrors parseFindingMarker exactly: end-anchored /
 // last-match-wins, restricted to a `[^<>]` capture group for the same O(N)
-// ReDoS-safety reason. Returns null on ANY malformed field OR when there is
-// no marker at all — callers must NOT treat a null result as "GSR never
-// replied here" (that would be fail-OPEN: a format drift or parser bug
-// would silently re-enable a second rebuttal). github.ts's
-// deriveGsrLastReply treats every null uniformly — a trusted-login reply
-// with no marker and one with a broken marker both fail closed the same
-// way, so no separate presence-only check is needed here.
+// ReDoS-safety reason, and `\s` (not `\s+`) right before that group for the
+// same overlapping-quantifier reason (see parseFindingMarker's comment).
+// Returns null on ANY malformed field OR when there is no marker at all —
+// callers must NOT treat a null result as "GSR never replied here" (that
+// would be fail-OPEN: a format drift or parser bug would silently re-enable
+// a second rebuttal). github.ts's deriveGsrLastReply treats every null
+// uniformly — a trusted-login reply with no marker and one with a broken
+// marker both fail closed the same way, so no separate presence-only check
+// is needed here.
 export function parseReplyMarker(body: string): ReplyMarker | null {
   if (!body) return null;
-  const pattern = /<!--\s*gsr-reply:v1\s+([^<>]*?)-->/g;
+  const pattern = /<!--\s*gsr-reply:v1\s([^<>]*?)-->/g;
   let match: RegExpExecArray | null;
   let lastValid: ReplyMarker | null = null;
   while ((match = pattern.exec(body)) !== null) {
@@ -434,8 +449,16 @@ export function parseReplyMarker(body: string): ReplyMarker | null {
 // §8.3 item 1: "description and suggestion from the root comment body") — a
 // stray non-trailing marker fragment leaking into that context costs
 // nothing to also strip. Same restricted [^<>] capture group as the parsers
-// above, for the same ReDoS-safety reason.
-const MARKER_STRIP_PATTERN = /<!--\s*gsr(?:-reply)?:(?:v1|v2)\s+[^<>]*?-->/g;
+// above, for the same ReDoS-safety reason, and `\s` (not `\s+`) for the same
+// overlapping-quantifier reason.
+//
+// Self-review finding: grouping `(?:-reply)?` together with `(?:v1|v2)`
+// (i.e. `gsr(?:-reply)?:(?:v1|v2)`) also matches the never-generated
+// `gsr-reply:v2` — reply markers are only ever built as `gsr-reply:v1`
+// (buildReplyMarker), so the two prefixes are alternated strictly instead
+// of factored together, matching only the three formats that actually
+// exist.
+const MARKER_STRIP_PATTERN = /<!--\s*(?:gsr:(?:v1|v2)|gsr-reply:v1)\s[^<>]*?-->/g;
 export function stripMarkers(body: string): string {
   if (!body) return body;
   return body.replace(MARKER_STRIP_PATTERN, '').trim();

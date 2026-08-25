@@ -161,9 +161,9 @@ describe('Orchestrator', () => {
         expect(results.findings[0].severity).toBe('HIGH');
     });
 
-    it('should break deduplicator when useTriage is false', async () => {
+    it('should skip deduplicator when useDedup is false', async () => {
         const orchestrator = new Orchestrator();
-        (orchestrator as any).useTriage = false;
+        (orchestrator as any).useDedup = false;
         
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ 
             findings: [{ file: 'i.ts', line: 1, severity: 'HIGH', summary: 'a', description: 'b', agent: 'A' }] as any
@@ -171,13 +171,34 @@ describe('Orchestrator', () => {
         const mockDeduplicate = jest.spyOn(DeduplicatorAgent.prototype, 'deduplicate');
 
         await orchestrator.runReview([{ file: 'i.ts', content: 'x' }]);
-        
+
         expect(mockDeduplicate).not.toHaveBeenCalled();
+    });
+
+    it('should still aggregate chunks into one call per agent when useDedup is false (basic mode config)', async () => {
+        const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ findings: [] });
+
+        // useDedup=false, aggregateChunks defaults to true — matches
+        // action-entrypoint.ts's basic-mode Orchestrator construction.
+        const orchestrator = new Orchestrator(5, 'system_prompts', false, ['logic']);
+        const chunks = [
+            { file: 'main.go', content: 'x' },
+            { file: 'apply.go', content: 'y' }
+        ];
+
+        await orchestrator.runReview(chunks);
+
+        // One call for the agent covering both files, not one call per file
+        // (review-quality-design.md §5.1 — regression guard for the PR #15
+        // cross-file false-claim class).
+        expect(mockAnalyze).toHaveBeenCalledTimes(1);
+        expect(mockAnalyze).toHaveBeenCalledWith(chunks);
     });
 
     it('should handle errors in legacy mode when onProgress is defined', async () => {
         const orchestrator = new Orchestrator();
-        (orchestrator as any).useTriage = false;
+        (orchestrator as any).aggregateChunks = false;
+        (orchestrator as any).useDedup = false;
         
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockRejectedValue(new Error('Legacy Error'));
         
@@ -193,7 +214,8 @@ describe('Orchestrator', () => {
 
     it('should accumulate metrics in legacy mode', async () => {
         const orchestrator = new Orchestrator();
-        (orchestrator as any).useTriage = false;
+        (orchestrator as any).aggregateChunks = false;
+        (orchestrator as any).useDedup = false;
         
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ 
             findings: [{ file: 'i.ts', line: 1, severity: 'HIGH', summary: 'a', description: 'b', agent: 'A' }] as any,
@@ -210,7 +232,8 @@ describe('Orchestrator', () => {
 
     it('should report progress in legacy mode', async () => {
         const orchestrator = new Orchestrator();
-        (orchestrator as any).useTriage = false;
+        (orchestrator as any).aggregateChunks = false;
+        (orchestrator as any).useDedup = false;
         
         const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({ findings: [] });
         

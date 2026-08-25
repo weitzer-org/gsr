@@ -167,7 +167,10 @@ async function main() {
       console.warn(`[GSR Action] PR has ${chunks.length} files; truncating to ${maxFiles}.`);
     }
 
-    const orchestrator = new Orchestrator(5, modeConfig.promptsDir, modeConfig.useDedup, selectedAgents);
+    // aggregateChunks: true for both modes (review-quality-design.md §5.1) —
+    // independent of useDedup, so basic mode still gets full cross-file
+    // context within the PR even though it skips the dedup pass.
+    const orchestrator = new Orchestrator(5, modeConfig.promptsDir, modeConfig.useDedup, selectedAgents, true);
     orchestrator.onProgress = (agentName, file, status) => {
       console.log(`[GSR Action][${agentName}] ${file} — ${status}`);
     };

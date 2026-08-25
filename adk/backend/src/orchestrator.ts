@@ -13,15 +13,23 @@ export class Orchestrator {
 
   private promptsDirName: string;
   private deduplicator: DeduplicatorAgent;
-  private useTriage: boolean; // Keeping the parameter name for backwards compatibility, but it refers to grouping logic now
+  private useDedup: boolean;
+  // Whether each agent sees all of its active chunks in one call (true) or
+  // one call per file (false, "legacy" file-by-file routing). Independent of
+  // useDedup — review-quality-design.md §5: these used to be the same
+  // constructor parameter, which meant basic mode (useDedup=false) silently
+  // lost cross-file visibility within a PR too, causing false claims about
+  // symbols defined in sibling files of the same diff.
+  private aggregateChunks: boolean;
   private selectedAgents?: string[]; // Agent IDs (lowercase filename stems) to run; undefined = run all
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useTriage: boolean = true, selectedAgents?: string[]) {
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true) {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = promptsDirName;
     this.deduplicator = new DeduplicatorAgent();
-    this.useTriage = useTriage;
+    this.useDedup = useDedup;
     this.selectedAgents = selectedAgents;
+    this.aggregateChunks = aggregateChunks;
     this.initializeAgents();
   }
 
@@ -138,7 +146,7 @@ export class Orchestrator {
     // Map Tasks based on routing rules
     const tasks: (() => Promise<AnalyzeResult>)[] = [];
 
-    if (this.useTriage) {
+    if (this.aggregateChunks) {
       // Execute all active GeminiAgents on their relevant DiffChunks based strictly on static filtering context for the deduplicator architecture
       for (const agent of this.subagents) {
         const envVarName = `ABLATE_${agent.name.toUpperCase()}`;
@@ -244,7 +252,7 @@ export class Orchestrator {
     let deduplicatedFindings = allFindings;
     let triageCalls = 0;
     
-    if (this.useTriage && allFindings.length > 0) {
+    if (this.useDedup && allFindings.length > 0) {
         deduplicatedFindings = await this.deduplicator.deduplicate(allFindings);
         triageCalls = 1; // It acts as the routing/filtering step
     }

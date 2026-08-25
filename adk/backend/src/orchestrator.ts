@@ -259,11 +259,15 @@ export class Orchestrator {
 
     // Feedback loop Phase 0 (pr-comment-feedback-loop-design.md §6.1, open
     // question 6): attach findingId + promptVersion here, AFTER
-    // deduplication, so the hash reflects the summary that's actually going
-    // out to GitHub rather than a pre-merge draft the deduplicator may have
-    // rewritten. promptVersion is this.promptsDirName — every finding from
-    // this Orchestrator instance shares one prompts dir, so it's constant
-    // per run regardless of which agent produced the finding.
+    // deduplication, so the hash reflects the `agent` that's actually going
+    // out to GitHub (the deduplicator merges agent names, e.g. "Performance,
+    // Security" — review-quality-design.md §2.1 addendum) rather than a
+    // pre-merge draft's per-agent value. `summary` is no longer part of the
+    // hash at all (see computeFindingId), so dedup-time summary rewrites no
+    // longer affect identity either way. promptVersion is this.promptsDirName
+    // — every finding from this Orchestrator instance shares one prompts
+    // dir, so it's constant per run regardless of which agent produced the
+    // finding.
     deduplicatedFindings = deduplicatedFindings.map(f => ({
       ...f,
       id: f.id || computeFindingId(f),

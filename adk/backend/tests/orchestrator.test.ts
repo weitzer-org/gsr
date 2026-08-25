@@ -2,6 +2,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { Orchestrator } from '../src/orchestrator';
 import { GeminiAgent } from '../src/agent';
 import { DeduplicatorAgent } from '../src/deduplicator';
+import { computeFindingId } from '../src/findingMarker';
 
 describe('Orchestrator', () => {
     beforeEach(async () => {
@@ -120,6 +121,48 @@ describe('Orchestrator', () => {
 
         mockAnalyze.mockRestore();
         mockDeduplicate.mockRestore();
+    });
+
+    it('assigns findingId AFTER deduplication, from the merged agent — not the pre-dedup one ' +
+       '(review-quality-design.md §2.1 addendum: dedup-time agent merges like "Performance, Security" ' +
+       'must be reflected in the hash)', async () => {
+        const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
+            findings: [{ file: 'index.ts', line: 1, severity: 'HIGH', summary: 'dup', description: 'desc', agent: 'Performance' }] as any
+        });
+
+        const mockDeduplicate = jest.spyOn(DeduplicatorAgent.prototype, 'deduplicate').mockResolvedValue([
+            { file: 'index.ts', line: 1, severity: 'HIGH', summary: 'merged summary', description: 'merged desc', agent: 'Performance, Security' } as any
+        ]);
+
+        const orchestrator = new Orchestrator(1);
+        (orchestrator as any).subagents = [
+            new GeminiAgent('Performance', 'test'),
+            new GeminiAgent('Security', 'test')
+        ];
+
+        const results = await orchestrator.runReview([{ file: 'index.ts', content: 'x' }]);
+
+        expect(results.findings).toHaveLength(1);
+        expect(results.findings[0].id).toBe(computeFindingId({ file: 'index.ts', line: 1, agent: 'Performance, Security' }));
+        expect(results.findings[0].id).not.toBe(computeFindingId({ file: 'index.ts', line: 1, agent: 'Performance' }));
+
+        mockAnalyze.mockRestore();
+        mockDeduplicate.mockRestore();
+    });
+
+    it('leaves an already-assigned findingId untouched rather than recomputing it', async () => {
+        const mockAnalyze = jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
+            findings: [{ file: 'index.ts', line: 1, severity: 'HIGH', summary: 's', description: 'd', agent: 'Logic', id: 'preset-id' }] as any
+        });
+
+        const orchestrator = new Orchestrator(1);
+        (orchestrator as any).subagents = [new GeminiAgent('Logic', 'test')];
+
+        const results = await orchestrator.runReview([{ file: 'index.ts', content: 'x' }]);
+
+        expect(results.findings[0].id).toBe('preset-id');
+
+        mockAnalyze.mockRestore();
     });
 
     it('should filter low severity', async () => {

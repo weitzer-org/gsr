@@ -18,7 +18,7 @@ import { createHash } from 'crypto';
 import { CandidateFinding, AdjudicationVerdict } from './types';
 
 export interface FindingMarker {
-  version: 'v1';
+  version: 'v1' | 'v2';
   findingId: string;
   agent?: string;
   severity?: string;
@@ -49,25 +49,67 @@ export interface ReplyMarker {
 
 // --- findingId ---
 //
-// Reuses finding-feedback-requirements.md §5.3's scheme unchanged — the same
-// hash review-quality-design.md §2.1 already committed to for
-// repeat-suppression, so this is deliberately the third consumer of one
-// identity decision rather than a fourth invented one.
+// v1 (superseded — see review-quality-design.md §2.1 addendum, 2026-08-24):
+// hashed `file | line | agent | summary`. Confirmed broken as a
+// restatement-stable identity: `summary` is LLM-generated prose that isn't
+// byte-stable across two runs that found "the same" issue, and raw `line`
+// shifts on every push even for an unmoved finding — 6 restatements of one
+// finding on job_tracker PR #76 produced 6 different hashes. `summary` is
+// dropped entirely below rather than tolerance-matched (there's no principled
+// fuzzy-text threshold that isn't itself another source of drift); `line` is
+// bucketed instead of dropped, since file+agent alone would collide two
+// genuinely-different findings in the same file too often to be useful.
 //
-// Known limitation, accepted (per that doc): `summary` is LLM-generated and
-// isn't guaranteed byte-stable across two runs that "found the same thing",
-// so this is a best-effort correlation key, not a foreign key. This feature
-// is less exposed to that weakness than the push-based one, though: it reads
-// the id back out of a marker already written into the thread rather than
-// recomputing and hoping for a match.
-export function computeFindingId(input: { file: string; line: number; agent?: string; summary: string }): string {
-  const key = `${input.file}|${input.line}|${input.agent || ''}|${input.summary}`;
+// v2 (current): `file | lineBucket | agent | category`, no `summary`.
+// Bucketing trades precision for stability — a finding a few lines from a
+// bucket boundary can still flip buckets on an unrelated edit above it, and
+// two distinct findings landing in the same bucket on the same file/agent
+// will collide onto one id (the second overwrites/suppresses the first on
+// repost-suppression day). Accepted: false-merges are cheaper than the
+// status quo of near-100%-miss identity. `category` is a forward-compatible
+// slot — no finding shape carries a category field yet, so it's always ''
+// today; the moment one does, the hash starts using it for free without
+// another version bump.
+const LINE_BUCKET_SIZE = 10;
+
+function bucketLine(line: number): number {
+  return Math.floor(line / LINE_BUCKET_SIZE);
+}
+
+// Self-review finding: deduplicator.ts's prompt asks Gemini to "concatenate
+// the agent names with commas (e.g., 'Performance, Security')" for a merged
+// finding, with no ordering rule — an LLM restating the same merge across
+// two runs could plausibly emit "Performance, Security" once and "Security,
+// Performance" another time. Hashing that raw would reintroduce exactly the
+// restatement-instability this v2 scheme exists to fix, just moved from
+// `summary` to `agent`. Sorting the comma-separated components before
+// hashing makes the id invariant to the LLM's chosen order; a normal
+// single-agent finding (the common case, no comma) is unaffected since
+// sorting a one-element array is a no-op.
+//
+// Self-review finding: also dedupe, not just sort — if the LLM merges two
+// findings that were both attributed to the same agent (e.g. two Logic
+// findings on adjacent lines), "Logic, Logic" is a plausible output, and
+// without deduplication that hashes differently from a same-merge restatement
+// that happened to only mention "Logic" once.
+function normalizeAgent(agent: string): string {
+  const parts = agent.split(',').map(a => a.trim()).filter(Boolean);
+  return Array.from(new Set(parts)).sort().join(', ');
+}
+
+export function computeFindingId(input: { file: string; line: number; agent?: string; category?: string }): string {
+  const agent = input.agent ? normalizeAgent(input.agent) : '';
+  const key = `${input.file}|${bucketLine(input.line)}|${agent}|${input.category || ''}`;
   return createHash('sha256').update(key).digest('hex').slice(0, 16);
 }
 
 // findingIdFor is a small convenience wrapper so call sites can pass a
-// CandidateFinding directly without restating its four fields.
-export function findingIdFor(finding: Pick<CandidateFinding, 'file' | 'line' | 'agent' | 'summary'>): string {
+// CandidateFinding directly without restating its fields. `category` isn't
+// on CandidateFinding (nothing produces one yet — see computeFindingId), so
+// it's added to the parameter type by intersection rather than Pick, same
+// forward-compatible-and-currently-unused status as computeFindingId's own
+// optional `category` field.
+export function findingIdFor(finding: Pick<CandidateFinding, 'file' | 'line' | 'agent'> & { category?: string }): string {
   return computeFindingId(finding);
 }
 
@@ -245,17 +287,22 @@ function decodeField(value: string): string {
 
 // buildFindingMarker renders the marker formatFindingBody appends to every
 // finding comment (design doc §4.1). `createdAt` defaults to "now" so call
-// sites don't all need to thread a timestamp through.
+// sites don't all need to thread a timestamp through. Always writes the
+// current marker version (v2, §2.1 addendum) — v1 is a read-only format now,
+// kept only so parseFindingMarker can still recognize markers already live
+// on posted comments (see that function).
+const CURRENT_MARKER_VERSION = 'v2';
+
 export function buildFindingMarker(marker: Omit<FindingMarker, 'version'>): string {
   const parts = [`f=${encodeField(marker.findingId)}`];
   if (marker.agent) parts.push(`a=${encodeField(marker.agent)}`);
   if (marker.severity) parts.push(`s=${encodeField(marker.severity)}`);
   if (marker.promptVersion) parts.push(`pv=${encodeField(marker.promptVersion)}`);
   parts.push(`r=${encodeField(marker.createdAt || new Date().toISOString())}`);
-  return `<!-- gsr:v1 ${parts.join(' ')} -->`;
+  return `<!-- gsr:${CURRENT_MARKER_VERSION} ${parts.join(' ')} -->`;
 }
 
-function parseMarkerFields(raw: string): FindingMarker | null {
+function parseMarkerFields(raw: string, version: 'v1' | 'v2'): FindingMarker | null {
   const fields: Record<string, string> = {};
   for (const token of raw.trim().split(/\s+/)) {
     if (!token) continue;
@@ -265,11 +312,11 @@ function parseMarkerFields(raw: string): FindingMarker | null {
     fields[key] = decodeField(token.slice(eq + 1));
   }
   // f= is the only required field, and must look like a hex hash — anything
-  // else means this isn't really a gsr:v1 marker, well-formed HTML comment
+  // else means this isn't really a gsr marker, well-formed HTML comment
   // syntax notwithstanding.
   if (!fields.f || !/^[0-9a-f]+$/i.test(fields.f)) return null;
   return {
-    version: 'v1',
+    version,
     findingId: fields.f,
     agent: fields.a,
     severity: fields.s,
@@ -280,13 +327,24 @@ function parseMarkerFields(raw: string): FindingMarker | null {
 
 // parseFindingMarker extracts GSR's finding marker from a comment body.
 //
+// Matches BOTH `gsr:v1` (superseded hash, still live on comments already
+// posted to this repo, job_tracker, and sound-profile-builder before the
+// §2.1 addendum) and `gsr:v2` (current) — a v1 marker's `findingId` is
+// returned as-is (already-computed text, not recomputed), so old comments
+// keep parsing exactly as before. See the §2.1 addendum's decision on what
+// this means when a v1 and v2 marker for "the same" underlying finding both
+// exist on one PR: they carry different hashes and are NOT linked — no
+// retroactive matching is attempted, each version's findings only dedup
+// against findings of the same version going forward.
+//
 // Deliberately END-ANCHORED / LAST-MATCH, not first-match (design doc's
-// review-amendment #2). formatFindingBody always appends its marker as the
-// very last thing in the body, so if attacker-controlled finding text
-// (summary/description/suggestion — LLM output shaped by diff content)
-// smuggles fake marker syntax earlier in the body despite
-// sanitizeForComment, the real marker GSR appended is still the one this
-// function recovers. Taking the first match would be exactly backwards.
+// review-amendment #2), regardless of which version matches last.
+// formatFindingBody always appends its marker as the very last thing in the
+// body, so if attacker-controlled finding text (summary/description/
+// suggestion — LLM output shaped by diff content) smuggles fake marker
+// syntax earlier in the body despite sanitizeForComment, the real marker GSR
+// appended is still the one this function recovers. Taking the first match
+// would be exactly backwards.
 export function parseFindingMarker(body: string): FindingMarker | null {
   if (!body) return null;
   // Self-review finding: a lazy [\s\S]*? scan with no closing "-->" ever
@@ -302,11 +360,24 @@ export function parseFindingMarker(body: string): FindingMarker | null {
   // for that same reason (real markers never contain those characters)
   // and bounds the worst case to O(N) regardless, defense-in-depth against
   // either invariant changing later.
-  const pattern = /<!--\s*gsr:v1\s+([^<>]*?)-->/g;
+  //
+  // Self-review finding (confirmed by benchmark, not just theoretical):
+  // `\s+` directly followed by `[^<>]*?` overlap on whitespace — both can
+  // match a space — so on an unclosed marker made of a long whitespace run
+  // (e.g. "<!-- gsr:v1" + 64KB of spaces, no "-->" anywhere), the engine
+  // backtracks `\s+` one character at a time and re-scans the remainder
+  // with `[^<>]*?` at each step: ~1.2s at 64KB, scaling quadratically
+  // (confirmed empirically: 4x the input consistently costs ~4x² the time).
+  // `\s` (exactly one, not one-or-more) removes the overlap — any
+  // additional whitespace is still captured by `[^<>]*?` right after, so a
+  // real multi-space-separated marker parses identically (parseMarkerFields
+  // trims the captured group before splitting on fields) — while a
+  // 512KB adversarial unclosed run now finishes in under a millisecond.
+  const pattern = /<!--\s*gsr:(v1|v2)\s([^<>]*?)-->/g;
   let match: RegExpExecArray | null;
   let lastValid: FindingMarker | null = null;
   while ((match = pattern.exec(body)) !== null) {
-    const parsed = parseMarkerFields(match[1]);
+    const parsed = parseMarkerFields(match[2], match[1] as 'v1' | 'v2');
     if (parsed) lastValid = parsed;
   }
   return lastValid;
@@ -375,16 +446,18 @@ function parseReplyMarkerFields(raw: string): ReplyMarker | null {
 
 // parseReplyMarker mirrors parseFindingMarker exactly: end-anchored /
 // last-match-wins, restricted to a `[^<>]` capture group for the same O(N)
-// ReDoS-safety reason. Returns null on ANY malformed field OR when there is
-// no marker at all — callers must NOT treat a null result as "GSR never
-// replied here" (that would be fail-OPEN: a format drift or parser bug
-// would silently re-enable a second rebuttal). github.ts's
-// deriveGsrLastReply treats every null uniformly — a trusted-login reply
-// with no marker and one with a broken marker both fail closed the same
-// way, so no separate presence-only check is needed here.
+// ReDoS-safety reason, and `\s` (not `\s+`) right before that group for the
+// same overlapping-quantifier reason (see parseFindingMarker's comment).
+// Returns null on ANY malformed field OR when there is no marker at all —
+// callers must NOT treat a null result as "GSR never replied here" (that
+// would be fail-OPEN: a format drift or parser bug would silently re-enable
+// a second rebuttal). github.ts's deriveGsrLastReply treats every null
+// uniformly — a trusted-login reply with no marker and one with a broken
+// marker both fail closed the same way, so no separate presence-only check
+// is needed here.
 export function parseReplyMarker(body: string): ReplyMarker | null {
   if (!body) return null;
-  const pattern = /<!--\s*gsr-reply:v1\s+([^<>]*?)-->/g;
+  const pattern = /<!--\s*gsr-reply:v1\s([^<>]*?)-->/g;
   let match: RegExpExecArray | null;
   let lastValid: ReplyMarker | null = null;
   while ((match = pattern.exec(body)) !== null) {
@@ -394,16 +467,24 @@ export function parseReplyMarker(body: string): ReplyMarker | null {
   return lastValid;
 }
 
-// stripMarkers removes every gsr:v1 / gsr-reply:v1 marker comment from a
-// body, GLOBALLY — not just a trailing one. A GSR-authored body has its
-// marker trailing by construction (formatFindingBody / the reply builder
-// always append it last), but an edited comment might not, and this is
-// used to build clean context for the adjudicator prompt (design doc §8.3
-// item 1: "description and suggestion from the root comment body") — a
+// stripMarkers removes every gsr:v1 / gsr:v2 / gsr-reply:v1 marker comment
+// from a body, GLOBALLY — not just a trailing one. A GSR-authored body has
+// its marker trailing by construction (formatFindingBody / the reply
+// builder always append it last), but an edited comment might not, and this
+// is used to build clean context for the adjudicator prompt (design doc
+// §8.3 item 1: "description and suggestion from the root comment body") — a
 // stray non-trailing marker fragment leaking into that context costs
 // nothing to also strip. Same restricted [^<>] capture group as the parsers
-// above, for the same ReDoS-safety reason.
-const MARKER_STRIP_PATTERN = /<!--\s*gsr(?:-reply)?:v1\s+[^<>]*?-->/g;
+// above, for the same ReDoS-safety reason, and `\s` (not `\s+`) for the same
+// overlapping-quantifier reason.
+//
+// Self-review finding: grouping `(?:-reply)?` together with `(?:v1|v2)`
+// (i.e. `gsr(?:-reply)?:(?:v1|v2)`) also matches the never-generated
+// `gsr-reply:v2` — reply markers are only ever built as `gsr-reply:v1`
+// (buildReplyMarker), so the two prefixes are alternated strictly instead
+// of factored together, matching only the three formats that actually
+// exist.
+const MARKER_STRIP_PATTERN = /<!--\s*(?:gsr:(?:v1|v2)|gsr-reply:v1)\s[^<>]*?-->/g;
 export function stripMarkers(body: string): string {
   if (!body) return body;
   return body.replace(MARKER_STRIP_PATTERN, '').trim();

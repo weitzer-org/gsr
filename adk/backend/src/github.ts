@@ -384,7 +384,7 @@ export class GitHubClient {
    * feedbackLoop.ts's posting stage.
    *
    * A thread's root is only trusted as "GSR's own finding" when it's
-   * authored by TRUSTED_GSR_BOT_LOGIN AND carries a well-formed gsr:v1
+   * authored by TRUSTED_GSR_BOT_LOGIN AND carries a well-formed gsr:v1/v2
    * marker (or, for pre-marker comments, parses via the legacy fallback) —
    * see that constant's comment for why login, not `user.type`, is the
    * trust boundary. Untrusted roots (including ones a non-GSR author
@@ -474,7 +474,9 @@ export class GitHubClient {
         // comment predates that field being populated.
         const legacyLine = root.original_line ?? root.line;
         if (!headerInfo || root.path == null || legacyLine == null) continue;
-        findingId = computeFindingId({ file: root.path, line: legacyLine, agent: headerInfo.agent, summary: headerInfo.summary });
+        // computeFindingId no longer takes `summary` (§2.1 addendum) — only
+        // file/line/agent, same as every other call site now.
+        findingId = computeFindingId({ file: root.path, line: legacyLine, agent: headerInfo.agent });
         agent = headerInfo.agent;
         severity = headerInfo.severity as CandidateFinding['severity'];
       }

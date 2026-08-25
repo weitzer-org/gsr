@@ -13,29 +13,85 @@ import {
   sanitizeRebuttalMarkdown,
 } from '../src/findingMarker';
 
-describe('computeFindingId', () => {
+describe('computeFindingId (v2 scheme — file | lineBucket | agent | category, no summary; §2.1 addendum)', () => {
   it('is deterministic for identical input', () => {
-    const input = { file: 'src/a.ts', line: 10, agent: 'Logic', summary: 'issue' };
+    const input = { file: 'src/a.ts', line: 10, agent: 'Logic' };
     expect(computeFindingId(input)).toBe(computeFindingId({ ...input }));
   });
 
-  it('differs when any of file/line/agent/summary differs', () => {
-    const base = { file: 'src/a.ts', line: 10, agent: 'Logic', summary: 'issue' };
+  it('differs when file, agent, or the line bucket differs', () => {
+    const base = { file: 'src/a.ts', line: 10, agent: 'Logic' };
     const id = computeFindingId(base);
     expect(computeFindingId({ ...base, file: 'src/b.ts' })).not.toBe(id);
-    expect(computeFindingId({ ...base, line: 11 })).not.toBe(id);
     expect(computeFindingId({ ...base, agent: 'Security' })).not.toBe(id);
-    expect(computeFindingId({ ...base, summary: 'other issue' })).not.toBe(id);
+    // 10 -> next bucket at 20 (LINE_BUCKET_SIZE=10): a shift big enough to
+    // cross a bucket boundary must still change the id.
+    expect(computeFindingId({ ...base, line: 25 })).not.toBe(id);
+  });
+
+  it('is the whole point of this fix: two differently-worded restatements of the same underlying ' +
+     'finding (same file/anchor/agent, different summary) now produce the SAME id — this is what makes ' +
+     'repost-suppression possible at all (job_tracker PR #76: 6 restatements, 6 different ids under the old scheme)', () => {
+    const first = { file: 'internal/handler.go', line: 42, agent: 'Logic', summary: 'WriteHeader is called before Write, bypassing sniffing' };
+    const second = { file: 'internal/handler.go', line: 44, agent: 'Logic', summary: 'The header is written prior to the body, which skips content-type detection' };
+    // Both within the same 10-line bucket (40-49); summary is not hashed at all.
+    expect(computeFindingId(first)).toBe(computeFindingId(second));
+  });
+
+  it('tolerates a small line shift within the same bucket (an unmoved finding after an unrelated push)', () => {
+    const id = computeFindingId({ file: 'src/a.ts', line: 41, agent: 'Logic' });
+    expect(computeFindingId({ file: 'src/a.ts', line: 49, agent: 'Logic' })).toBe(id);
+    expect(computeFindingId({ file: 'src/a.ts', line: 40, agent: 'Logic' })).toBe(id);
+  });
+
+  it('is no longer affected by summary at all', () => {
+    const base = { file: 'src/a.ts', line: 10, agent: 'Logic' };
+    // Named consts (not inline literals) so passing the extra `summary`
+    // field relies on ordinary structural typing rather than `as any`.
+    const withSummaryA = { ...base, summary: 'issue' };
+    const withSummaryB = { ...base, summary: 'a completely different issue' };
+    expect(computeFindingId(withSummaryA)).toBe(computeFindingId(withSummaryB));
+  });
+
+  it('differs by category when two findings otherwise share file/anchor/agent', () => {
+    const base = { file: 'src/a.ts', line: 10, agent: 'Logic' };
+    expect(computeFindingId({ ...base, category: 'correctness' })).not.toBe(computeFindingId({ ...base, category: 'security' }));
+  });
+
+  it('is invariant to the order of a comma-joined multi-agent string (self-review finding: the ' +
+     'deduplicator\'s prompt asks Gemini to concatenate merged agent names with commas but never specifies ' +
+     'an order, so "Performance, Security" and "Security, Performance" for the same underlying merge must ' +
+     'hash identically, or restatement-instability just moves from `summary` to `agent`)', () => {
+    const base = { file: 'src/a.ts', line: 10 };
+    expect(computeFindingId({ ...base, agent: 'Performance, Security' }))
+      .toBe(computeFindingId({ ...base, agent: 'Security, Performance' }));
+  });
+
+  it('normalizes whitespace around comma-joined agent names the same way regardless of spacing style', () => {
+    const base = { file: 'src/a.ts', line: 10 };
+    expect(computeFindingId({ ...base, agent: 'Performance,Security' }))
+      .toBe(computeFindingId({ ...base, agent: 'Security,  Performance' }));
+  });
+
+  it('still differs for a genuinely different single agent (sorting a 1-element list is a no-op)', () => {
+    const base = { file: 'src/a.ts', line: 10 };
+    expect(computeFindingId({ ...base, agent: 'Logic' })).not.toBe(computeFindingId({ ...base, agent: 'Security' }));
+  });
+
+  it('dedupes a repeated agent name in a merged string (self-review finding: "Logic, Logic" from an ' +
+     'LLM merge of two same-agent findings must hash the same as a restatement that only says "Logic")', () => {
+    const base = { file: 'src/a.ts', line: 10 };
+    expect(computeFindingId({ ...base, agent: 'Logic, Logic' })).toBe(computeFindingId({ ...base, agent: 'Logic' }));
   });
 
   it('returns a 16-character lowercase hex string', () => {
-    const id = computeFindingId({ file: 'a.ts', line: 1, summary: 's' });
+    const id = computeFindingId({ file: 'a.ts', line: 1 });
     expect(id).toMatch(/^[0-9a-f]{16}$/);
   });
 });
 
 describe('buildFindingMarker / parseFindingMarker round-trip', () => {
-  it('round-trips all fields', () => {
+  it('round-trips all fields, writing the current (v2) marker version', () => {
     const marker = buildFindingMarker({
       findingId: 'abc123def4567890',
       agent: 'Logic',
@@ -44,11 +100,11 @@ describe('buildFindingMarker / parseFindingMarker round-trip', () => {
       createdAt: '2026-08-15T09:14:02.000Z',
     });
 
-    expect(marker).toMatch(/^<!-- gsr:v1 .* -->$/);
+    expect(marker).toMatch(/^<!-- gsr:v2 .* -->$/);
 
     const parsed = parseFindingMarker(marker);
     expect(parsed).toEqual({
-      version: 'v1',
+      version: 'v2',
       findingId: 'abc123def4567890',
       agent: 'Logic',
       severity: 'HIGH',
@@ -80,6 +136,58 @@ describe('buildFindingMarker / parseFindingMarker round-trip', () => {
     const body = `🟠 **HIGH** · Logic — summary text\n\ndescription text\n\n${marker}`;
     const parsed = parseFindingMarker(body);
     expect(parsed?.findingId).toBe('abc123def4567890');
+  });
+});
+
+describe('parseFindingMarker — v1/v2 coexistence (§2.1 addendum: v1 markers are already live on posted ' +
+  'comments in this repo, job_tracker, and sound-profile-builder and must keep parsing after the v2 hash cutover)', () => {
+  it('still parses a real gsr:v1 marker exactly as before, unchanged', () => {
+    const body = '🟠 **HIGH** · Logic — an old finding\n\ndescription\n\n<!-- gsr:v1 f=abc123def4567890 a=Logic s=HIGH r=2026-01-01T00:00:00.000Z -->';
+    const parsed = parseFindingMarker(body);
+    expect(parsed).toEqual({
+      version: 'v1',
+      findingId: 'abc123def4567890',
+      agent: 'Logic',
+      severity: 'HIGH',
+      promptVersion: undefined,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+  });
+
+  it('parses a gsr:v2 marker the same way, with version tagged v2', () => {
+    const body = '<!-- gsr:v2 f=fedcba9876543210 a=Security s=CRITICAL -->';
+    const parsed = parseFindingMarker(body);
+    expect(parsed).toEqual(expect.objectContaining({ version: 'v2', findingId: 'fedcba9876543210' }));
+  });
+
+  it('is still END-ANCHORED / LAST-MATCH across a v1-then-v2 mix, regardless of which version is last', () => {
+    const body =
+      '<!-- gsr:v1 f=fac1000000000000 a=Old s=LOW -->\n\n' +
+      '<!-- gsr:v2 f=abc123def4567890 a=New s=HIGH -->';
+    const parsed = parseFindingMarker(body);
+    expect(parsed).toEqual(expect.objectContaining({ version: 'v2', findingId: 'abc123def4567890' }));
+  });
+
+  it('and the reverse order: a v2-then-v1 mix recovers the trailing v1 marker, not the earlier v2 one', () => {
+    const body =
+      '<!-- gsr:v2 f=abc123def4567890 a=New s=HIGH -->\n\n' +
+      '<!-- gsr:v1 f=fac1000000000000 a=Old s=LOW -->';
+    const parsed = parseFindingMarker(body);
+    expect(parsed).toEqual(expect.objectContaining({ version: 'v1', findingId: 'fac1000000000000' }));
+  });
+
+  it('documents the accepted v1->v2 boundary behavior: a v1 marker\'s findingId and a freshly-computed ' +
+     'v2 id for the SAME underlying file/anchor/agent do NOT match — there is no retroactive linkage, ' +
+     'each version only dedups against findings of its own version going forward (§2.1 addendum, decision 3)', () => {
+    const v1Body = '<!-- gsr:v1 f=abc123def4567890 a=Logic s=HIGH -->';
+    const v1Id = parseFindingMarker(v1Body)!.findingId;
+    const v2Id = computeFindingId({ file: 'internal/handler.go', line: 42, agent: 'Logic' });
+    expect(v1Id).not.toBe(v2Id);
+  });
+
+  it('stripMarkers removes a gsr:v2 marker just as it already does gsr:v1', () => {
+    const body = 'finding text\n\n<!-- gsr:v2 f=abc123 a=Logic -->';
+    expect(stripMarkers(body)).toBe('finding text');
   });
 });
 
@@ -137,6 +245,50 @@ describe('parseFindingMarker — malformed and injected input', () => {
 
     const parsed = parseFindingMarker(body);
     expect(parsed?.findingId).toBe('abc123def4567890');
+  });
+});
+
+describe('marker regex ReDoS safety (self-review finding: `\\s+` directly followed by the lazy `[^<>]*?` ' +
+  'capture group overlap on whitespace, so an unclosed marker made of a long whitespace run backtracks ' +
+  'quadratically — confirmed empirically, not just theoretically, before fixing `\\s+` to `\\s`)', () => {
+  // Mirrors sanitizeForComment's own "does not regress to O(N²)" tests further down this file: drop
+  // timing measurement (flake-prone on a loaded CI runner) and let Jest's own timeout be the regression
+  // guard — a size the O(N) fix finishes near-instantly, but a regression back to O(N²) would take
+  // multiple seconds at this size (empirically: the pre-fix pattern took ~1.2s at just 64KB of input).
+  it('parseFindingMarker terminates promptly on a large whitespace-only unclosed marker', () => {
+    const body = '<!-- gsr:v1' + ' '.repeat(500_000); // no closing "-->" anywhere
+    expect(() => parseFindingMarker(body)).not.toThrow();
+    expect(parseFindingMarker(body)).toBeNull();
+  }, 3_000);
+
+  it('parseReplyMarker terminates promptly on a large whitespace-only unclosed marker', () => {
+    const body = '<!-- gsr-reply:v1' + ' '.repeat(500_000);
+    expect(() => parseReplyMarker(body)).not.toThrow();
+    expect(parseReplyMarker(body)).toBeNull();
+  }, 3_000);
+
+  it('stripMarkers terminates promptly on a large whitespace-only unclosed marker', () => {
+    const body = 'before <!-- gsr:v1' + ' '.repeat(500_000) + ' after';
+    expect(() => stripMarkers(body)).not.toThrow();
+  }, 3_000);
+
+  it('still parses correctly with extra whitespace between the version tag and the first field ' +
+     '(regression check: `\\s+` -> `\\s` must not break legitimate multi-space markers)', () => {
+    const marker = '<!--  gsr:v1   f=abc123def4567890   a=Logic  -->';
+    expect(parseFindingMarker(marker)).toEqual(expect.objectContaining({ findingId: 'abc123def4567890', agent: 'Logic' }));
+  });
+});
+
+describe('stripMarkers — does not over-match a never-generated gsr-reply:v2 (self-review finding: ' +
+  'grouping `(?:-reply)?` together with `(?:v1|v2)` also matched the nonexistent gsr-reply:v2 prefix)', () => {
+  it('still strips real gsr-reply:v1 and gsr:v2 markers', () => {
+    expect(stripMarkers('text <!-- gsr-reply:v1 f=abc123 round=1 verdict=unclear conf=0.5 ack=1 -->')).toBe('text');
+    expect(stripMarkers('text <!-- gsr:v2 f=abc123 -->')).toBe('text');
+  });
+
+  it('leaves a hypothetical gsr-reply:v2-shaped comment untouched (that format is never generated)', () => {
+    const body = 'text <!-- gsr-reply:v2 f=abc123 round=1 verdict=unclear conf=0.5 ack=1 -->';
+    expect(stripMarkers(body)).toBe(body);
   });
 });
 

@@ -77,12 +77,22 @@ function hashForFile(file: string, currentDiff: DiffChunk[]): string {
 // repostCount is authoritative, mirroring github.ts's deriveGsrLastReply
 // max-of-independent-fields approach for the same "don't let a stale
 // duplicate un-suppress state a newer thread already advanced" reason.
+//
+// CodeRabbit finding (PR #69): on an exact repostCount tie, `>=` (not `>`)
+// keeps the LATER-encountered thread, not the first. `priorThreads` comes
+// from listReviewThreads, which returns threads in roughly ascending
+// root-creation order (comments are fetched sorted 'created'/'asc' and
+// grouped by first-seen root) — so on a tie, the later entry is the more
+// recently posted one. Two racing runs that happened to both compute the
+// same repostCount from different diffs would otherwise let the older
+// (possibly stale) contentHash win, which could force an unnecessary
+// repost of a finding whose newer post already reflects the current diff.
 function latestPriorByFindingId(priorThreads: FindingThread[]): Map<string, MarkerOverride> {
   const map = new Map<string, MarkerOverride>();
   for (const t of priorThreads) {
     if (t.contentHash === undefined || t.repostCount === undefined) continue;
     const existing = map.get(t.findingId);
-    if (!existing || t.repostCount > existing.repostCount) {
+    if (!existing || t.repostCount >= existing.repostCount) {
       map.set(t.findingId, { contentHash: t.contentHash, repostCount: t.repostCount });
     }
   }

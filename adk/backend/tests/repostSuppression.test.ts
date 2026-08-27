@@ -119,6 +119,19 @@ describe('planRepost — multiple prior threads sharing one findingId', () => {
     const plan = planRepost([finding()], threads, chunksWithHashB);
     expect(plan.toPost).toHaveLength(0);
   });
+
+  it('on an exact repostCount tie, takes the LATER-encountered thread (CodeRabbit finding, PR #69) — ' +
+     'listReviewThreads returns threads in roughly ascending root-creation order, so "later in the array" ' +
+     'means "more recently posted"', () => {
+    const threads = [
+      priorThread({ rootCommentId: 1, contentHash: DIFF_A_HASH, repostCount: 2 }), // older, same repostCount
+      priorThread({ rootCommentId: 2, contentHash: DIFF_B_HASH, repostCount: 2 }), // newer, same repostCount
+    ];
+    // If the OLDER (hash A) thread won the tie, a diff matching hash B would look "changed" and repost.
+    // The newer (hash B) thread must win instead, so a diff matching hash B is treated as unchanged.
+    const plan = planRepost([finding()], threads, chunksWithHashB);
+    expect(plan.toPost).toHaveLength(0);
+  });
 });
 
 describe('planRepost — a mix of new, unchanged, changed-recurring, and collapsed findings in one run', () => {

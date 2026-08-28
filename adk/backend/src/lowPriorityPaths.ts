@@ -41,8 +41,24 @@ const GLOB_TOKEN = /\*\*\/|\/\*\*|\*\*|\*|[.+^${}()|[\]?\\]/g;
 // an accidentally-doubled "**" in a low-priority-paths config (an easy
 // templating/copy-paste mistake, not an exotic one) would let any external
 // contributor hang the review Action with a crafted filename.
+//
+// An earlier version of this function only collapsed "**" segments that
+// were already cleanly slash-delimited, which GSR's own self-review swarm
+// caught as incomplete: "****" (one run of 4+ stars, no slash at all) or
+// "**//**" (an empty segment from a doubled slash) both bypassed it and
+// still compiled to the same dangerous adjacent-group shape. Confirmed
+// directly: "****" alone, uncollapsed, took ~28s to reject a 71-byte
+// adversarial string — worse than the original 8-group case, since a
+// single character typo (one extra "*") triggers it. Fixed by normalizing
+// star-runs and slash-runs to their canonical single/double form *before*
+// segment-splitting, so every way of writing "repeated wildcard" reduces to
+// the same collapsible shape instead of enumerating bypasses one at a time.
+function normalizeGlobRuns(glob: string): string {
+  return glob.replace(/\*{2,}/g, '**').replace(/\/{2,}/g, '/');
+}
+
 function collapseRepeatedGlobstars(glob: string): string {
-  const segments = glob.split('/');
+  const segments = normalizeGlobRuns(glob).split('/');
   const collapsed: string[] = [];
   for (const segment of segments) {
     if (segment === '**' && collapsed[collapsed.length - 1] === '**') continue;

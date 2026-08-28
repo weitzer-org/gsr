@@ -70,18 +70,42 @@ describe('lowPriorityPaths', () => {
       expect(re.test('x.never')).toBe(true);
       expect(re.test('a/b/c/y.never')).toBe(false);
 
-      // ...and must stay fast against an adversarial non-matching string
-      // that would take ~1.8s uncollapsed (verified manually during
-      // security-review). 1000ms leaves generous headroom for CI scheduling
-      // noise/GC pauses (self-review finding: a 200ms ceiling risked
-      // flaking on a loaded runner) while still reliably catching a
-      // regression back to the uncollapsed, exponential-backtracking form —
-      // that form takes seconds, not milliseconds, so this ceiling loses no
-      // real detection power.
+      // ...and must not hang on an adversarial non-matching string that
+      // took ~1.8s uncollapsed (verified manually during security-review).
+      // Deliberately no Date.now()/toBeLessThan assertion here (an earlier
+      // version had one, first at 200ms then widened to 1000ms) — a
+      // self-review finding correctly pointed out that's still a flaky
+      // time-bound assertion under CI scheduling noise, and unnecessary:
+      // if catastrophic backtracking is reintroduced it hangs for seconds
+      // to minutes, so Jest's own default 5000ms test timeout is a
+      // sufficient, zero-flakiness regression guard on its own.
       const adversarial = 'a/'.repeat(35) + 'b';
-      const start = Date.now();
       expect(re.test(adversarial)).toBe(false);
-      expect(Date.now() - start).toBeLessThan(1000);
+    });
+
+    it('also guards against a run of 3+ literal "*" with no slash, and an empty segment from a doubled "/" (self-review finding: these bypassed the first version of the collapse fix)', () => {
+      // "****" has no "/" at all, so a naive slash-segment collapse never
+      // sees it as two "**" segments to merge — confirmed this bypassed an
+      // earlier version of the fix and took ~28s to reject a 71-byte
+      // adversarial string, worse than the original multi-"**/" case since
+      // a single extra "*" typo triggers it.
+      const quad = globToRegExp('****/****/****/****/x.never');
+      expect(quad.test('a/b/x.never')).toBe(true);
+      expect(quad.test('x.never')).toBe(true);
+      expect(quad.test('a/b/y.never')).toBe(false);
+
+      // "**//**" splits into ['**', '', '**'] — the empty middle segment
+      // means neither "**" is immediately adjacent to the other by the
+      // original segment-equality check, so it also bypassed collapsing.
+      const doubleSlash = globToRegExp('**//**');
+      expect(doubleSlash.test('anything/at/all')).toBe(true);
+
+      // Same rationale as above: no timing assertion, just must not hang
+      // (Jest's default test timeout is the regression guard).
+      const adversarial = 'a/'.repeat(35) + 'b';
+      for (const re of [quad, doubleSlash]) {
+        re.test(adversarial);
+      }
     });
   });
 

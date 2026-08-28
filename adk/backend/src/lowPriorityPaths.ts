@@ -102,20 +102,22 @@ function wildcardMatch<T>(pattern: ArrayLike<T>, input: ArrayLike<T>, isWildcard
 function matchSegment(patternSegment: string, fileSegment: string): boolean {
   // Strings are natively ArrayLike<string> (index access + .length), so
   // wildcardMatch can operate on them directly — no .split('') array
-  // allocation needed. This inner call can run many times per outer
-  // segment-level backtrack (self-review performance finding), so avoiding
-  // an allocation per call here matters more than it would for the
-  // one-time-per-.test()-call segment split below.
-  const pattern = patternSegment.toLowerCase();
-  const input = fileSegment.toLowerCase();
-  return wildcardMatch(pattern, input, (c) => c === '*', (a, b) => a === b);
+  // allocation needed. Both arguments are already lowercased by the
+  // caller (compileGlob lowercases pattern segments once, at compile
+  // time; test() lowercases file segments once per call) rather than
+  // here — .toLowerCase() still allocates a new string even with no
+  // .split(), and this inner comparison can run many times per outer
+  // segment-level backtrack (self-review finding: re-lowercasing on every
+  // one of those retries was exactly the allocation the .split() fix
+  // above was supposed to eliminate).
+  return wildcardMatch(patternSegment, fileSegment, (c) => c === '*', (a, b) => a === b);
 }
 
 export function compileGlob(glob: string): PathPattern {
-  const patternSegments = glob.split('/');
+  const patternSegments = glob.toLowerCase().split('/');
   return {
     test(file: string): boolean {
-      const fileSegments = file.split('/');
+      const fileSegments = file.toLowerCase().split('/');
       return wildcardMatch(
         patternSegments,
         fileSegments,

@@ -50,6 +50,7 @@ so the action's `GITHUB_TOKEN` can post review comments.
 | `fail-on-severity` | no | `none` | Fail the workflow if a finding at or above this severity is found: `critical`, `high`, `medium`, `low`, or `none`. |
 | `gemini-model` | no | (GSR's default) | Override the Gemini model used. |
 | `max-review-files` | no | `300` | Truncate review to this many changed files. |
+| `low-priority-paths` | no | (unset) | OPTIONAL. Comma-separated globs for reference/scratch paths (e.g. design mockups, one-off scripts). Findings there are capped at MEDIUM severity instead of CRITICAL/HIGH, not excluded. Extends GSR's built-in defaults (`design_prd/**`, `**/*.mockup.html`, root-level `*.sh`); can't remove them. |
 | `usage-report-url` | no | (unset) | OPTIONAL. URL of a hosted GSR usage-ingest endpoint to also report this run's usage to. Only set if the GSR maintainer has given you this value — see "Usage reporting" below. |
 | `usage-report-key` | no | (unset) | OPTIONAL. Shared secret paired with `usage-report-url`, provided by the GSR maintainer alongside it. Store as a repo secret. |
 | `feedback-loop` | no | `off` | OPTIONAL. `off`, `observe`, or `respond` — see "PR comment feedback loop" below. |

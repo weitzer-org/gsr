@@ -493,7 +493,7 @@ memory of this one) knows what's already landed.
 |---|---|---|---|
 | 1 | Eval regression fixture: `must_catch` / `must_not_flag_high` / `must_resolve_cross_file` lists + deterministic scorer (§7.1), using the `job_tracker` audit as ground truth | none | ✅ |
 | 2 | Gap 4 Tier 1: decouple `useTriage` (aggregation) from `useDedup` (§5.1) | Phase 1 (to verify against `must_resolve_cross_file`) | ✅ (PR #66, merged) |
-| 3 | Gap 3: `LOW_PRIORITY_PATH_PATTERNS` + severity dampening in `filterFindings` (§4.1) | Phase 1 (to verify against `must_not_flag_high`) | **Re-verified 2026-08-28, not implemented — gap did not reproduce.** See Phase 3 note below. |
+| 3 | Gap 3: `LOW_PRIORITY_PATH_PATTERNS` + severity dampening in `filterFindings` (§4.1) | Phase 1 (to verify against `must_not_flag_high`) | ✅ — **implemented as defense-in-depth despite the fixture not currently reproducing the gap (human decision after re-verification found it green — see Phase 3 note below).** |
 | 4 | Gap 1: content-hash finding identity + Action-side repost suppression/collapse (§2.1, **hash formula corrected — see §2.1 addendum**) + multi-push simulation test (§7.2) | none (independent of 2-3, but easiest after they're merged to avoid rebase noise) | ✅ — **addendum steps 1-5 (stable `findingId` + `gsr:v2` marker), PR #68, merged.** Repost-suppression follow-up (this PR): new `repostSuppression.ts` module (`planRepost`) decides, per finding, whether to post/suppress/collapse using the v2 `findingId` plus a new per-file diff-content-hash marker field (`h=`) and a repost counter (`n=`) — both documented explicitly in `repostSuppression.ts`'s module doc, since the design doc itself left "what does 'unchanged' mean" open. `action-entrypoint.ts` fetches prior GSR threads via the existing `listReviewThreads` (reused, not reimplemented) in parallel with the Gemini review. Summary count reflects everything outstanding regardless of suppression (§9 open question 1 resolved: "N stays accurate"). §7.2's multi-push simulation lives in `adk/backend/tests/repostSuppression.e2e.test.ts`. 490/490 backend tests pass, clean `tsc` build. |
 | 5 | Gap 2: `SHADOW_MODE` (§3.1) + `durationMs` latency instrumentation (§10) + standing basic-vs-subagent eval reporting (§7.3) | Phases 2-4 merged (shadow-run data is most useful once the fixes it'd be comparing are in place) | ⬜ |
 | 6 (conditional) | Gap 4 Tier 2: on-demand full-file fetch for out-of-diff symbol claims (§5.1 Tier 2) | Only open this if Phase 1's `must_resolve_cross_file` fixture still fails after Phase 2 — Tier 1 may already be sufficient | **Gate resolved, Tier 2 not needed for now** — see Phase 2 note below |
@@ -630,6 +630,67 @@ decide, next time this phase is picked up:
 - The fixture's other two categories (`must_catch`, `must_resolve_cross_file`)
   were not re-checked this session — this note is scoped to `must_not_flag_high`
   only, per the task that prompted it.
+
+**Addendum (same session): implemented as defense-in-depth.** Presented the
+above finding to the user as an explicit decision point (per the task's own
+framing — "this is a case where a human should decide"); the answer was to
+land `LOW_PRIORITY_PATH_PATTERNS` anyway, since the root-cause argument
+doesn't depend on the current model's behavior. Implementation, per §4.1 as
+specced:
+
+- New `adk/backend/src/lowPriorityPaths.ts`: `DEFAULT_LOW_PRIORITY_PATH_PATTERNS`
+  (`design_prd/**`, `**/*.mockup.html`, root-level `*.sh` — matches the three
+  fixture entries exactly), a small hand-rolled `globToRegExp` (no new
+  dependency), and `parseLowPriorityPathPatterns(csv)` which always
+  *prepends* the defaults to whatever the `low-priority-paths` Action input
+  supplies — extends, never replaces, so a misconfigured consuming repo can't
+  silently disable the built-in protection for itself.
+- `orchestrator.ts`: new `dampenLowPriorityPaths` step, capping CRITICAL/HIGH
+  to MEDIUM for a matching `file`, running after `computeFindingId` assignment
+  (severity isn't part of the id hash — confirmed by reading `findingMarker.ts`
+  before relying on this) and before the existing `"Low"` severity floor.
+  Never excludes, never raises an already-lower severity — matches §4.1's
+  explicit rejection of exclusion.
+- `Orchestrator`'s constructor gained a 6th optional param
+  (`lowPriorityPathPatterns`, defaulting to the built-in list) so `app.ts`'s
+  two existing call sites get the defaults automatically with no changes
+  needed there; `action-entrypoint.ts` resolves it from the new
+  `LOW_PRIORITY_PATHS` env var (wired through `action.yml`'s new
+  `low-priority-paths` input, documented in `ACTION.md`).
+- **Security-review finding, fixed before commit (not left as a follow-up):**
+  the first draft's `globToRegExp` translated each `**` token independently,
+  so a config with adjacent `**` segments (e.g. an accidentally-doubled
+  `**/**/*.log` from copy-paste/templating — a plausible mistake, not an
+  exotic one) compiled to adjacent unanchored `(?:.*/)?` regex groups, a
+  textbook catastrophic-backtracking shape. Verified directly, not just
+  argued: 8 adjacent `**` groups took ~1.8s to reject a 71-byte string.
+  Since the matched value (`file`) traces back to attacker-controlled PR
+  diff filenames, this would have let any external contributor hang the
+  Action with a crafted filename once a maintainer had *any* config with
+  doubled globstars. Fixed by collapsing consecutive `**` segments before
+  tokenizing (`collapseRepeatedGlobstars`, semantically lossless since `**`
+  already means "zero or more segments") — re-verified the same adversarial
+  input now resolves in 0ms, and added a regression test with a 200ms
+  ceiling so a re-introduction of the uncollapsed form gets caught by CI, not
+  just by a future manual security-review pass.
+- Also found and fixed during self-review, unrelated to the ReDoS: the first
+  draft's `globToRegExp` used placeholder strings like `' DSTAR_SLASH '` for
+  token substitution; a tool-layer write artifact corrupted the plain spaces
+  around those tokens into literal NUL bytes on disk, which made `git diff`
+  render the file as binary. Rewrote as a single-pass regex replacer with no
+  placeholder strings, confirmed via direct byte inspection that no NUL bytes
+  remain.
+- Tests: `adk/backend/tests/lowPriorityPaths.test.ts` (new — glob translation,
+  additive-not-replacing config parsing, the ReDoS regression guard) plus
+  three new cases in `orchestrator.test.ts` (default-pattern capping, no
+  upgrade of an already-lower severity, a custom pattern list overriding
+  which paths are treated as low-priority). 505/505 backend tests pass
+  (490 baseline + 15 new), clean `tsc` build.
+- Live-Gemini sanity check post-fix (not a red→green fixture demonstration,
+  since the gap wasn't reproducing to begin with — see above): re-ran the
+  same job_tracker PRs end-to-end through the real `Orchestrator` with the
+  new code path live; findings still generate normally, no crashes, no
+  regressions in the review pipeline.
 
 ## 12. External validation — `job_tracker` dogfooding report (2026-08-24)
 

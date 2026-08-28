@@ -3,6 +3,7 @@ import { GeminiAgent } from './agent';
 import { DeduplicatorAgent } from './deduplicator';
 import { PromisePool } from './pool';
 import { computeFindingId } from './findingMarker';
+import { DEFAULT_LOW_PRIORITY_PATH_PATTERNS, isLowPriorityPath } from './lowPriorityPaths';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -22,14 +23,21 @@ export class Orchestrator {
   // symbols defined in sibling files of the same diff.
   private aggregateChunks: boolean;
   private selectedAgents?: string[]; // Agent IDs (lowercase filename stems) to run; undefined = run all
+  // review-quality-design.md §4.1: findings on non-shipping paths (design
+  // mockups, scratch scripts) get their severity capped rather than
+  // excluded — see filterFindings. Defaults to the built-in list; callers
+  // pass an extended list (defaults + repo-specific globs) to add to it,
+  // never to replace it.
+  private lowPriorityPathPatterns: RegExp[];
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true) {
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: RegExp[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS) {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = promptsDirName;
     this.deduplicator = new DeduplicatorAgent();
     this.useDedup = useDedup;
     this.selectedAgents = selectedAgents;
     this.aggregateChunks = aggregateChunks;
+    this.lowPriorityPathPatterns = lowPriorityPathPatterns;
     this.initializeAgents();
   }
 
@@ -274,9 +282,16 @@ export class Orchestrator {
       promptVersion: f.promptVersion || this.promptsDirName,
     }));
 
+    // §4.1: cap severity on non-shipping paths before the severity floor
+    // below can act on it — a HIGH/CRITICAL finding here is capped to
+    // MEDIUM, never excluded (that's IGNORE_PATTERNS' job, at diff-fetch
+    // time, for a different class of file). Runs after id/promptVersion
+    // assignment above since neither is derived from severity.
+    const dampenedFindings = this.dampenLowPriorityPaths(deduplicatedFindings);
+
     // Filter out low severity by default to avoid noise in the UI
-    const filteredFindings = this.filterFindings(deduplicatedFindings, "Low");
-    
+    const filteredFindings = this.filterFindings(dampenedFindings, "Low");
+
     return {
       findings: filteredFindings,
       metrics: {
@@ -285,6 +300,16 @@ export class Orchestrator {
         calls: results.length + triageCalls
       }
     };
+  }
+
+  private dampenLowPriorityPaths(findings: CandidateFinding[]): CandidateFinding[] {
+      const CAPPED_SEVERITY: CandidateFinding['severity'] = "MEDIUM";
+      return findings.map(f => {
+          if ((f.severity === "CRITICAL" || f.severity === "HIGH") && isLowPriorityPath(f.file, this.lowPriorityPathPatterns)) {
+              return { ...f, severity: CAPPED_SEVERITY };
+          }
+          return f;
+      });
   }
 
   private filterFindings(findings: CandidateFinding[], minSeverity: string): CandidateFinding[] {

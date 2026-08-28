@@ -238,6 +238,64 @@ describe('Orchestrator', () => {
         expect(mockAnalyze).toHaveBeenCalledWith(chunks);
     });
 
+    it('caps CRITICAL/HIGH severity to MEDIUM for findings on a default low-priority path (review-quality-design.md §4.1)', async () => {
+        jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
+            findings: [
+                { file: 'design_prd/mockup.html', line: 5, severity: 'HIGH', summary: 'race condition', description: 'd', agent: 'Logic' },
+                { file: 'wait_for_app.sh', line: 3, severity: 'CRITICAL', summary: 'no timeout', description: 'd', agent: 'Logic' },
+                { file: 'internal/api/handler.go', line: 10, severity: 'HIGH', summary: 'real bug', description: 'd', agent: 'Logic' }
+            ] as any
+        });
+
+        const orchestrator = new Orchestrator(1);
+        (orchestrator as any).subagents = [new GeminiAgent('Logic', 'logic.md')];
+
+        const results = await orchestrator.runReview([{ file: 'x', content: 'x' }]);
+
+        const byFile = Object.fromEntries(results.findings.map(f => [f.file, f.severity]));
+        expect(byFile['design_prd/mockup.html']).toBe('MEDIUM');
+        expect(byFile['wait_for_app.sh']).toBe('MEDIUM');
+        expect(byFile['internal/api/handler.go']).toBe('HIGH');
+    });
+
+    it('does not upgrade an already-low severity finding on a low-priority path', async () => {
+        jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
+            findings: [
+                { file: 'design_prd/mockup.html', line: 5, severity: 'LOW', summary: 'nit', description: 'd', agent: 'Logic' }
+            ] as any
+        });
+
+        const orchestrator = new Orchestrator(1);
+        (orchestrator as any).subagents = [new GeminiAgent('Logic', 'logic.md')];
+
+        const results = await orchestrator.runReview([{ file: 'x', content: 'x' }]);
+
+        expect(results.findings[0].severity).toBe('LOW');
+    });
+
+    it('uses a custom lowPriorityPathPatterns list when provided, instead of the defaults', async () => {
+        jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
+            findings: [
+                { file: 'scratch/notes.md', line: 1, severity: 'HIGH', summary: 'x', description: 'd', agent: 'Logic' },
+                { file: 'design_prd/mockup.html', line: 1, severity: 'HIGH', summary: 'y', description: 'd', agent: 'Logic' }
+            ] as any
+        });
+
+        // Only "scratch/**" is low-priority here — the default design_prd/**
+        // pattern isn't part of this explicit list, simulating what
+        // Orchestrator does with whatever parseLowPriorityPathPatterns hands
+        // it (that function is what actually implements "extend, don't
+        // replace" — see lowPriorityPaths.test.ts).
+        const orchestrator = new Orchestrator(1, 'system_prompts', true, undefined, true, [/^scratch\//]);
+        (orchestrator as any).subagents = [new GeminiAgent('Logic', 'logic.md')];
+
+        const results = await orchestrator.runReview([{ file: 'x', content: 'x' }]);
+
+        const byFile = Object.fromEntries(results.findings.map(f => [f.file, f.severity]));
+        expect(byFile['scratch/notes.md']).toBe('MEDIUM');
+        expect(byFile['design_prd/mockup.html']).toBe('HIGH');
+    });
+
     it('should handle errors in legacy mode when onProgress is defined', async () => {
         const orchestrator = new Orchestrator();
         (orchestrator as any).aggregateChunks = false;

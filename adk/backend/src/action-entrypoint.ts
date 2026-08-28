@@ -9,6 +9,7 @@ import { runFeedbackPass, FeedbackPassResult, formatFeedbackSummaryMarkdown, bui
 import { resolveFeedbackLoopMode, resolveFeedbackMinConfidence, resolveFeedbackMaxReplies, resolveFeedbackPostEnabled, feedbackPostMisconfigurationWarning, resolveFeedbackReportConfig } from './feedbackConfig';
 import { reportFeedback } from './feedbackReporter';
 import { planRepost } from './repostSuppression';
+import { parseLowPriorityPathPatterns } from './lowPriorityPaths';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -171,7 +172,11 @@ async function main() {
     // aggregateChunks: true for both modes (review-quality-design.md §5.1) —
     // independent of useDedup, so basic mode still gets full cross-file
     // context within the PR even though it skips the dedup pass.
-    const orchestrator = new Orchestrator(5, modeConfig.promptsDir, modeConfig.useDedup, selectedAgents, true);
+    // lowPriorityPathPatterns (§4.1): built-in defaults extended with
+    // whatever the consuming repo added via low-priority-paths — never
+    // replaced, see lowPriorityPaths.ts's module doc.
+    const lowPriorityPathPatterns = parseLowPriorityPathPatterns(process.env.LOW_PRIORITY_PATHS);
+    const orchestrator = new Orchestrator(5, modeConfig.promptsDir, modeConfig.useDedup, selectedAgents, true, lowPriorityPathPatterns);
     orchestrator.onProgress = (agentName, file, status) => {
       console.log(`[GSR Action][${agentName}] ${file} — ${status}`);
     };

@@ -20,7 +20,15 @@
 // replacer callback, so glob-token recognition and literal-character
 // escaping happen together instead of in separate passes that could
 // clobber each other.
-const GLOB_TOKEN = /\*\*\/|\/\*\*|\*\*|\*|[.+^${}()|[\]\\]/g;
+// The `?` in the escape class matters, not just cosmetically: `?` is a
+// regex quantifier, so a glob containing a literal "?" (e.g. "file?.txt")
+// left unescaped either silently changes matching semantics (the preceding
+// character becomes optional) or — if "?" has nothing valid to quantify,
+// e.g. a glob starting with "?" — throws "Invalid regular expression:
+// Nothing to repeat" and crashes the Action on an otherwise-plausible
+// low-priority-paths config (self-review finding, confirmed both failure
+// modes directly before fixing).
+const GLOB_TOKEN = /\*\*\/|\/\*\*|\*\*|\*|[.+^${}()|[\]?\\]/g;
 
 // Collapses consecutive "**" path segments ("a/**/**/b" -> "a/**/b") before
 // tokenizing. Semantically lossless — "**" already means "zero or more

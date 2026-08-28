@@ -53,6 +53,15 @@ describe('lowPriorityPaths', () => {
       expect(re.test('aXbXc/file.txt')).toBe(false);
     });
 
+    it('escapes a literal "?" instead of treating it as a quantifier (self-review finding: unescaped "?" either silently changes matching or throws)', () => {
+      const re = globToRegExp('file?.txt');
+      expect(re.test('file?.txt')).toBe(true);
+      expect(re.test('file.txt')).toBe(false); // would wrongly match if "?" quantified the "e"
+
+      expect(() => globToRegExp('?foo.txt')).not.toThrow();
+      expect(globToRegExp('?foo.txt').test('?foo.txt')).toBe(true);
+    });
+
     it('collapses consecutive "**" segments instead of compiling adjacent unanchored wildcards (ReDoS guard, security-review finding)', () => {
       const re = globToRegExp('**/**/**/**/**/**/**/**/x.never');
       // Semantically equivalent to a single "**" — collapsing must not
@@ -63,12 +72,16 @@ describe('lowPriorityPaths', () => {
 
       // ...and must stay fast against an adversarial non-matching string
       // that would take ~1.8s uncollapsed (verified manually during
-      // security-review) — a generous 200ms ceiling still catches a
-      // regression back to the uncollapsed, exponential-backtracking form.
+      // security-review). 1000ms leaves generous headroom for CI scheduling
+      // noise/GC pauses (self-review finding: a 200ms ceiling risked
+      // flaking on a loaded runner) while still reliably catching a
+      // regression back to the uncollapsed, exponential-backtracking form —
+      // that form takes seconds, not milliseconds, so this ceiling loses no
+      // real detection power.
       const adversarial = 'a/'.repeat(35) + 'b';
       const start = Date.now();
       expect(re.test(adversarial)).toBe(false);
-      expect(Date.now() - start).toBeLessThan(200);
+      expect(Date.now() - start).toBeLessThan(1000);
     });
   });
 

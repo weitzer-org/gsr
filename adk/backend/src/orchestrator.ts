@@ -305,7 +305,13 @@ export class Orchestrator {
   private dampenLowPriorityPaths(findings: CandidateFinding[]): CandidateFinding[] {
       const CAPPED_SEVERITY: CandidateFinding['severity'] = "MEDIUM";
       return findings.map(f => {
-          if ((f.severity === "CRITICAL" || f.severity === "HIGH") && isLowPriorityPath(f.file, this.lowPriorityPathPatterns)) {
+          // Normalized the same way filterFindings does below — severity is
+          // schema-enum-constrained on every real Gemini call path (agent.ts,
+          // deduplicator.ts), so exact-case uppercase is expected, but this
+          // keeps the two severity checks in this file consistent rather
+          // than relying on that guarantee holding everywhere forever.
+          const normalizedSeverity = (f.severity || "").toUpperCase();
+          if ((normalizedSeverity === "CRITICAL" || normalizedSeverity === "HIGH") && isLowPriorityPath(f.file, this.lowPriorityPathPatterns)) {
               return { ...f, severity: CAPPED_SEVERITY };
           }
           return f;

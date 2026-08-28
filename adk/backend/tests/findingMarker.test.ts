@@ -5,6 +5,7 @@ import {
   parseLegacyFindingBody,
   sanitizeForComment,
   computeFindingId,
+  computeContentHash,
   buildReplyMarker,
   parseReplyMarker,
   stripMarkers,
@@ -136,6 +137,52 @@ describe('buildFindingMarker / parseFindingMarker round-trip', () => {
     const body = `🟠 **HIGH** · Logic — summary text\n\ndescription text\n\n${marker}`;
     const parsed = parseFindingMarker(body);
     expect(parsed?.findingId).toBe('abc123def4567890');
+  });
+});
+
+describe('buildFindingMarker / parseFindingMarker — contentHash (h=) / repostCount (n=), repost-suppression', () => {
+  it('round-trips both fields when present', () => {
+    const marker = buildFindingMarker({ findingId: 'abc123def4567890', contentHash: 'deadbeefcafef00d', repostCount: 2 });
+    const parsed = parseFindingMarker(marker);
+    expect(parsed?.contentHash).toBe('deadbeefcafef00d');
+    expect(parsed?.repostCount).toBe(2);
+  });
+
+  it('omits both fields from the rendered marker when absent, and parses back as undefined', () => {
+    const marker = buildFindingMarker({ findingId: 'abc123def4567890' });
+    expect(marker).not.toContain('h=');
+    expect(marker).not.toContain('n=');
+    const parsed = parseFindingMarker(marker);
+    expect(parsed?.contentHash).toBeUndefined();
+    expect(parsed?.repostCount).toBeUndefined();
+  });
+
+  it('a real v1 marker (no h=/n= ever written) parses both fields as undefined, not 0/empty-string', () => {
+    const parsed = parseFindingMarker('<!-- gsr:v1 f=abc123def4567890 a=Logic s=HIGH r=2026-08-01T00:00:00.000Z -->');
+    expect(parsed?.contentHash).toBeUndefined();
+    expect(parsed?.repostCount).toBeUndefined();
+  });
+
+  it('rejects a non-integer or zero/negative n= as malformed — repostSuppression.ts treats repostCount as a ' +
+     'threshold comparison, so a forged/corrupted value must not silently pass as a valid count', () => {
+    expect(parseFindingMarker('<!-- gsr:v2 f=abc123def4567890 n=abc r=2026-08-01T00:00:00.000Z -->')?.repostCount).toBeUndefined();
+    expect(parseFindingMarker('<!-- gsr:v2 f=abc123def4567890 n=0 r=2026-08-01T00:00:00.000Z -->')?.repostCount).toBeUndefined();
+    expect(parseFindingMarker('<!-- gsr:v2 f=abc123def4567890 n=-1 r=2026-08-01T00:00:00.000Z -->')?.repostCount).toBeUndefined();
+    expect(parseFindingMarker('<!-- gsr:v2 f=abc123def4567890 n=1.5 r=2026-08-01T00:00:00.000Z -->')?.repostCount).toBeUndefined();
+  });
+});
+
+describe('computeContentHash', () => {
+  it('is deterministic for identical input', () => {
+    expect(computeContentHash('@@ -1,3 +1,3 @@\n-old\n+new')).toBe(computeContentHash('@@ -1,3 +1,3 @@\n-old\n+new'));
+  });
+
+  it('differs for different diff content', () => {
+    expect(computeContentHash('patch A')).not.toBe(computeContentHash('patch B'));
+  });
+
+  it('produces a lowercase hex string parseFindingMarker/buildFindingMarker can safely round-trip', () => {
+    expect(computeContentHash('some patch text')).toMatch(/^[0-9a-f]+$/);
   });
 });
 

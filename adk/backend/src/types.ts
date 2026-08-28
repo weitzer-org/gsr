@@ -58,6 +58,11 @@ export interface FindingThread {
                       // the matching diff hunk for adjudication context.
   line?: number;      // NEW (Phase 2): root.original_line (falls back to root.line) — see
                        // github.ts's legacy-fallback comment for why original_line is preferred.
+  contentHash?: string; // NEW (repost-suppression): the marker's `h=` field, when present —
+                         // only ever set on a `gsr:v2` marker (see findingMarker.ts's
+                         // computeContentHash). Undefined for v1/legacy threads.
+  repostCount?: number; // NEW (repost-suppression): the marker's `n=` field, when present —
+                         // see repostSuppression.ts for how this is read/incremented.
   rootBody?: string;   // NEW (Phase 2): the raw posted finding-comment body, for adjudication
                         // context (description/suggestion aren't separately structured fields
                         // today — only baked into the rendered comment). Strip markers via

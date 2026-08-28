@@ -109,7 +109,14 @@ export class GitHubClient {
   // field is separately safe via percent-encoding. `severity` is left alone
   // — it's schema-constrained to one of four enum values and used as a
   // lookup key, not free text.
-  private formatFindingBody(finding: CandidateFinding): string {
+  // `repostMarker`, when given, carries this finding's content-hash + repost
+  // count as decided by repostSuppression.ts's planRepost — see that
+  // module's doc comment for what these mean. Omitted entirely for a
+  // caller that hasn't opted into repost-suppression (e.g. existing tests,
+  // or a future non-Action caller of postReviewComments), in which case the
+  // marker simply omits `h=`/`n=`, identical to pre-repost-suppression
+  // behavior.
+  private formatFindingBody(finding: CandidateFinding, repostMarker?: { contentHash: string; repostCount: number }): string {
     const emoji = SEVERITY_EMOJI[finding.severity] || '';
     const summary = sanitizeForComment(finding.summary);
     const description = sanitizeForComment(finding.description);
@@ -126,6 +133,8 @@ export class GitHubClient {
       agent: finding.agent,
       severity: finding.severity,
       promptVersion: finding.promptVersion,
+      contentHash: repostMarker?.contentHash,
+      repostCount: repostMarker?.repostCount,
     });
     body += `\n\n${marker}`;
 
@@ -137,12 +146,34 @@ export class GitHubClient {
    * Reviews API rejects the whole batch if any comment's line isn't part of
    * the diff, so on failure we fall back to posting comments one at a time
    * (skipping only the ones GitHub rejects) plus a summary issue comment.
+   *
+   * `findings` here is only what's actually getting a NEW inline comment
+   * this run — a caller doing repost-suppression (action-entrypoint.ts, via
+   * repostSuppression.ts's planRepost) passes just the `toPost` subset, not
+   * every finding the review detected. `opts.summaryTotalCount` lets the
+   * summary line's count still reflect everything currently outstanding
+   * (review-quality-design.md §9 open question 1: "N stays accurate")
+   * even when fewer (or zero) of those get a fresh inline comment;
+   * `opts.collapsedCount` surfaces findings that hit the repost cap as one
+   * summary line instead of a repeated full comment; `opts.markerOverrides`
+   * carries each posted finding's content-hash/repost-count for the marker
+   * (see formatFindingBody). A caller that passes no `opts` gets identical
+   * behavior to before repost-suppression existed.
    */
-  public async postReviewComments(url: string, findings: CandidateFinding[]): Promise<{ posted: number; skipped: number }> {
+  public async postReviewComments(
+    url: string,
+    findings: CandidateFinding[],
+    opts?: { summaryTotalCount?: number; collapsedCount?: number; markerOverrides?: Map<string, { contentHash: string; repostCount: number }> }
+  ): Promise<{ posted: number; skipped: number }> {
     const { owner, repo, pull_number } = this.parsePRUrl(url);
-    const summary = findings.length === 0
+    const totalCount = opts?.summaryTotalCount ?? findings.length;
+    const collapsedCount = opts?.collapsedCount ?? 0;
+    const collapsedNote = collapsedCount > 0
+      ? `\n\n⏳ ${collapsedCount} finding(s) raised in prior reviews remain unaddressed.`
+      : '';
+    const summary = totalCount === 0
       ? '**GSR Review** — no issues found.'
-      : `**GSR Review** — ${findings.length} finding(s).`;
+      : `**GSR Review** — ${totalCount} finding(s).${collapsedNote}`;
 
     if (findings.length === 0) {
       await this.octokit.rest.pulls.createReview({ owner, repo, pull_number, event: 'COMMENT', body: summary });
@@ -153,7 +184,7 @@ export class GitHubClient {
       path: f.file,
       line: f.line,
       side: 'RIGHT' as const,
-      body: this.formatFindingBody(f)
+      body: this.formatFindingBody(f, f.id ? opts?.markerOverrides?.get(f.id) : undefined)
     }));
 
     try {
@@ -455,11 +486,15 @@ export class GitHubClient {
       const headerInfo = parseLegacyFindingBody(rootBody);
 
       const marker = parseFindingMarker(rootBody);
+      let contentHash: string | undefined;
+      let repostCount: number | undefined;
       if (marker) {
         findingId = marker.findingId;
         agent = marker.agent;
         severity = marker.severity as CandidateFinding['severity'] | undefined;
         promptVersion = marker.promptVersion;
+        contentHash = marker.contentHash;
+        repostCount = marker.repostCount;
       } else {
         // Pre-marker (legacy) comment fallback (design doc §4.3). If this
         // also fails, skip the thread entirely rather than guess at a
@@ -524,6 +559,8 @@ export class GitHubClient {
         // rebase-stability reason as the legacy-fallback path above.
         path: root.path ?? undefined,
         line: root.original_line ?? root.line ?? undefined,
+        contentHash,
+        repostCount,
         rootBody,
         gsrLastReply,
         replies,

@@ -256,6 +256,23 @@ describe('Orchestrator', () => {
         expect(byFile['internal/api/handler.go']).toBe('HIGH');
     });
 
+    it('should not crash dampening a finding with a missing file field (self-review finding: isLowPriorityPath.test() calls file.split, which throws on undefined)', async () => {
+        jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
+            findings: [
+                { line: 1, severity: 'HIGH', summary: 'no file field', description: 'd', agent: 'Logic' } as any,
+                { file: 'internal/api/handler.go', line: 10, severity: 'HIGH', summary: 'real bug', description: 'd', agent: 'Logic' }
+            ]
+        });
+
+        const orchestrator = new Orchestrator(1);
+        (orchestrator as any).subagents = [new GeminiAgent('Logic', 'logic.md')];
+
+        const results = await orchestrator.runReview([{ file: 'x', content: 'x' }]);
+
+        expect(results.findings).toHaveLength(2);
+        expect(results.findings.find(f => f.file === 'internal/api/handler.go')?.severity).toBe('HIGH');
+    });
+
     it('does NOT dampen a root-level shell script by default (self-review security finding: *.sh is not a built-in low-priority pattern — build.sh/deploy.sh-style CI/CD entry points must not be silently downgraded)', async () => {
         jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
             findings: [

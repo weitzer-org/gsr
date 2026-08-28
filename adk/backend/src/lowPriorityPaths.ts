@@ -70,7 +70,7 @@ const GLOBSTAR = '**';
 // comparisons. Shared by both matching levels below (segments-of-a-path
 // and characters-of-a-segment) so there's one implementation of the
 // non-backtracking algorithm to get right, not two.
-function wildcardMatch<T>(pattern: T[], input: T[], isWildcard: (t: T) => boolean, equals: (a: T, b: T) => boolean): boolean {
+function wildcardMatch<T>(pattern: ArrayLike<T>, input: ArrayLike<T>, isWildcard: (t: T) => boolean, equals: (a: T, b: T) => boolean): boolean {
   let p = 0;
   let i = 0;
   let starP = -1;
@@ -100,8 +100,14 @@ function wildcardMatch<T>(pattern: T[], input: T[], isWildcard: (t: T) => boolea
 }
 
 function matchSegment(patternSegment: string, fileSegment: string): boolean {
-  const pattern = patternSegment.toLowerCase().split('');
-  const input = fileSegment.toLowerCase().split('');
+  // Strings are natively ArrayLike<string> (index access + .length), so
+  // wildcardMatch can operate on them directly — no .split('') array
+  // allocation needed. This inner call can run many times per outer
+  // segment-level backtrack (self-review performance finding), so avoiding
+  // an allocation per call here matters more than it would for the
+  // one-time-per-.test()-call segment split below.
+  const pattern = patternSegment.toLowerCase();
+  const input = fileSegment.toLowerCase();
   return wildcardMatch(pattern, input, (c) => c === '*', (a, b) => a === b);
 }
 

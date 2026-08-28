@@ -311,7 +311,7 @@ export class Orchestrator {
           // keeps the two severity checks in this file consistent rather
           // than relying on that guarantee holding everywhere forever.
           const normalizedSeverity = (f.severity || "").toUpperCase();
-          if ((normalizedSeverity === "CRITICAL" || normalizedSeverity === "HIGH") && isLowPriorityPath(f.file, this.lowPriorityPathPatterns)) {
+          if ((normalizedSeverity === "CRITICAL" || normalizedSeverity === "HIGH") && f.file && isLowPriorityPath(f.file, this.lowPriorityPathPatterns)) {
               return { ...f, severity: CAPPED_SEVERITY };
           }
           return f;

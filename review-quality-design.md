@@ -493,7 +493,7 @@ memory of this one) knows what's already landed.
 |---|---|---|---|
 | 1 | Eval regression fixture: `must_catch` / `must_not_flag_high` / `must_resolve_cross_file` lists + deterministic scorer (§7.1), using the `job_tracker` audit as ground truth | none | ✅ |
 | 2 | Gap 4 Tier 1: decouple `useTriage` (aggregation) from `useDedup` (§5.1) | Phase 1 (to verify against `must_resolve_cross_file`) | ✅ (PR #66, merged) |
-| 3 | Gap 3: `LOW_PRIORITY_PATH_PATTERNS` + severity dampening in `filterFindings` (§4.1) | Phase 1 (to verify against `must_not_flag_high`) | ⬜ |
+| 3 | Gap 3: `LOW_PRIORITY_PATH_PATTERNS` + severity dampening in `filterFindings` (§4.1) | Phase 1 (to verify against `must_not_flag_high`) | **Re-verified 2026-08-28, not implemented — gap did not reproduce.** See Phase 3 note below. |
 | 4 | Gap 1: content-hash finding identity + Action-side repost suppression/collapse (§2.1, **hash formula corrected — see §2.1 addendum**) + multi-push simulation test (§7.2) | none (independent of 2-3, but easiest after they're merged to avoid rebase noise) | ✅ — **addendum steps 1-5 (stable `findingId` + `gsr:v2` marker), PR #68, merged.** Repost-suppression follow-up (this PR): new `repostSuppression.ts` module (`planRepost`) decides, per finding, whether to post/suppress/collapse using the v2 `findingId` plus a new per-file diff-content-hash marker field (`h=`) and a repost counter (`n=`) — both documented explicitly in `repostSuppression.ts`'s module doc, since the design doc itself left "what does 'unchanged' mean" open. `action-entrypoint.ts` fetches prior GSR threads via the existing `listReviewThreads` (reused, not reimplemented) in parallel with the Gemini review. Summary count reflects everything outstanding regardless of suppression (§9 open question 1 resolved: "N stays accurate"). §7.2's multi-push simulation lives in `adk/backend/tests/repostSuppression.e2e.test.ts`. 490/490 backend tests pass, clean `tsc` build. |
 | 5 | Gap 2: `SHADOW_MODE` (§3.1) + `durationMs` latency instrumentation (§10) + standing basic-vs-subagent eval reporting (§7.3) | Phases 2-4 merged (shadow-run data is most useful once the fixes it'd be comparing are in place) | ⬜ |
 | 6 (conditional) | Gap 4 Tier 2: on-demand full-file fetch for out-of-diff symbol claims (§5.1 Tier 2) | Only open this if Phase 1's `must_resolve_cross_file` fixture still fails after Phase 2 — Tier 1 may already be sufficient | **Gate resolved, Tier 2 not needed for now** — see Phase 2 note below |
@@ -569,6 +569,67 @@ not just implemented:
   found no regression on `basic`-mode output (21 vs. 20 findings, flat) and,
   as a side effect, two **pre-existing eval-harness bugs**, unrelated to this
   branch — see §12.4.
+
+**Phase 3 note (2026-08-28, re-verification session, not implemented):** before
+building `LOW_PRIORITY_PATH_PATTERNS`, re-ran the `must_not_flag_high` fixture
+entries against current `main` (commit `7c14fbb`, post-PR #69) to confirm the
+gap this phase targets still reproduces — per this repo's own lesson from
+Phase 1/2 above, a single sample isn't trustworthy given demonstrated Gemini
+non-determinism. Two practical blockers came up first, both worked around
+without touching tracked files: `tools/eval/fixture-regression.ts`'s
+`api-client.ts` doesn't send a session cookie, so it 401'd against this
+machine's `UI_PASSWORD`-gated local instance; and `/api/review` runs the full
+subagent swarm *and* basic mode together (`app.ts:170-256`), which against a
+15-file aggregated PR routinely exceeded undici's default 5-minute body
+timeout before finishing. Rather than edit either, re-implemented the
+fixture's `must_not_flag_high` scoring logic in a throwaway script
+(`/tmp/.../run-fixture-inprocess.js`, not committed) that instantiates
+`Orchestrator(5, 'basic_prompt', false, undefined, true)` directly — the same
+config `app.ts`'s `basicOrchestrator` uses — bypassing the HTTP layer
+entirely, matching this doc's own precedent for this workaround (§11 intro,
+"fetching PR diffs via `gh api` ... running the Orchestrator directly
+in-process").
+
+**Result: 4 independent live-Gemini samples, 3/3 `must_not_flag_high` passing
+in every sample (12/12 individual checks), and the 4th sample (a full findings
+dump, not just pass/fail) showed the original three findings — the
+`design_prd` mockup race condition, `wait_for_app.sh`'s missing timeout,
+`run_real_test.sh`'s swallowed failures — are not being reproduced by
+basic-mode review at all anymore, at any severity, not just downgraded to
+non-HIGH.** This is a stronger result than "dampening already happened" — the
+underlying observations aren't surfacing as findings in the first place. This
+is very unlikely to be a code fix already landed: `orchestrator.ts`'s
+`filterFindings` is still the flat severity floor described in §4 (unchanged
+since Phase 1), `basic.md` is unchanged, and no `LOW_PRIORITY_PATH_PATTERNS`
+or equivalent mechanism exists anywhere in the codebase. The far more likely
+explanation is Gemini model drift: the original job_tracker audit and this
+doc's Phase 1 baseline predate `gemini-3.1-pro-preview` (the current
+`GEMINI_MODEL` default, `agent.ts`), and a newer model may simply no longer
+independently notice (or chooses not to surface) these specific low-stakes
+observations on these specific diffs — not evidence that a *model change*
+generally solves "non-shipping paths get full-severity treatment," just that
+these three particular fixture entries no longer trip it.
+
+**Decision, per this session's task instructions: document and stop, don't
+implement speculatively.** The underlying gap this phase targets — GSR having
+no path-based notion of "reference material / scratch tooling" — is still
+real in the code; it just isn't currently demonstrable against this specific,
+narrow 3-entry fixture. Building `LOW_PRIORITY_PATH_PATTERNS` now would be
+solving a problem with no current reproduction to verify the fix against (and
+no fixture entry would ever go red to prove it worked). Left for a human to
+decide, next time this phase is picked up:
+- Treat this as closed/no-op (the fixture's `must_not_flag_high` category is
+  green, leave the table state as-is) until/unless a *new* wrongly-overweighted
+  non-shipping-path finding turns up in a fresh audit — i.e. wait for
+  reproduction before building the mechanism.
+- Or land `LOW_PRIORITY_PATH_PATTERNS` anyway as defense-in-depth, since §4's
+  root-cause argument (no subagent or prompt has "is this shipping code"
+  awareness) doesn't depend on any one model's current behavior and could
+  regress with the next model change — the 3-entry fixture just wouldn't be
+  the thing proving it's needed.
+- The fixture's other two categories (`must_catch`, `must_resolve_cross_file`)
+  were not re-checked this session — this note is scoped to `must_not_flag_high`
+  only, per the task that prompted it.
 
 ## 12. External validation — `job_tracker` dogfooding report (2026-08-24)
 

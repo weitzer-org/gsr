@@ -288,6 +288,21 @@ describe('Orchestrator', () => {
         expect(results.findings[0].severity).toBe('CRITICAL');
     });
 
+    it('does not dampen a finding whose claimed file resolves outside a low-priority path via ".." (self-review security finding: "design_prd/../src/core/auth.ts" resolves to src/core/auth.ts, which must stay HIGH)', async () => {
+        jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
+            findings: [
+                { file: 'design_prd/../src/core/auth.ts', line: 1, severity: 'HIGH', summary: 'real auth bug', description: 'd', agent: 'Security' }
+            ] as any
+        });
+
+        const orchestrator = new Orchestrator(1);
+        (orchestrator as any).subagents = [new GeminiAgent('Logic', 'logic.md')];
+
+        const results = await orchestrator.runReview([{ file: 'x', content: 'x' }]);
+
+        expect(results.findings[0].severity).toBe('HIGH');
+    });
+
     it('does not upgrade an already-low severity finding on a low-priority path', async () => {
         jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
             findings: [

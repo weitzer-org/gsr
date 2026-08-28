@@ -310,8 +310,22 @@ export class Orchestrator {
           // deduplicator.ts), so exact-case uppercase is expected, but this
           // keeps the two severity checks in this file consistent rather
           // than relying on that guarantee holding everywhere forever.
-          const normalizedSeverity = (f.severity || "").toUpperCase();
-          if ((normalizedSeverity === "CRITICAL" || normalizedSeverity === "HIGH") && f.file && isLowPriorityPath(f.file, this.lowPriorityPathPatterns)) {
+          // String(...) rather than a bare `|| ""`: a self-review finding
+          // pointed out that a non-string truthy value (e.g. an object,
+          // if the LLM ever violates its own schema) would pass `|| ""`
+          // unchanged and then throw on .toUpperCase().
+          const normalizedSeverity = String(f.severity || "").toUpperCase();
+          // path.posix.normalize collapses ".."/".": without it, a finding
+          // claiming file "design_prd/../src/core/auth.ts" would match the
+          // design_prd/** low-priority pattern by prefix even though the
+          // path it actually resolves to (src/core/auth.ts) doesn't — a
+          // self-review finding, confirmed directly. `file` in the two-pass
+          // discovery/remediation path is the LLM's own claimed value (see
+          // quick-review's documented note on this), so it isn't fully
+          // trusted content; this is a normalize, not a fix for that
+          // broader pre-existing trust gap.
+          const normalizedFile = f.file ? path.posix.normalize(String(f.file)) : "";
+          if ((normalizedSeverity === "CRITICAL" || normalizedSeverity === "HIGH") && normalizedFile && isLowPriorityPath(normalizedFile, this.lowPriorityPathPatterns)) {
               return { ...f, severity: CAPPED_SEVERITY };
           }
           return f;

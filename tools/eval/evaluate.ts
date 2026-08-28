@@ -153,6 +153,22 @@ export async function runEvaluation(options: EvalOptions = {}) {
     console.log('✅ Local backend assumed ready.');
   }
 
+  // 4.6 Record which Gemini model each target is actually running, so
+  // archived runs are self-describing (a run's `runPayload` previously had
+  // no record of this at all — indistinguishable from any other run by model).
+  const fetchTargetModel = async (baseUrl: string): Promise<string> => {
+    try {
+      const res = await fetch(`${baseUrl}/api/status`);
+      if (!res.ok) return 'unknown';
+      const data: any = await res.json();
+      return data.model || 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  };
+  runPayload.targetA_model = await fetchTargetModel(targetAConfig.url);
+  runPayload.targetB_model = await fetchTargetModel(targetBConfig.url);
+
   // 5. Evaluate all PRs concurrently
   const evalPromises = prs.map(async (prUrl: string) => {
     console.log(`\n================================`);

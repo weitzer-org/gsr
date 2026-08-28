@@ -4,7 +4,6 @@ import { trackGeminiCall } from './usage.js';
 
 export class DeduplicatorAgent {
   private ai: GoogleGenAI;
-  private static lock: Promise<void> = Promise.resolve();
 
   constructor() {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -12,15 +11,11 @@ export class DeduplicatorAgent {
 
   async deduplicate(findings: CandidateFinding[]): Promise<CandidateFinding[]> {
     if (!findings || findings.length === 0) return [];
-    
+
     // Fallback if deduplicator is disabled via config
     if (process.env.USE_DEDUPLICATOR === 'false') {
        return findings;
     }
-
-    await DeduplicatorAgent.lock;
-    let resolveLock: () => void;
-    DeduplicatorAgent.lock = new Promise((resolve) => { resolveLock = resolve; });
 
     try {
       console.log(`[Deduplicator] Starting deduplication of ${findings.length} findings...`);
@@ -116,8 +111,6 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
     } catch (e) {
       console.error("[Deduplicator] Failed to deduplicate findings:", e);
       return findings;
-    } finally {
-      resolveLock!();
     }
   }
 }

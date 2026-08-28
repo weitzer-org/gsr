@@ -35,6 +35,23 @@ inputs:
     description: 'Maximum number of changed files to review before truncating.'
     required: false
     default: '300'
+  low-priority-paths:
+    description: >
+      OPTIONAL. Comma-separated globs (e.g. "docs/mockups/**,scratch/*.py")
+      for paths that are reference material or scratch tooling rather than
+      shipping code. Findings on a matching path are capped at MEDIUM
+      severity instead of CRITICAL/HIGH — dampened, never excluded, since
+      these files can still contain real (just low-stakes) issues. This
+      EXTENDS the built-in defaults (design_prd/**, **/*.mockup.html) — it
+      can only add patterns, not remove the defaults, so choose additions
+      carefully: a repo-root "*.sh" is NOT a built-in default (a security
+      self-review flagged that as too broad — build.sh/deploy.sh/setup.sh
+      are common, genuinely sensitive CI/CD entry points at repo root), but
+      if your repo has its own scratch/dev-only script convention that
+      won't collide with real entry points, you can opt into something like
+      "wait_for_*.sh,run_*_test.sh" here. See review-quality-design.md §4.1.
+    required: false
+    default: ''
   agents:
     description: >
       Comma-separated list of subagent IDs to run (e.g. "logic,security"),
@@ -145,6 +162,7 @@ runs:
     FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
     GEMINI_MODEL: ${{ inputs.gemini-model }}
     MAX_REVIEW_FILES: ${{ inputs.max-review-files }}
+    LOW_PRIORITY_PATHS: ${{ inputs.low-priority-paths }}
     REVIEW_AGENTS: ${{ inputs.agents }}
     USAGE_INGEST_URL: ${{ inputs.usage-report-url }}
     USAGE_INGEST_SHARED_SECRET: ${{ inputs.usage-report-key }}

@@ -3,6 +3,7 @@ import { GeminiAgent } from './agent';
 import { DeduplicatorAgent } from './deduplicator';
 import { PromisePool } from './pool';
 import { computeFindingId } from './findingMarker';
+import { DEFAULT_LOW_PRIORITY_PATH_PATTERNS, isLowPriorityPath, PathPattern } from './lowPriorityPaths';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -22,14 +23,21 @@ export class Orchestrator {
   // symbols defined in sibling files of the same diff.
   private aggregateChunks: boolean;
   private selectedAgents?: string[]; // Agent IDs (lowercase filename stems) to run; undefined = run all
+  // review-quality-design.md §4.1: findings on non-shipping paths (design
+  // mockups, scratch scripts) get their severity capped rather than
+  // excluded — see filterFindings. Defaults to the built-in list; callers
+  // pass an extended list (defaults + repo-specific globs) to add to it,
+  // never to replace it.
+  private lowPriorityPathPatterns: PathPattern[];
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true) {
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: PathPattern[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS) {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = promptsDirName;
     this.deduplicator = new DeduplicatorAgent();
     this.useDedup = useDedup;
     this.selectedAgents = selectedAgents;
     this.aggregateChunks = aggregateChunks;
+    this.lowPriorityPathPatterns = lowPriorityPathPatterns;
     this.initializeAgents();
   }
 
@@ -274,9 +282,16 @@ export class Orchestrator {
       promptVersion: f.promptVersion || this.promptsDirName,
     }));
 
+    // §4.1: cap severity on non-shipping paths before the severity floor
+    // below can act on it — a HIGH/CRITICAL finding here is capped to
+    // MEDIUM, never excluded (that's IGNORE_PATTERNS' job, at diff-fetch
+    // time, for a different class of file). Runs after id/promptVersion
+    // assignment above since neither is derived from severity.
+    const dampenedFindings = this.dampenLowPriorityPaths(deduplicatedFindings);
+
     // Filter out low severity by default to avoid noise in the UI
-    const filteredFindings = this.filterFindings(deduplicatedFindings, "Low");
-    
+    const filteredFindings = this.filterFindings(dampenedFindings, "Low");
+
     return {
       findings: filteredFindings,
       metrics: {
@@ -285,6 +300,36 @@ export class Orchestrator {
         calls: results.length + triageCalls
       }
     };
+  }
+
+  private dampenLowPriorityPaths(findings: CandidateFinding[]): CandidateFinding[] {
+      const CAPPED_SEVERITY: CandidateFinding['severity'] = "MEDIUM";
+      return findings.map(f => {
+          // Normalized the same way filterFindings does below — severity is
+          // schema-enum-constrained on every real Gemini call path (agent.ts,
+          // deduplicator.ts), so exact-case uppercase is expected, but this
+          // keeps the two severity checks in this file consistent rather
+          // than relying on that guarantee holding everywhere forever.
+          // String(...) rather than a bare `|| ""`: a self-review finding
+          // pointed out that a non-string truthy value (e.g. an object,
+          // if the LLM ever violates its own schema) would pass `|| ""`
+          // unchanged and then throw on .toUpperCase().
+          const normalizedSeverity = String(f.severity || "").toUpperCase();
+          // path.posix.normalize collapses ".."/".": without it, a finding
+          // claiming file "design_prd/../src/core/auth.ts" would match the
+          // design_prd/** low-priority pattern by prefix even though the
+          // path it actually resolves to (src/core/auth.ts) doesn't — a
+          // self-review finding, confirmed directly. `file` in the two-pass
+          // discovery/remediation path is the LLM's own claimed value (see
+          // quick-review's documented note on this), so it isn't fully
+          // trusted content; this is a normalize, not a fix for that
+          // broader pre-existing trust gap.
+          const normalizedFile = f.file ? path.posix.normalize(String(f.file)) : "";
+          if ((normalizedSeverity === "CRITICAL" || normalizedSeverity === "HIGH") && normalizedFile && isLowPriorityPath(normalizedFile, this.lowPriorityPathPatterns)) {
+              return { ...f, severity: CAPPED_SEVERITY };
+          }
+          return f;
+      });
   }
 
   private filterFindings(findings: CandidateFinding[], minSeverity: string): CandidateFinding[] {

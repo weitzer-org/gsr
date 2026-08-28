@@ -53,6 +53,7 @@ const PRICE_TABLE: Record<string, { input: number; output: number }> = {
   'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
   'gemini-3.5-flash': { input: 1.5, output: 9.0 },
   'gemini-3.6-flash': { input: 1.5, output: 7.5 },
+  'gemini-3.7-flash': { input: 0.75, output: 3.75 }, // introductory rate through 2026-12-31; doubles to 1.50/7.50 after
 };
 
 export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {

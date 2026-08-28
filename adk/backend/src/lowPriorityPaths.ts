@@ -79,16 +79,20 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp('^' + pattern + '$', 'i');
 }
 
+// Root-level "*.sh" was in this list originally (matching the two job_tracker
+// scratch-script fixture entries, wait_for_app.sh / run_real_test.sh) but
+// was removed after a self-review security finding: build.sh/deploy.sh/
+// setup.sh are common, genuinely security-sensitive CI/CD entry points at
+// repo root, and since low-priority-paths is additive-only (a consuming repo
+// can't opt OUT of a built-in default — see the module doc above), a
+// blanket root-level-script default would have silently weakened
+// fail-on-severity's security gate for every consumer with no way to
+// disable it, for the sake of two scratch scripts in one repo. Left as a
+// suggested opt-in in the low-priority-paths Action input's own
+// documentation instead of a built-in default — see action.yml.
 const DEFAULT_LOW_PRIORITY_GLOBS = [
   'design_prd/**',
   '**/*.mockup.html',
-  // Root-level scripts only ("*" doesn't cross "/") — a script under
-  // scripts/, bin/, cmd/, etc. implies deliberate placement and isn't
-  // covered. Deliberately narrow per design doc §9 open question 3 ("worth
-  // validating against at least one more consuming repo before hardcoding
-  // defaults") — consuming repos extend this list for their own
-  // scratch-tooling conventions via the low-priority-paths input.
-  '*.sh',
 ];
 
 export const DEFAULT_LOW_PRIORITY_PATH_PATTERNS: RegExp[] = DEFAULT_LOW_PRIORITY_GLOBS.map(globToRegExp);

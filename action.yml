@@ -42,9 +42,14 @@ inputs:
       shipping code. Findings on a matching path are capped at MEDIUM
       severity instead of CRITICAL/HIGH — dampened, never excluded, since
       these files can still contain real (just low-stakes) issues. This
-      EXTENDS the built-in defaults (design_prd/**, **/*.mockup.html,
-      root-level *.sh scripts) — it can only add patterns, not remove the
-      defaults. See review-quality-design.md §4.1.
+      EXTENDS the built-in defaults (design_prd/**, **/*.mockup.html) — it
+      can only add patterns, not remove the defaults, so choose additions
+      carefully: a repo-root "*.sh" is NOT a built-in default (a security
+      self-review flagged that as too broad — build.sh/deploy.sh/setup.sh
+      are common, genuinely sensitive CI/CD entry points at repo root), but
+      if your repo has its own scratch/dev-only script convention that
+      won't collide with real entry points, you can opt into something like
+      "wait_for_*.sh,run_*_test.sh" here. See review-quality-design.md §4.1.
     required: false
     default: ''
   agents:

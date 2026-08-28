@@ -692,6 +692,53 @@ specced:
   new code path live; findings still generate normally, no crashes, no
   regressions in the review pipeline.
 
+**Phase 3 self-review, round 2 (same session): GSR's own swarm review on the
+first fix commit caught two more real issues, both fixed before merge:**
+
+1. **The ReDoS fix itself had a bypass.** `collapseRepeatedGlobstars` only
+   merged cleanly slash-delimited `**` segments; `****` (one run of 4+
+   stars, no slash) or `**//**` (an empty segment from a doubled slash)
+   skipped it entirely and still compiled to adjacent unanchored regex
+   groups. Confirmed directly: `****` alone took ~28s to reject a 71-byte
+   string — worse than the original case, since one extra `*` typo triggers
+   it. Fixed by normalizing star-runs (3+ → `**`) and slash-runs (2+ → `/`)
+   *before* segment-splitting (`normalizeGlobRuns`), closing the whole class
+   of "another way to write a repeated wildcard" instead of patching each
+   bypass as it's found. Also adopted a self-review suggestion to drop the
+   `Date.now()`/`toBeLessThan` timing assertions from the ReDoS tests
+   entirely (had gone 200ms → 1000ms already) in favor of relying on Jest's
+   own 5000ms default test timeout — strictly less flaky, no loss of
+   detection power since a real regression hangs for seconds to minutes.
+
+2. **Root-level `*.sh` was too broad a default — removed.** A Security-agent
+   finding correctly pointed out that `build.sh`/`deploy.sh`/`setup.sh` are
+   common, genuinely security-sensitive CI/CD entry points at repo root, and
+   since `low-priority-paths` is additive-only by design (a consuming repo
+   can't opt OUT of a built-in default), a blanket `*.sh` default would have
+   silently weakened `fail-on-severity`'s security gate for every consumer,
+   with no way to disable it, for the sake of two scratch scripts in one
+   repo. This directly confirms §9 open question 3's own caution ("worth
+   validating against at least one more consuming repo before hardcoding
+   defaults") — removed `*.sh` from `DEFAULT_LOW_PRIORITY_GLOBS`, documented
+   it as a suggested (not default) `low-priority-paths` opt-in in
+   `action.yml`/`ACTION.md` instead. **Consequence:** the built-in defaults
+   now only cover 1 of the fixture's 3 `must_not_flag_high` entries
+   (`design_prd` mockup); the two scratch-script entries
+   (`wait_for_app.sh`, `run_real_test.sh`) require the consuming repo to
+   explicitly opt in. Acceptable given (a) live-Gemini re-verification
+   already showed none of the three currently reproduce anyway (see above),
+   and (b) a fail-safe default that requires opt-in is a better trade than a
+   broad default that silently weakens a security gate.
+
+Third self-review round (on the round-2 fix commit) came back with 5
+findings by count but only 2 new inline comments — the rest were
+already-declined architecture suggestions restated against unchanged code
+(repost-suppression correctly collapsed the rest into the summary count
+rather than reposting full duplicates). All 14 review comments across all
+three rounds got an explicit reply (fixed-with-detail, or declined-with-
+rationale) rather than silently fixed-and-moved-on — see PR #71.
+509/509 backend tests pass, clean `tsc` build.
+
 ## 12. External validation — `job_tracker` dogfooding report (2026-08-24)
 
 A second, larger `job_tracker` audit (20 of 69 PRs, #45-#76 — later and

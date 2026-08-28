@@ -8,22 +8,21 @@ import {
 
 describe('lowPriorityPaths', () => {
   describe('DEFAULT_LOW_PRIORITY_PATH_PATTERNS', () => {
-    it('matches the review-quality-design.md §4 job_tracker audit examples', () => {
+    it('matches the review-quality-design.md §4 job_tracker audit examples that are still built-in defaults', () => {
       expect(isLowPriorityPath('design_prd/recruiter_pm_leader_tracker_artifact.html', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(true);
-      expect(isLowPriorityPath('wait_for_app.sh', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(true);
-      expect(isLowPriorityPath('run_real_test.sh', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(true);
       expect(isLowPriorityPath('some/page.mockup.html', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(true);
+    });
+
+    it('does NOT match root-level shell scripts by default (self-review security finding: build.sh/deploy.sh/setup.sh are common CI/CD entry points; a repo can opt in to a narrower pattern via low-priority-paths instead)', () => {
+      expect(isLowPriorityPath('wait_for_app.sh', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(false);
+      expect(isLowPriorityPath('run_real_test.sh', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(false);
+      expect(isLowPriorityPath('deploy.sh', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(false);
     });
 
     it('does not match ordinary shipping code, including a root-level .go/.ts file', () => {
       expect(isLowPriorityPath('internal/api/handler.go', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(false);
       expect(isLowPriorityPath('main.go', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(false);
       expect(isLowPriorityPath('index.ts', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(false);
-    });
-
-    it('does not match a shell script that lives under a subdirectory (only root-level scripts are low-priority)', () => {
-      expect(isLowPriorityPath('scripts/deploy.sh', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(false);
-      expect(isLowPriorityPath('bin/run.sh', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(false);
     });
   });
 
@@ -97,14 +96,21 @@ describe('lowPriorityPaths', () => {
       // "**//**" splits into ['**', '', '**'] — the empty middle segment
       // means neither "**" is immediately adjacent to the other by the
       // original segment-equality check, so it also bypassed collapsing.
-      const doubleSlash = globToRegExp('**//**');
-      expect(doubleSlash.test('anything/at/all')).toBe(true);
+      // Anchored with a literal suffix (unlike a bare "**//**", which
+      // collapses to match-anything and so has no non-matching adversarial
+      // case to test hang-safety against).
+      const doubleSlash = globToRegExp('**//**/x.never');
+      expect(doubleSlash.test('a/b/x.never')).toBe(true);
+      expect(doubleSlash.test('a/b/y.never')).toBe(false);
 
-      // Same rationale as above: no timing assertion, just must not hang
-      // (Jest's default test timeout is the regression guard).
+      // Same rationale as above for hanging (no timing assertion — Jest's
+      // default test timeout is the regression guard for that) — but the
+      // match result itself still needs asserting, or a regex that
+      // compiles to something that wrongly matches the adversarial string
+      // would pass silently (self-review finding, correct catch).
       const adversarial = 'a/'.repeat(35) + 'b';
       for (const re of [quad, doubleSlash]) {
-        re.test(adversarial);
+        expect(re.test(adversarial)).toBe(false);
       }
     });
   });
@@ -124,7 +130,13 @@ describe('lowPriorityPaths', () => {
       expect(isLowPriorityPath('helper.debug.ts', patterns)).toBe(true);
       // ...and the built-in defaults still apply.
       expect(isLowPriorityPath('design_prd/mockup.html', patterns)).toBe(true);
-      expect(isLowPriorityPath('wait_for_app.sh', patterns)).toBe(true);
+    });
+
+    it('lets a repo opt into root-level "*.sh" dampening explicitly, since it is not a built-in default', () => {
+      expect(isLowPriorityPath('wait_for_app.sh', DEFAULT_LOW_PRIORITY_PATH_PATTERNS)).toBe(false);
+
+      const withOptIn = parseLowPriorityPathPatterns('*.sh');
+      expect(isLowPriorityPath('wait_for_app.sh', withOptIn)).toBe(true);
     });
 
     it('trims whitespace and drops empty entries from the comma-separated list', () => {

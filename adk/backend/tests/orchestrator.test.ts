@@ -242,7 +242,6 @@ describe('Orchestrator', () => {
         jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
             findings: [
                 { file: 'design_prd/mockup.html', line: 5, severity: 'HIGH', summary: 'race condition', description: 'd', agent: 'Logic' },
-                { file: 'wait_for_app.sh', line: 3, severity: 'CRITICAL', summary: 'no timeout', description: 'd', agent: 'Logic' },
                 { file: 'internal/api/handler.go', line: 10, severity: 'HIGH', summary: 'real bug', description: 'd', agent: 'Logic' }
             ] as any
         });
@@ -254,8 +253,22 @@ describe('Orchestrator', () => {
 
         const byFile = Object.fromEntries(results.findings.map(f => [f.file, f.severity]));
         expect(byFile['design_prd/mockup.html']).toBe('MEDIUM');
-        expect(byFile['wait_for_app.sh']).toBe('MEDIUM');
         expect(byFile['internal/api/handler.go']).toBe('HIGH');
+    });
+
+    it('does NOT dampen a root-level shell script by default (self-review security finding: *.sh is not a built-in low-priority pattern — build.sh/deploy.sh-style CI/CD entry points must not be silently downgraded)', async () => {
+        jest.spyOn(GeminiAgent.prototype, 'analyze').mockResolvedValue({
+            findings: [
+                { file: 'deploy.sh', line: 3, severity: 'CRITICAL', summary: 'command injection', description: 'd', agent: 'Security' }
+            ] as any
+        });
+
+        const orchestrator = new Orchestrator(1);
+        (orchestrator as any).subagents = [new GeminiAgent('Logic', 'logic.md')];
+
+        const results = await orchestrator.runReview([{ file: 'x', content: 'x' }]);
+
+        expect(results.findings[0].severity).toBe('CRITICAL');
     });
 
     it('does not upgrade an already-low severity finding on a low-priority path', async () => {

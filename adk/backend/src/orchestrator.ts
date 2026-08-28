@@ -3,7 +3,7 @@ import { GeminiAgent } from './agent';
 import { DeduplicatorAgent } from './deduplicator';
 import { PromisePool } from './pool';
 import { computeFindingId } from './findingMarker';
-import { DEFAULT_LOW_PRIORITY_PATH_PATTERNS, isLowPriorityPath } from './lowPriorityPaths';
+import { DEFAULT_LOW_PRIORITY_PATH_PATTERNS, isLowPriorityPath, PathPattern } from './lowPriorityPaths';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -28,9 +28,9 @@ export class Orchestrator {
   // excluded — see filterFindings. Defaults to the built-in list; callers
   // pass an extended list (defaults + repo-specific globs) to add to it,
   // never to replace it.
-  private lowPriorityPathPatterns: RegExp[];
+  private lowPriorityPathPatterns: PathPattern[];
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: RegExp[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS) {
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: PathPattern[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS) {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = promptsDirName;
     this.deduplicator = new DeduplicatorAgent();

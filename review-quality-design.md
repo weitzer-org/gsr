@@ -739,6 +739,60 @@ three rounds got an explicit reply (fixed-with-detail, or declined-with-
 rationale) rather than silently fixed-and-moved-on — see PR #71.
 509/509 backend tests pass, clean `tsc` build.
 
+**Phase 3 self-review, round 4 — the real one: the whole regex-based
+approach was unsafe, not just individually-patchable bypasses.** After round
+3's push, CodeRabbit ran its first non-rate-limited review on this PR and
+found a third, structurally different ReDoS: non-*adjacent* single `*`
+tokens separated by literal text (e.g. `*a*a*a*a*a*a*a*a*a*aZ`, compiling to
+`[^/]*a[^/]*a[^/]*a...`) — the classic `(x*)+y`-shaped catastrophic
+backtracking, present even with zero `**` involved at all. Verified directly,
+and this one was markedly worse than rounds 1-2: 10 such wildcard/literal
+pairs took ~15s to reject an adversarial filename, and 12 pairs didn't finish
+in over two minutes (round 1's worst case was 1.8s, round 2's was ~28s).
+
+This wasn't a bypass of the round-2 fix — no amount of collapsing repeated
+`**` tokens addresses ambiguity between *any two wildcards separated by
+literal text*, adjacent or not. Patching it as a fourth special case would
+have been the same mistake a third time: **rewrote the whole module to stop
+compiling globs to a backtracking `RegExp` at all.** `compileGlob` now
+implements the classic linear-time wildcard-matching algorithm (the standard
+solution to "Wildcard Matching", e.g. LeetCode 44 — a single forward pass
+with one remembered backtrack point, O(n·m) worst case, no recursive
+branching to blow up), applied at two levels: path segments against each
+other (a segment that's exactly `**` matches zero or more whole segments),
+and characters within a non-`**` segment (`*` matches zero or more
+characters, never crossing `/`). Every other character is a plain literal
+comparison — no regex construction anywhere in the file anymore, which also
+makes the round-1 `?`-escaping bug structurally impossible rather than just
+fixed (there's nothing to escape into). Confirmed the new matcher rejects
+all three previously-dangerous shapes (8 adjacent `**`, `****`, and 12
+non-adjacent `*a` pairs) in 0ms each, including inputs where the old
+implementation hadn't finished after 2+ minutes.
+
+**Consequence for the public API:** `globToRegExp: (glob: string) => RegExp`
+is now `compileGlob: (glob: string) => PathPattern` (a `{test(file): boolean}`
+interface — a real `RegExp` also satisfies it, so `orchestrator.ts`'s
+constructor type and any caller passing a raw regex literal for a custom
+pattern needed no behavior change, only a type-signature update from
+`RegExp[]` to `PathPattern[]`). `DEFAULT_LOW_PRIORITY_PATH_PATTERNS` and
+`parseLowPriorityPathPatterns` changed types to match. One semantic
+narrowing worth noting: `**` embedded *mid-segment* (not as a whole path
+segment, e.g. `abc**def`) no longer gets the special "any depth" treatment
+it got from the old token-based regex translation — it's now just two
+literal `*` characters within that one segment. This is a tightening
+toward standard glob semantics (real glob implementations require `**` to
+be its own path segment to mean "any depth"), not a regression; no built-in
+default or documented pattern relied on the old, more permissive behavior.
+
+Every review comment across all four self-review/CodeRabbit rounds (16
+total) got an explicit reply on PR #71 — fixed-with-verified-detail, or
+declined-with-rationale (two `as any`/private-field-mutation test-style
+suggestions, declined as consistent with this test file's own pre-existing,
+dominant convention — appears 38 and 17 times respectively already, not
+something introduced by this phase). 510/510 backend tests pass, clean
+`tsc` build. All CI checks (both self-review jobs, CodeRabbit, and the three
+test suites) green on the final commit.
+
 ## 12. External validation — `job_tracker` dogfooding report (2026-08-24)
 
 A second, larger `job_tracker` audit (20 of 69 PRs, #45-#76 — later and

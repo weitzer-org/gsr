@@ -11,72 +11,113 @@
 // only add repo-specific patterns on top. This avoids a config mistake in
 // one consuming repo silently reopening the gap for every other consumer.
 
-// Minimal glob support: "**/" matches zero or more leading path segments
-// (so "**/*.x" also matches "*.x" at the root, the common convention),
-// "/**" matches one or more trailing segments, a standalone "**" matches
-// anything, "*" matches within a single path segment. Sufficient for the
-// path-prefix/suffix/extension patterns this feature needs without adding a
-// glob-matching dependency. Single-pass token-by-token translation via a
-// replacer callback, so glob-token recognition and literal-character
-// escaping happen together instead of in separate passes that could
-// clobber each other.
-// The `?` in the escape class matters, not just cosmetically: `?` is a
-// regex quantifier, so a glob containing a literal "?" (e.g. "file?.txt")
-// left unescaped either silently changes matching semantics (the preceding
-// character becomes optional) or — if "?" has nothing valid to quantify,
-// e.g. a glob starting with "?" — throws "Invalid regular expression:
-// Nothing to repeat" and crashes the Action on an otherwise-plausible
-// low-priority-paths config (self-review finding, confirmed both failure
-// modes directly before fixing).
-const GLOB_TOKEN = /\*\*\/|\/\*\*|\*\*|\*|[.+^${}()|[\]?\\]/g;
+// A compiled low-priority-path pattern. Deliberately NOT `RegExp` — see the
+// history below for why — but a real `RegExp` also satisfies this shape
+// (it has a `.test(string): boolean` method), so existing callers/tests
+// that pass a raw regex literal (e.g. in a custom pattern list) keep
+// working unchanged.
+export interface PathPattern {
+  test(file: string): boolean;
+}
 
-// Collapses consecutive "**" path segments ("a/**/**/b" -> "a/**/b") before
-// tokenizing. Semantically lossless — "**" already means "zero or more
-// segments," so repeating it adds nothing — but load-bearing for safety:
-// left uncollapsed, N adjacent "**" tokens compile to N adjacent unanchored
-// (?:.*/)? groups, a textbook catastrophic-backtracking (ReDoS) shape.
-// Confirmed directly: 8 adjacent "**" groups took ~1.8s to reject a 71-byte
-// non-matching string; since `file` (tested against these patterns in
-// orchestrator.ts) traces back to attacker-controlled PR diff filenames,
-// an accidentally-doubled "**" in a low-priority-paths config (an easy
-// templating/copy-paste mistake, not an exotic one) would let any external
-// contributor hang the review Action with a crafted filename.
+// --- History: this used to compile globs to a backtracking RegExp, and it
+// took three rounds of GSR's own self-review to find out why that's
+// structurally unsafe, not just buggy in specific spots:
 //
-// An earlier version of this function only collapsed "**" segments that
-// were already cleanly slash-delimited, which GSR's own self-review swarm
-// caught as incomplete: "****" (one run of 4+ stars, no slash at all) or
-// "**//**" (an empty segment from a doubled slash) both bypassed it and
-// still compiled to the same dangerous adjacent-group shape. Confirmed
-// directly: "****" alone, uncollapsed, took ~28s to reject a 71-byte
-// adversarial string — worse than the original 8-group case, since a
-// single character typo (one extra "*") triggers it. Fixed by normalizing
-// star-runs and slash-runs to their canonical single/double form *before*
-// segment-splitting, so every way of writing "repeated wildcard" reduces to
-// the same collapsible shape instead of enumerating bypasses one at a time.
-function normalizeGlobRuns(glob: string): string {
-  return glob.replace(/\*{2,}/g, '**').replace(/\/{2,}/g, '/');
-}
+// Round 1 translated each "*"/"**" token to a regex fragment independently
+// ("*" -> "[^/]*", "**" -> ".*"), which is fine for one wildcard but
+// compiles adjacent wildcards (a glob with repeated "**" segments, e.g. an
+// accidentally-doubled "**/**/*.log") into adjacent unanchored regex
+// groups — textbook catastrophic backtracking. Confirmed: 8 adjacent "**"
+// groups took ~1.8s to reject a 71-byte adversarial string.
+//
+// Round 2's fix (collapsing consecutive "**" segments before tokenizing)
+// only handled cleanly slash-delimited repeats. "****" (one run of stars,
+// no slash) or "**//**" (an empty segment from a doubled slash) bypassed
+// it and hit the same shape — "****" alone took ~28s.
+//
+// Round 3 (this version) is not another bypass patch: CodeRabbit's review
+// found that even a single "*" per position is unsafe once there are
+// several of them separated by literal text with no "**" involved at all
+// — e.g. "*a*a*a*a*a*a*a*aZ" compiles to "[^/]*a[^/]*a[^/]*a...", the
+// classic `(x*)+y`-shaped ReDoS. Confirmed directly: 10 such wildcard/
+// literal pairs took ~15s to reject an adversarial filename; 12 didn't
+// finish in over two minutes. That's not a bypass of the round-2 fix,
+// it's a fundamentally different vulnerability in the whole "compile to a
+// backtracking regex" strategy — no amount of collapsing repeated tokens
+// fixes it, because the ambiguity is between *any* two wildcards
+// separated by literal text, adjacent or not.
+//
+// The actual fix: don't build a backtracking RegExp at all. Match glob
+// segments against path segments using the classic linear-time wildcard
+// algorithm (the standard solution to "Wildcard Matching", e.g. LeetCode
+// 44) — a single forward pass with one remembered backtrack point, O(n*m)
+// worst case, never exponential, because there is no recursive branching
+// to blow up. Applied at two levels: path segments against each other
+// (a "**" segment matches zero or more whole segments), and, within a
+// non-"**" segment, characters against each other ("*" matches zero or
+// more characters, never crossing the "/" that already separates
+// segments). Every other character (including "?", ".", "+", etc.) is a
+// plain literal compared directly — there's no regex construction left
+// anywhere in this file, so there's also no more "did I escape this
+// regex-special character" class of bug (the "?"-escaping bug from round
+// 1 is structurally impossible now, not just fixed).
 
-function collapseRepeatedGlobstars(glob: string): string {
-  const segments = normalizeGlobRuns(glob).split('/');
-  const collapsed: string[] = [];
-  for (const segment of segments) {
-    if (segment === '**' && collapsed[collapsed.length - 1] === '**') continue;
-    collapsed.push(segment);
+const GLOBSTAR = '**';
+
+// Linear-time wildcard match ("*" = zero or more of anything) between two
+// arrays of tokens, using an equality predicate for non-wildcard
+// comparisons. Shared by both matching levels below (segments-of-a-path
+// and characters-of-a-segment) so there's one implementation of the
+// non-backtracking algorithm to get right, not two.
+function wildcardMatch<T>(pattern: T[], input: T[], isWildcard: (t: T) => boolean, equals: (a: T, b: T) => boolean): boolean {
+  let p = 0;
+  let i = 0;
+  let starP = -1;
+  let starI = 0;
+
+  while (i < input.length) {
+    if (p < pattern.length && (isWildcard(pattern[p]) || equals(pattern[p], input[i]))) {
+      if (isWildcard(pattern[p])) {
+        starP = p;
+        starI = i;
+        p++;
+      } else {
+        p++;
+        i++;
+      }
+    } else if (starP !== -1) {
+      p = starP + 1;
+      starI++;
+      i = starI;
+    } else {
+      return false;
+    }
   }
-  return collapsed.join('/');
+
+  while (p < pattern.length && isWildcard(pattern[p])) p++;
+  return p === pattern.length;
 }
 
-export function globToRegExp(glob: string): RegExp {
-  const pattern = collapseRepeatedGlobstars(glob).replace(GLOB_TOKEN, (token) => {
-    if (token === '**/') return '(?:.*/)?';
-    if (token === '/**') return '(?:/.*)?';
-    if (token === '**') return '.*';
-    if (token === '*') return '[^/]*';
-    return '\\' + token; // literal regex-special character
-  });
+function matchSegment(patternSegment: string, fileSegment: string): boolean {
+  const pattern = patternSegment.toLowerCase().split('');
+  const input = fileSegment.toLowerCase().split('');
+  return wildcardMatch(pattern, input, (c) => c === '*', (a, b) => a === b);
+}
 
-  return new RegExp('^' + pattern + '$', 'i');
+export function compileGlob(glob: string): PathPattern {
+  const patternSegments = glob.split('/');
+  return {
+    test(file: string): boolean {
+      const fileSegments = file.split('/');
+      return wildcardMatch(
+        patternSegments,
+        fileSegments,
+        (seg) => seg === GLOBSTAR,
+        (patternSeg, fileSeg) => matchSegment(patternSeg, fileSeg)
+      );
+    },
+  };
 }
 
 // Root-level "*.sh" was in this list originally (matching the two job_tracker
@@ -95,21 +136,21 @@ const DEFAULT_LOW_PRIORITY_GLOBS = [
   '**/*.mockup.html',
 ];
 
-export const DEFAULT_LOW_PRIORITY_PATH_PATTERNS: RegExp[] = DEFAULT_LOW_PRIORITY_GLOBS.map(globToRegExp);
+export const DEFAULT_LOW_PRIORITY_PATH_PATTERNS: PathPattern[] = DEFAULT_LOW_PRIORITY_GLOBS.map(compileGlob);
 
 // Parses the comma-separated `low-priority-paths` Action input into
-// RegExp[], always prepending the built-in defaults (see module doc above —
-// additive, not replacing).
-export function parseLowPriorityPathPatterns(csv: string | undefined): RegExp[] {
+// PathPattern[], always prepending the built-in defaults (see module doc
+// above — additive, not replacing).
+export function parseLowPriorityPathPatterns(csv: string | undefined): PathPattern[] {
   if (!csv || !csv.trim()) return DEFAULT_LOW_PRIORITY_PATH_PATTERNS;
   const custom = csv
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-    .map(globToRegExp);
+    .map(compileGlob);
   return [...DEFAULT_LOW_PRIORITY_PATH_PATTERNS, ...custom];
 }
 
-export function isLowPriorityPath(file: string, patterns: RegExp[]): boolean {
+export function isLowPriorityPath(file: string, patterns: PathPattern[]): boolean {
   return patterns.some((pattern) => pattern.test(file));
 }

@@ -142,4 +142,16 @@ describe('GET /api/usage/summary (integration, real app wiring)', () => {
         const labels = res.body.buckets.map((b: any) => b.date).sort();
         expect(labels).toEqual(['2026-01', '2026-02']);
     });
+
+    it('groups buckets by ISO week when granularity=week', async () => {
+        // 2026-01-30 through 2026-02-01 fall in ISO week 2026-W05;
+        // 2026-02-02 is the first day of 2026-W06.
+        const res = await request(app)
+            .get('/api/usage/summary')
+            .query({ from: '2026-01-30', to: '2026-02-02', granularity: 'week', source: 'backend' });
+
+        expect(res.status).toBe(200);
+        const labels = res.body.buckets.map((b: any) => b.date).sort();
+        expect(labels).toEqual(['2026-W05', '2026-W06']);
+    });
 });

@@ -45,15 +45,10 @@ test.describe('Usage Dashboard UI', () => {
     test('should re-fetch when a quick range button is clicked', async ({ page }) => {
         await page.goto(URL);
 
-        let requestCount = 0;
-        page.on('request', req => {
-            if (req.url().includes('/api/usage/summary')) requestCount++;
-        });
-
+        const responsePromise = page.waitForResponse(res => res.url().includes('/api/usage/summary'));
         await page.locator('.quick-range-btn[data-range="week"]').click();
-        await page.waitForTimeout(100);
+        await responsePromise;
 
-        expect(requestCount).toBeGreaterThan(0);
         await expect(page.locator('.quick-range-btn[data-range="week"]')).toHaveClass(/active/);
     });
 

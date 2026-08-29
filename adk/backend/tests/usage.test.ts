@@ -430,6 +430,28 @@ describe('ingestUsageRecords', () => {
         const result = await usage.ingestUsageRecords([{ ...record('discovery'), thinkingTokens: 15 }] as any);
         expect(result).toEqual({ accepted: 1, failed: 0 });
     });
+
+    it('rejects a record whose model contains the "|" composite-key delimiter', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), model: 'evil|model' }] as any);
+        expect(result).toEqual({ accepted: 0, failed: 1 });
+        expect(mockUploadJson).not.toHaveBeenCalled();
+        errorSpy.mockRestore();
+    });
+
+    it('rejects a record whose own repository field contains "|"', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), repository: 'owner|repo' }] as any);
+        expect(result).toEqual({ accepted: 0, failed: 1 });
+        errorSpy.mockRestore();
+    });
+
+    it('drops (rather than rejects the whole batch for) a batch-level repository containing "|"', async () => {
+        const result = await usage.ingestUsageRecords([record('discovery')], { repository: 'owner|repo' });
+        expect(result).toEqual({ accepted: 1, failed: 0 });
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.repository).toBeUndefined();
+    });
 });
 
 describe('formatUsageSummaryMarkdown', () => {

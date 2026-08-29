@@ -22,6 +22,7 @@
 // start with `llm_compare` so adk/backend's workload split (see usage.ts's
 // workloadOf()) buckets them under "eval" alongside its own `evaluate`
 // callType.
+import { randomBytes } from 'crypto';
 import { uploadResultsToGCS } from './storage';
 
 const REPOSITORY_LABEL = 'tools-eval (local)';
@@ -84,7 +85,7 @@ function objectKey(date: Date): string {
   const iso = date.toISOString();
   const day = iso.slice(0, 10);
   const time = iso.slice(11, 23).replace(/[:.]/g, '');
-  const rand = Math.random().toString(16).slice(2, 10).padEnd(8, '0');
+  const rand = randomBytes(4).toString('hex');
   return `usage/${day}/${time}-${rand}.json`;
 }
 

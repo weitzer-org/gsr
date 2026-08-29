@@ -535,15 +535,26 @@ app.get('/api/usage/summary', async (req, res) => {
     return res.status(400).json({ error: `"source" must be one of: ${USAGE_SUMMARY_SOURCES.join(', ')}.` });
   }
 
-  const dates = datesBetween(from, to);
-  if (dates.length > MAX_USAGE_SUMMARY_RANGE_DAYS) {
+  // Check the day count via arithmetic before materializing the full date
+  // array — datesBetween builds one Date + string per day, so a validly
+  // formatted but absurd range (e.g. 0001-01-01..9999-12-31) would allocate
+  // millions of entries before the length check below ever ran.
+  const approxDayCount = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
+  if (approxDayCount > MAX_USAGE_SUMMARY_RANGE_DAYS) {
     return res.status(400).json({ error: `Range too large (max ${MAX_USAGE_SUMMARY_RANGE_DAYS} days).` });
   }
 
+  const dates = datesBetween(from, to);
+
   try {
     const today = currentDateString();
-    const backendRollups = source !== 'eval-harness' ? await buildSourceRollups(dates, getReviewBucketName(), today) : null;
-    const evalRollups = source !== 'backend' ? await buildSourceRollups(dates, getBucketName(), today) : null;
+    // source=all (the default) reads two independent buckets — build both
+    // concurrently rather than one after the other, since each can take
+    // several seconds on a cold rollup cache.
+    const [backendRollups, evalRollups] = await Promise.all([
+      source !== 'eval-harness' ? buildSourceRollups(dates, getReviewBucketName(), today) : Promise.resolve(null),
+      source !== 'backend' ? buildSourceRollups(dates, getBucketName(), today) : Promise.resolve(null),
+    ]);
 
     const perDateRollups = dates.map((date, i) => {
       const parts: Rollup[] = [];

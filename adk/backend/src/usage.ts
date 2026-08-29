@@ -512,13 +512,18 @@ const MAX_REPOSITORY_LABEL_LENGTH = 200;
 // trackGeminiCall() call can — reject anything that doesn't look like a
 // real UsageRecord instead of writing it verbatim, which would otherwise
 // silently corrupt a later aggregate() rollup with malformed/adversarial
-// values.
+// values. In particular, `model`/`repository` must not contain the `|`
+// composite-key delimiter aggregate()'s byModelRepository/byModelWorkload/
+// byRepositoryWorkload maps rely on being absent (see the comment above the
+// Rollup interface) — an ingested value that violated that would silently
+// misattribute columns in every consumer that splits a key on `|`,
+// including the dashboard frontend.
 function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
   if (!record || typeof record !== 'object') return false;
   const r = record as Record<string, unknown>;
   return (
     typeof r.callType === 'string' &&
-    typeof r.model === 'string' &&
+    typeof r.model === 'string' && !r.model.includes('|') &&
     typeof r.inputTokens === 'number' && Number.isFinite(r.inputTokens) &&
     typeof r.outputTokens === 'number' && Number.isFinite(r.outputTokens) &&
     typeof r.latencyMs === 'number' && Number.isFinite(r.latencyMs) &&
@@ -526,7 +531,8 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
     typeof r.success === 'boolean' &&
     typeof r.timestamp === 'string' &&
     r.provider === 'gemini' &&
-    (r.thinkingTokens === undefined || (typeof r.thinkingTokens === 'number' && Number.isFinite(r.thinkingTokens)))
+    (r.thinkingTokens === undefined || (typeof r.thinkingTokens === 'number' && Number.isFinite(r.thinkingTokens))) &&
+    (r.repository === undefined || (typeof r.repository === 'string' && !r.repository.includes('|')))
   );
 }
 
@@ -547,7 +553,10 @@ export async function ingestUsageRecords(
   records: UsageRecord[],
   opts?: { repository?: string }
 ): Promise<{ accepted: number; failed: number }> {
-  const repository = opts?.repository?.slice(0, MAX_REPOSITORY_LABEL_LENGTH);
+  const rawRepository = opts?.repository?.slice(0, MAX_REPOSITORY_LABEL_LENGTH);
+  // Drop rather than reject the whole batch over a bad batch-level label —
+  // same "|" composite-key concern as isValidIngestedRecordShape above.
+  const repository = rawRepository && !rawRepository.includes('|') ? rawRepository : undefined;
 
   // Bounded-concurrency writes (mirroring Orchestrator's own PromisePool
   // usage) rather than one uploadJson per record awaited sequentially — a

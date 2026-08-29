@@ -113,7 +113,12 @@ function objectKey(date: Date): string {
 
 async function writeLocal(record: UsageRecord): Promise<void> {
   try {
-    await uploadResultsToGCS(getUsageBucketName(), objectKey(new Date()), record);
+    // Derive the key's date from record.timestamp, not a fresh `new Date()`
+    // — using a separately-computed timestamp risks a call landing in the
+    // wrong day's prefix if execution happens to straddle a UTC midnight
+    // between the two Date() calls (a real, if narrow, pre-existing pattern
+    // also present in adk/backend/src/usage.ts's own defaultSink).
+    await uploadResultsToGCS(getUsageBucketName(), objectKey(new Date(record.timestamp)), record);
   } catch (err) {
     console.error('[usage] failed to record usage event locally:', err);
   }

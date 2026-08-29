@@ -213,6 +213,25 @@ describe('Usage dashboard frontend logic (usage.js)', () => {
         expect(document.getElementById('usage-total-calls').textContent).toBe('999');
     });
 
+    it('ignores a superseded response even when only its .json() decode (not the fetch itself) resolves late', async () => {
+        let resolveFirstJson;
+        const firstJson = new Promise(resolve => { resolveFirstJson = resolve; });
+        global.fetch.mockResolvedValueOnce({ ok: true, json: () => firstJson });
+        initUsage(); // fetch() resolves immediately; decoding its body is what's slow
+        await Promise.resolve();
+
+        const secondSummary = { ...summaryResponse, total: { ...summaryResponse.total, totalCalls: 999 } };
+        global.fetch.mockResolvedValueOnce({ ok: true, json: async () => secondSummary });
+        document.querySelector('[data-range="week"]').click();
+        await new Promise(process.nextTick);
+
+        // The first request's body decode now finishes late, after the second already rendered.
+        resolveFirstJson(summaryResponse);
+        await new Promise(process.nextTick);
+
+        expect(document.getElementById('usage-total-calls').textContent).toBe('999');
+    });
+
     it('re-fetches with an updated range when a quick-range button is clicked', async () => {
         global.fetch.mockResolvedValue({ ok: true, json: async () => summaryResponse });
         initUsage();

@@ -60,7 +60,10 @@ const SCHEMA_VERSION = 2;
 const UNTAGGED_REPOSITORY_LABEL = 'gsr (hosted)';
 
 function workloadOf(rec) {
-  return rec.callType === 'evaluate' ? 'eval' : 'review';
+  return rec.callType === 'evaluate' ||
+    (typeof rec.callType === 'string' && rec.callType.startsWith('llm_compare'))
+    ? 'eval'
+    : 'review';
 }
 
 function addToBucket(map, key, rec) {

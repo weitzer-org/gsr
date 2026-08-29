@@ -186,7 +186,9 @@ export function initUsage() {
                 const data = await res.json().catch(() => ({}));
                 throw new Error(data.error || `Request failed (${res.status})`);
             }
-            latestSummary = await res.json();
+            const summary = await res.json();
+            if (token !== requestToken) return; // superseded again — decoding is also async
+            latestSummary = summary;
             renderAll();
             statusNotice.classList.add('hidden');
         } catch (e) {

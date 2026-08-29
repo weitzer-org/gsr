@@ -56,6 +56,14 @@ describe('GET /api/usage/summary (integration, real app wiring)', () => {
         expect(res.status).toBe(400);
     });
 
+    it('rejects a syntactically-valid but nonexistent calendar date (e.g. Feb 30) with 400', async () => {
+        // The Date constructor normalizes 2026-02-30 to 2026-03-02 rather
+        // than producing NaN, so a naive getTime()-only check would accept
+        // it and silently shift the requested range instead of rejecting it.
+        const res = await request(app).get('/api/usage/summary').query({ from: '2026-02-30', to: '2026-02-30' });
+        expect(res.status).toBe(400);
+    });
+
     it('rejects an invalid granularity with 400', async () => {
         const res = await request(app).get('/api/usage/summary').query({ from: '2026-07-29', to: '2026-07-29', granularity: 'year' });
         expect(res.status).toBe(400);

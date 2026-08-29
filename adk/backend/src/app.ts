@@ -476,8 +476,14 @@ const USAGE_SUMMARY_SOURCES = ['all', 'backend', 'eval-harness'] as const;
 type UsageSummaryGranularity = typeof USAGE_SUMMARY_GRANULARITIES[number];
 type UsageSummarySource = typeof USAGE_SUMMARY_SOURCES[number];
 
+// Rejects a syntactically-valid-but-nonexistent calendar date (e.g.
+// "2026-02-30") — the Date constructor normalizes those (Feb 30 -> Mar 2)
+// rather than producing NaN, so a round-trip through toISOString() is
+// needed to catch the mismatch, not just a getTime() NaN check.
 function isValidDateString(s: unknown): s is string {
-  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(new Date(`${s}T00:00:00Z`).getTime());
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const date = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === s;
 }
 
 function datesBetween(from: string, to: string): string[] {

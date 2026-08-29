@@ -531,7 +531,7 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
     typeof r.success === 'boolean' &&
     typeof r.timestamp === 'string' &&
     r.provider === 'gemini' &&
-    (r.thinkingTokens === undefined || (typeof r.thinkingTokens === 'number' && Number.isFinite(r.thinkingTokens))) &&
+    (r.thinkingTokens === undefined || (typeof r.thinkingTokens === 'number' && Number.isFinite(r.thinkingTokens) && r.thinkingTokens >= 0)) &&
     (r.repository === undefined || (typeof r.repository === 'string' && !r.repository.includes('|')))
   );
 }

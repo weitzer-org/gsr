@@ -125,7 +125,7 @@ key, so whichever ran most recently wins.
 **Preferred for day/week/month/range questions:** `GET /api/usage/summary`
 (behind the normal session gate, like the rest of the dashboard) —
 
-```
+```http
 GET /api/usage/summary?from=YYYY-MM-DD&to=YYYY-MM-DD&granularity=day|week|month&source=all|backend|eval-harness
 ```
 

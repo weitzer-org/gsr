@@ -77,9 +77,10 @@ export async function getFileStream(bucket: string, key: string): Promise<Readab
 }
 
 // getFileJson reads and parses a JSON object, returning undefined when the
-// key doesn't exist rather than throwing — used by callers (e.g. usage.ts's
-// rollup cache) that treat "not found" as a normal, expected outcome rather
-// than an error.
+// key doesn't exist OR when its content isn't valid JSON, rather than
+// throwing — used by callers (e.g. usage.ts's rollup cache) that treat
+// either case as a normal "nothing usable here yet" outcome to rebuild
+// from, not an error. S3 transport/auth errors still propagate.
 export async function getFileJson(bucket: string, key: string): Promise<unknown | undefined> {
   let result;
   try {
@@ -94,5 +95,9 @@ export async function getFileJson(bucket: string, key: string): Promise<unknown 
   for await (const chunk of result.Body as AsyncIterable<Buffer | string>) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+  } catch {
+    return undefined;
+  }
 }

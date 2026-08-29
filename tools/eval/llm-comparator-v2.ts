@@ -29,6 +29,45 @@ export interface V2ComparisonResult {
   metrics: V2ComparisonMetrics;
 }
 
+// The judge is asked to always key its JSON block "targetA"/"targetB", but the prompt also
+// tells it to call the tools by their labels ("Local"/"Production") throughout the prose
+// report — it sometimes carries that labeling into the JSON keys too, despite the explicit
+// instruction not to. A silently-dropped or zeroed row from this mismatch corrupts every
+// downstream aggregate (see evaluate.ts's aggregation, which previously read
+// r.v2Metrics['targetA']?.actionability || 0 with no fallback path). Normalize whatever key
+// shape comes back — exact match, case-insensitive, or matching the run's own target labels —
+// to the canonical targetA/targetB before returning.
+export function normalizeV2Metrics(
+  raw: any,
+  targetALabel: string,
+  targetBLabel: string,
+  fallback: V2ComparisonMetrics
+): V2ComparisonMetrics {
+  if (!raw || typeof raw !== 'object') return fallback;
+
+  const findKey = (obj: Record<string, unknown>, canonical: 'targetA' | 'targetB', label: string): TargetMetrics | undefined => {
+    if (obj[canonical]) return obj[canonical] as TargetMetrics;
+    const candidates = [label, canonical === 'targetA' ? 'local' : 'production'];
+    for (const key of Object.keys(obj)) {
+      if (candidates.some(c => c.toLowerCase() === key.toLowerCase())) {
+        return obj[key] as TargetMetrics;
+      }
+    }
+    return undefined;
+  };
+
+  const targetA = findKey(raw, 'targetA', targetALabel) ?? fallback.targetA;
+  const targetB = findKey(raw, 'targetB', targetBLabel) ?? fallback.targetB;
+
+  return {
+    targetA,
+    targetB,
+    gca: raw.gca ?? fallback.gca,
+    codeRabbit: raw.codeRabbit ?? fallback.codeRabbit,
+    overlapMatrix: raw.overlapMatrix ?? fallback.overlapMatrix,
+  };
+}
+
 export async function compareResultsWithLLMV2(
   prUrl: string, 
   targetAFindings: ReviewFinding[], 
@@ -98,6 +137,10 @@ You MUST append a strict JSON block exactly matching this schema at the very end
 }
 \`\`\`
 Replace the numbers with your actual evaluation. Do not write anything after the JSON block.
+IMPORTANT: the JSON keys must be the LITERAL strings "targetA" and "targetB" exactly as
+shown above — NOT "${targetALabel}" and "${targetBLabel}". Use ${targetALabel}/${targetBLabel}
+only in the prose report; the JSON block always uses targetA/targetB regardless of what the
+tools are called above.
 `;
 
   try {
@@ -113,11 +156,12 @@ Replace the numbers with your actual evaluation. Do not write anything after the
     let metrics: V2ComparisonMetrics;
     const emptyTarget = { actionability: 0, falsePositives: 0, uniqueFindings: 0 };
     const emptyMetrics = { targetA: { ...emptyTarget }, targetB: { ...emptyTarget }, gca: { ...emptyTarget }, codeRabbit: { ...emptyTarget }, overlapMatrix: { targetA_targetB: 0, targetA_gca: 0, targetA_codeRabbit: 0, targetB_gca: 0, targetB_codeRabbit: 0, gca_codeRabbit: 0 } };
-    
+
     try {
       const jsonMatch = response.text.match(/```json\s*(\{[\s\S]*?\})\s*```/);
       if (jsonMatch && jsonMatch[1]) {
-        metrics = JSON.parse(jsonMatch[1]);
+        const raw = JSON.parse(jsonMatch[1]);
+        metrics = normalizeV2Metrics(raw, targetALabel, targetBLabel, emptyMetrics);
       } else {
         metrics = emptyMetrics;
       }

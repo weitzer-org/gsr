@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { CandidateFinding, DiffChunk, Subagent, AnalyzeResult } from './types';
-import { trackGeminiCall } from './usage';
+import { trackGeminiCall, recordParseFailure } from './usage';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -9,6 +9,37 @@ export interface DiscoveryIssue {
   line: number;
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   summary: string;
+}
+
+// selectModel routes by PR size: a model comparison investigation found
+// gemini-3.7-flash (and other flash-tier candidates) collapse to a fraction
+// of gemini-3.1-pro-preview's finding volume specifically on large,
+// multi-file PRs, while matching it exactly on small single-issue PRs. Below
+// GEMINI_LARGE_PR_FILE_THRESHOLD, GEMINI_MODEL is used as configured (the
+// case where a cheaper model has already been proven equivalent). At or
+// above it, GEMINI_MODEL_LARGE_PR is used if set — otherwise falls back to
+// GEMINI_MODEL, i.e. today's unconditional behavior. This captures most of a
+// cheaper model's savings with zero quality risk on exactly the cases where
+// the gap is real, without waiting on (or instead of) a prompt/architecture
+// fix closing that gap directly.
+export function selectModel(fileCount: number): string {
+  const defaultModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+  const threshold = parseInt(process.env.GEMINI_LARGE_PR_FILE_THRESHOLD || '0', 10);
+  const largeModel = process.env.GEMINI_MODEL_LARGE_PR;
+  if (threshold > 0 && largeModel && fileCount >= threshold) {
+    return largeModel;
+  }
+  return defaultModel;
+}
+
+// chunkArray splits chunks into DISCOVERY_FOCUS_WINDOW-sized groups for
+// focus-window batching (see buildDiscoveryPrompt's focusChunks param).
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    result.push(arr.slice(i, i + size));
+  }
+  return result;
 }
 
 export class GeminiAgent implements Subagent {
@@ -76,6 +107,12 @@ ${this.promptContent}`;
     let promptTokens = 0;
     let candidatesTokens = 0;
 
+    // Chosen once per analyze() call from this agent's full file count —
+    // GeminiAgent instances are constructed fresh per subagent per review
+    // (orchestrator.ts calls analyze() exactly once per instance), so the
+    // model is stable for this call's entire lifetime including the context
+    // cache below, which is keyed to whichever model created it.
+    const model = selectModel(chunks.length);
     const useContextCaching = process.env.USE_CONTEXT_CACHING !== 'false';
 
     if (useContextCaching && !this.cachedContentName) {
@@ -83,12 +120,11 @@ ${this.promptContent}`;
         console.log(`[${this.name}] Initializing Context Cache for persona...`);
         // Note: GoogleGenAI caches.create defaults exactly
         const discoverySystemInstruction = this.buildDiscoverySystemInstruction();
-        
-        const envModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
-        const cacheModel = envModel.startsWith('models/') ? envModel : `models/${envModel}`;
-        
+
+        const cacheModel = model.startsWith('models/') ? model : `models/${model}`;
+
         const tokenResponse = await this.ai.models.countTokens({
-           model: envModel,
+           model,
            contents: discoverySystemInstruction,
         });
 
@@ -113,100 +149,128 @@ ${this.promptContent}`;
     }
 
     try {
-      console.log(`[${this.name}] Starting Pass 1 (Discovery) for ${aggregatedFiles}...`);
-      
+      console.log(`[${this.name}] Starting Pass 1 (Discovery) for ${aggregatedFiles} using ${model}...`);
+
       // 300000 (5min) matches deduplicator.ts's default — aggregateChunks
       // (review-quality-design.md §5.1) means this discovery/remediation
       // call can now cover a whole PR's worth of files in one request, and
       // 180000 was timing out outright on PRs as small as 13-15 files,
       // returning zero findings for the push instead of a partial result.
       const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '300000', 10);
-      
-      // We wrap the API call logic to support retrying dropped files
-      let chunksToProcess = [...chunks];
       const maxRetries = 2;
-      let retries = 0;
       let discoveryIssues: DiscoveryIssue[] = [];
 
-      while (chunksToProcess.length > 0 && retries <= maxRetries) {
-        const promptPayload = this.buildDiscoveryPrompt(chunksToProcess);
-        
-        const requestArgs: any = {
-           model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
-           contents: promptPayload.contents,
-           config: {
-             responseMimeType: 'application/json',
-             responseSchema: {
-               type: Type.OBJECT,
-               description: "Strict coverage wrapper for code review.",
-               properties: {
-                 filesAnalyzed: {
-                   type: Type.ARRAY,
-                   description: "A complete list of EVERY file path that was successfully read and checked for bugs.",
-                   items: { type: Type.STRING }
-                 },
-                 issues: {
-                   type: Type.ARRAY,
-                   description: "A list of problematic locations found in the code.",
-                   items: {
-                     type: Type.OBJECT,
-                     properties: {
-                       file: { type: Type.STRING },
-                       line: { type: Type.INTEGER },
-                       severity: { type: Type.STRING, enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
-                       summary: { type: Type.STRING }
-                     },
-                     required: ["file", "line", "severity", "summary"]
+      // DISCOVERY_FOCUS_WINDOW splits this agent's files into groups of N
+      // for discovery only — each call still gets the FULL diff as context
+      // (buildDiscoveryPrompt always passes `chunks`, never a shrunk set),
+      // so cross-file reasoning is preserved, but is only asked to report on
+      // its window. Unset (0) reproduces the exact prior behavior: one
+      // window containing everything. See buildDiscoveryPrompt's comment for
+      // why this makes coverage a structural property of the call rather
+      // than a self-attested claim the model can satisfy just by saying yes.
+      const focusWindowSize = parseInt(process.env.DISCOVERY_FOCUS_WINDOW || '0', 10);
+      const windows: DiffChunk[][] = (focusWindowSize > 0 && chunks.length > focusWindowSize)
+        ? chunkArray(chunks, focusWindowSize)
+        : [chunks];
+      const isFocused = windows.length > 1;
+
+      for (const window of windows) {
+        // We wrap the API call logic to support retrying dropped files
+        let chunksToProcess = [...window];
+        let retries = 0;
+
+        while (chunksToProcess.length > 0 && retries <= maxRetries) {
+          const promptPayload = this.buildDiscoveryPrompt(chunks, isFocused ? chunksToProcess : undefined);
+
+          const requestArgs: any = {
+             model,
+             contents: promptPayload.contents,
+             config: {
+               responseMimeType: 'application/json',
+               responseSchema: {
+                 type: Type.OBJECT,
+                 description: "Strict coverage wrapper for code review.",
+                 properties: {
+                   filesAnalyzed: {
+                     type: Type.ARRAY,
+                     description: "A complete list of EVERY file path that was successfully read and checked for bugs.",
+                     items: { type: Type.STRING }
+                   },
+                   issues: {
+                     type: Type.ARRAY,
+                     description: "A list of problematic locations found in the code.",
+                     items: {
+                       type: Type.OBJECT,
+                       properties: {
+                         file: { type: Type.STRING },
+                         line: { type: Type.INTEGER },
+                         severity: { type: Type.STRING, enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
+                         summary: { type: Type.STRING }
+                       },
+                       required: ["file", "line", "severity", "summary"]
+                     }
                    }
-                 }
-               },
-               required: ["filesAnalyzed", "issues"]
+                 },
+                 required: ["filesAnalyzed", "issues"]
+               }
              }
-           }
-        };
+          };
 
-        if (useContextCaching && this.cachedContentName) {
-           requestArgs.cachedContent = this.cachedContentName;
-           // The cachedContent implies systemInstruction is fulfilled natively
-        } else {
-           requestArgs.config.systemInstruction = promptPayload.systemInstruction;
-        }
+          if (useContextCaching && this.cachedContentName) {
+             requestArgs.cachedContent = this.cachedContentName;
+             // The cachedContent implies systemInstruction is fulfilled natively
+          } else {
+             requestArgs.config.systemInstruction = promptPayload.systemInstruction;
+          }
 
-        const genAiRequest = trackGeminiCall(
-          { callType: 'discovery', model: requestArgs.model },
-          () => this.ai.models.generateContent(requestArgs)
-        );
+          const genAiRequest = trackGeminiCall(
+            { callType: 'discovery', model },
+            () => this.ai.models.generateContent(requestArgs)
+          );
 
-        const timeoutPromise = new Promise<any>((_, reject) => {
-            timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
-        });
+          const timeoutPromise = new Promise<any>((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
+          });
 
-        const response = await Promise.race([genAiRequest, timeoutPromise]).finally(() => clearTimeout(timeoutId));
-        
-        if (response.usageMetadata) {
-            promptTokens += response.usageMetadata.promptTokenCount || 0;
-            candidatesTokens += response.usageMetadata.candidatesTokenCount || 0;
-        }
+          const response = await Promise.race([genAiRequest, timeoutPromise]).finally(() => clearTimeout(timeoutId));
 
-        if (response.text) {
-            const result = JSON.parse(response.text) as { filesAnalyzed: string[], issues: DiscoveryIssue[] };
-            if (result.issues) {
-                discoveryIssues.push(...result.issues);
-            }
-            
-            // Strict Coverage Diffing Logic
-            const analyzedSet = new Set(result.filesAnalyzed || []);
-            const missedChunks = chunksToProcess.filter(c => !analyzedSet.has(c.file));
-            
-            if (missedChunks.length > 0) {
-               console.warn(`[${this.name}] Pass 1 missed ${missedChunks.length} files. Retrying... (Attempt ${retries + 1}/${maxRetries})`);
-               chunksToProcess = missedChunks;
-               retries++;
-            } else {
-               chunksToProcess = []; // All files successfully processed
-            }
-        } else {
-            break; // Unexpected empty response, break loop
+          if (response.usageMetadata) {
+              promptTokens += response.usageMetadata.promptTokenCount || 0;
+              candidatesTokens += response.usageMetadata.candidatesTokenCount || 0;
+          }
+
+          if (response.text) {
+              let result: { filesAnalyzed: string[], issues: DiscoveryIssue[] };
+              try {
+                result = JSON.parse(response.text);
+              } catch (parseErr) {
+                // The call succeeded and was billed (trackGeminiCall already
+                // recorded that) but the response can't be used — previously
+                // this thrown error was caught by analyze()'s outer catch and
+                // turned into a silent `{ findings: [] }`, indistinguishable
+                // from "found nothing". Record it as its own visible failure
+                // mode before letting that same graceful-degradation path run.
+                await recordParseFailure({ callType: 'discovery', model }, response, 0);
+                throw parseErr;
+              }
+              if (result.issues) {
+                  discoveryIssues.push(...result.issues);
+              }
+
+              // Strict Coverage Diffing Logic
+              const analyzedSet = new Set(result.filesAnalyzed || []);
+              const missedChunks = chunksToProcess.filter(c => !analyzedSet.has(c.file));
+
+              if (missedChunks.length > 0) {
+                 console.warn(`[${this.name}] Pass 1 missed ${missedChunks.length} files. Retrying... (Attempt ${retries + 1}/${maxRetries})`);
+                 chunksToProcess = missedChunks;
+                 retries++;
+              } else {
+                 chunksToProcess = []; // All files successfully processed
+              }
+          } else {
+              break; // Unexpected empty response, break loop
+          }
         }
       }
 
@@ -220,11 +284,10 @@ ${this.promptContent}`;
       // PASS 2: Remediation
       // Not cached because it uses a different short-lived prompt focused tightly on synthesizing solutions
       const remediationPayload = this.buildRemediationPrompt(chunks, discoveryIssues);
-      const remediationModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
       const remediationRequest = trackGeminiCall(
-        { callType: 'remediation', model: remediationModel },
+        { callType: 'remediation', model },
         () => this.ai.models.generateContent({
-           model: remediationModel,
+           model,
            contents: remediationPayload.contents,
            config: {
              systemInstruction: remediationPayload.systemInstruction,
@@ -259,8 +322,22 @@ ${this.promptContent}`;
       }
 
       if (remediationResponse.text) {
-          const findings = JSON.parse(remediationResponse.text) as CandidateFinding[];
+          let findings: CandidateFinding[];
+          try {
+            findings = JSON.parse(remediationResponse.text);
+          } catch (parseErr) {
+            await recordParseFailure({ callType: 'remediation', model }, remediationResponse, 0);
+            throw parseErr;
+          }
           console.log(`[${this.name}] Successfully generated ${findings.length} final actionable findings.`);
+          if (findings.length < discoveryIssues.length) {
+            // Not necessarily a bug — the remediation prompt now asks for one
+            // output per flagged issue, but doesn't hard-enforce it via the
+            // schema (a hard minItems would risk padding/duplication under
+            // model pressure). This makes the gap visible if it happens
+            // rather than silently attributing the loss to Pass 1.
+            console.warn(`[${this.name}] Pass 2 dropped ${discoveryIssues.length - findings.length} of ${discoveryIssues.length} discovered issues.`);
+          }
           return {
             findings: findings.map(f => ({ ...f, agent: this.name })),
             usage: {
@@ -327,7 +404,13 @@ ${chunk.content}
       );
 
       if (response.text) {
-          const findings = JSON.parse(response.text) as CandidateFinding[];
+          let findings: CandidateFinding[];
+          try {
+            findings = JSON.parse(response.text);
+          } catch (parseErr) {
+            await recordParseFailure({ callType: 'legacy', model: legacyModel }, response, 0);
+            throw parseErr;
+          }
           return {
             findings: findings.map(f => ({ ...f, file: chunk.file, agent: this.name })),
             usage: response.usageMetadata ? {
@@ -344,11 +427,26 @@ ${chunk.content}
     }
   }
 
-  private buildDiscoveryPrompt(chunks: DiffChunk[]): { systemInstruction: string, contents: string } {
-    const diffsText = chunks.map(c => `File: ${c.file}\n\`\`\`diff\n${c.content}\n\`\`\``).join('\n\n');
+  // allChunks is always the full set assigned to this agent, so cross-file
+  // context (e.g. "is this symbol defined elsewhere in the diff?") is never
+  // lost — see review-quality-design.md §5.1 for why that fix isn't
+  // negotiable. focusChunks, when narrower than allChunks, restricts what
+  // this specific call is asked to REPORT on, turning per-call coverage from
+  // a self-attested claim (the model says it examined N files) into a
+  // structural property (the call is only asked to examine W of them). See
+  // selectModel's focus-window batching in analyze() for why: a model that
+  // silently skims later files in a long file list, rather than actively
+  // refusing to look, would still truthfully claim "yes I checked" — the
+  // COVERAGE prompt block above can only ask, not enforce.
+  private buildDiscoveryPrompt(allChunks: DiffChunk[], focusChunks?: DiffChunk[]): { systemInstruction: string, contents: string } {
+    const diffsText = allChunks.map(c => `File: ${c.file}\n\`\`\`diff\n${c.content}\n\`\`\``).join('\n\n');
     const systemInstruction = this.buildDiscoverySystemInstruction();
 
-    const contents = `<DIFF_CONTENTS>\n${diffsText}\n</DIFF_CONTENTS>`;
+    let contents = `<DIFF_CONTENTS>\n${diffsText}\n</DIFF_CONTENTS>`;
+    if (focusChunks && focusChunks.length < allChunks.length) {
+      const focusFiles = focusChunks.map(c => c.file).join('\n');
+      contents += `\n\n<FOCUS_FILES>\n${focusFiles}\n</FOCUS_FILES>\n\nOnly report issues located in the files listed in <FOCUS_FILES> above, and only list those files in \`filesAnalyzed\`. The other files in <DIFF_CONTENTS> are provided solely as context for cross-file reasoning (e.g. checking whether a symbol referenced in a focus file is defined elsewhere in the diff) — do not report findings located in them.`;
+    }
     return { systemInstruction, contents };
   }
 
@@ -356,7 +454,8 @@ ${chunk.content}
     const diffsText = chunks.map(c => `File: ${c.file}\n\`\`\`diff\n${c.content}\n\`\`\``).join('\n\n');
     const issuesText = JSON.stringify(issues, null, 2);
     const systemInstruction = `You are an elite, highly educational Staff Engineer acting as the ${this.name} remediation agent.
-A junior system has already flagged the potential issues in the following JSON array.
+A discovery pass has already located and validated the issues in the following JSON array. That decision is settled — your job is to explain each one and show how to fix it, not to re-judge whether it's real.
+CARDINALITY CONTRACT: You MUST return exactly one object for every entry in <FLAGGED_ISSUES>, in the same order, preserving its \`file\`, \`line\`, and \`severity\` unless you have a specific reason to adjust severity. Do not merge, drop, or silently skip an entry — a downstream deduplication stage already handles overlap between findings, and a human reviews the final result. If an entry looks weaker than flagged on closer inspection, keep it and lower its severity; do not omit it.
 Your job is to read these flagged locations, read the source code context, and synthesize a masterful, highly detailed, and educational explanation for each issue.
 Most importantly, you MUST provide a complete, copy-pasteable markdown code block in the \`suggestion\` field showing exactly how the developers should rewrite the code to adhere to best architectural practices.
 Your descriptions must elevate from simple linting to deep mentorship and architectural guidance.

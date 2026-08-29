@@ -215,6 +215,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
     let v2Metrics: V2ComparisonMetrics | undefined = undefined;
     let recallMetrics: { targetA_vs_targetB: ReturnType<typeof computeRecall>; targetB_vs_targetA: ReturnType<typeof computeRecall> } | undefined = undefined;
     let metricsPlausible: boolean | undefined = undefined;
+    let judgeSlotSwapped: boolean | undefined = undefined;
 
     if (!targetAResult.error && !targetBResult.error) {
        try {
@@ -250,6 +251,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
              // "this run's structural target A/B" — no downstream analysis code
              // needs to know the judge's presentation order was randomized.
              const swapped = Math.random() < 0.5;
+             judgeSlotSwapped = swapped;
              const v2Res = swapped
                ? await compareResultsWithLLMV2(prUrl, bValid.validFindings, aValid.validFindings, gcaValid.validFindings, codeRabbitValid.validFindings, targetBConfig.label, targetAConfig.label)
                : await compareResultsWithLLMV2(prUrl, aValid.validFindings, bValid.validFindings, gcaValid.validFindings, codeRabbitValid.validFindings, targetAConfig.label, targetBConfig.label);
@@ -302,6 +304,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
       llm_comparison_report: llmEvaluation,
       v2Metrics,
       metricsPlausible,
+      judgeSlotSwapped,
       recallMetrics,
       gcaFindingsCount,
       codeRabbitFindingsCount
@@ -332,13 +335,18 @@ export async function runEvaluation(options: EvalOptions = {}) {
   };
   
   for (const r of runPayload.results) {
-    if (r.targetA?.metrics) {
+    // An errored target still carries a truthy `metrics` object (see
+    // runSingleTarget's catch: `{ findings: [], metrics: { calls: 0, ... },
+    // error: e.message }`), so this previously folded a failed review's
+    // zero-findings placeholder into the aggregate as if it were a
+    // legitimate zero-finding review, silently pulling the mean down.
+    if (r.targetA?.metrics && !r.targetA.error) {
        aggregateMetrics.targetA.inputTokens += r.targetA.metrics.inputTokens || 0;
        aggregateMetrics.targetA.outputTokens += r.targetA.metrics.outputTokens || 0;
        aggregateMetrics.targetA.calls += r.targetA.metrics.calls || 0;
        aggregateMetrics.targetA.findingsCount += r.targetA.findings?.length || 0;
     }
-    if (r.targetB?.metrics) {
+    if (r.targetB?.metrics && !r.targetB.error) {
        aggregateMetrics.targetB.inputTokens += r.targetB.metrics.inputTokens || 0;
        aggregateMetrics.targetB.outputTokens += r.targetB.metrics.outputTokens || 0;
        aggregateMetrics.targetB.calls += r.targetB.metrics.calls || 0;

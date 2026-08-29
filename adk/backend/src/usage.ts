@@ -30,6 +30,13 @@ export interface UsageEvent {
   inputTokens: number;
   outputTokens: number;
   cachedTokens?: number;
+  thinkingTokens?: number; // usageMetadata.thoughtsTokenCount — billed at the
+                            // output rate by the API but previously never
+                            // captured, so cost was understated, and
+                            // asymmetrically so: a model that thinks more by
+                            // default was understated more than one that
+                            // thinks less, which was quietly distorting every
+                            // cross-model cost comparison this project has run.
   latencyMs: number;
   costUsd: number;
   finishReason?: string;
@@ -56,12 +63,16 @@ const PRICE_TABLE: Record<string, { input: number; output: number }> = {
   'gemini-3.7-flash': { input: 0.75, output: 3.75 }, // introductory rate through 2026-12-31; doubles to 1.50/7.50 after
 };
 
-export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
+// thinkingTokens defaults to 0 for call sites that don't pass it (deduplicate/
+// evaluate) rather than being required, so this stays backward compatible;
+// omitting it just means the (usually small) thinking cost for those calls
+// is undercounted, not that the call errors.
+export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0, thinkingTokens = 0): number {
   const price = PRICE_TABLE[model];
   if (!price) return 0;
   const perM = 1_000_000;
   const billedInput = Math.max(0, inputTokens - cachedTokens);
-  return (billedInput * price.input) / perM + (outputTokens * price.output) / perM;
+  return (billedInput * price.input) / perM + ((outputTokens + thinkingTokens) * price.output) / perM;
 }
 
 // classifyError gives a coarse, stable label for a failed call so usage
@@ -144,7 +155,9 @@ type GenerateContentLikeResponse = {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
     cachedContentTokenCount?: number;
+    thoughtsTokenCount?: number;
   };
+  candidates?: Array<{ finishReason?: string }>;
 };
 
 // trackGeminiCall wraps a single `ai.models.generateContent(...)` call (or
@@ -169,6 +182,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
     const inputTokens = u?.promptTokenCount ?? 0;
     const outputTokens = u?.candidatesTokenCount ?? 0;
     const cachedTokens = u?.cachedContentTokenCount ?? 0;
+    const thinkingTokens = u?.thoughtsTokenCount ?? 0;
     await recordUsage({
       callType: ctx.callType,
       refId: ctx.refId,
@@ -176,8 +190,10 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       inputTokens,
       outputTokens,
       cachedTokens,
+      thinkingTokens,
       latencyMs,
-      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens),
+      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens, thinkingTokens),
+      finishReason: response.candidates?.[0]?.finishReason,
       success: true,
     });
     return response;
@@ -198,6 +214,47 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
   }
 }
 
+// recordParseFailure records that a call's response.text failed to
+// JSON.parse — a distinct failure mode from trackGeminiCall's own catch,
+// which only sees network/API-level errors. Previously, agent.ts's
+// JSON.parse calls happened outside trackGeminiCall entirely: a parse
+// failure was silently caught by analyze()'s outer catch and turned into
+// `{ findings: [] }` with no error propagated — indistinguishable in every
+// existing metric from "this agent legitimately found nothing." Call this
+// from that catch so the failure is visible in the same usage analytics as
+// every other failure kind, without changing analyze()'s graceful-degradation
+// behavior (the caller still gets `{ findings: [] }`; this only makes the
+// underlying cause visible after the fact).
+//
+// costUsd is deliberately 0 here, not the real cost of the underlying call:
+// trackGeminiCall already recorded that call as a success (the generateContent
+// request itself really did succeed and was billed) before this ever runs. A
+// second full-cost record for the same call would double it in every
+// aggregate. Token counts and finishReason are preserved for diagnosis (e.g.
+// distinguishing a MAX_TOKENS truncation from a genuinely malformed response)
+// without double-billing.
+export async function recordParseFailure(
+  ctx: { callType: string; model: string; refId?: string },
+  response: GenerateContentLikeResponse,
+  latencyMs: number
+): Promise<void> {
+  const u = response.usageMetadata;
+  await recordUsage({
+    callType: ctx.callType,
+    refId: ctx.refId,
+    model: ctx.model,
+    inputTokens: u?.promptTokenCount ?? 0,
+    outputTokens: u?.candidatesTokenCount ?? 0,
+    cachedTokens: u?.cachedContentTokenCount ?? 0,
+    thinkingTokens: u?.thoughtsTokenCount ?? 0,
+    latencyMs,
+    costUsd: 0,
+    finishReason: response.candidates?.[0]?.finishReason,
+    success: false,
+    errorKind: 'parse_error',
+  });
+}
+
 // --- Rollup aggregation, mirroring internal/usage's Aggregate/ListRecords
 // in the sibling job_tracker project. ---
 
@@ -207,6 +264,7 @@ export interface UsageBucket {
   failureCount: number;
   inputTokens: number;
   outputTokens: number;
+  thinkingTokens: number;
   costUsd: number;
 }
 
@@ -217,6 +275,7 @@ export interface Rollup {
   failureCount: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalThinkingTokens: number;
   totalCostUsd: number;
   avgLatencyMs: number;
   byCallType: Record<string, UsageBucket>;
@@ -254,7 +313,7 @@ export async function listUsageRecords(date: string): Promise<UsageRecord[]> {
 function addToBucket(m: Record<string, UsageBucket>, key: string | undefined, rec: UsageRecord): void {
   if (!key) return;
   if (!m[key]) {
-    m[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+    m[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0, costUsd: 0 };
   }
   const b = m[key];
   b.calls++;
@@ -265,6 +324,7 @@ function addToBucket(m: Record<string, UsageBucket>, key: string | undefined, re
   }
   b.inputTokens += rec.inputTokens;
   b.outputTokens += rec.outputTokens;
+  b.thinkingTokens += rec.thinkingTokens || 0;
   b.costUsd += rec.costUsd;
 }
 
@@ -278,6 +338,7 @@ export function aggregate(date: string, records: UsageRecord[]): Rollup {
     failureCount: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    totalThinkingTokens: 0,
     totalCostUsd: 0,
     avgLatencyMs: 0,
     byCallType: {},
@@ -298,6 +359,7 @@ export function aggregate(date: string, records: UsageRecord[]): Rollup {
     }
     rollup.totalInputTokens += rec.inputTokens;
     rollup.totalOutputTokens += rec.outputTokens;
+    rollup.totalThinkingTokens += rec.thinkingTokens || 0;
     rollup.totalCostUsd += rec.costUsd;
     totalLatencyMs += rec.latencyMs;
 

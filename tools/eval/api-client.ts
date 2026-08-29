@@ -45,6 +45,7 @@ export async function runReview(baseUrl: string, prUrl: string, pat: string): Pr
   let finalFindings: ReviewFinding[] = [];
   let finalMetrics: ReviewMetrics = { inputTokens: 0, outputTokens: 0, calls: 0 };
   let finalEvaluation: string | undefined = undefined;
+  let receivedDone = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -77,6 +78,7 @@ export async function runReview(baseUrl: string, prUrl: string, pat: string): Pr
         }));
         finalMetrics = parsed.metrics || { inputTokens: 0, outputTokens: 0, calls: 0 };
         finalEvaluation = parsed.evaluation;
+        receivedDone = true;
       } else if (parsed.type === 'error') {
         throw new Error(parsed.error || 'Unknown error occurred from API.');
       }
@@ -99,9 +101,20 @@ export async function runReview(baseUrl: string, prUrl: string, pat: string): Pr
       }));
       finalMetrics = parsed.metrics || finalMetrics;
       finalEvaluation = parsed.evaluation;
+      receivedDone = true;
     } else if (parsed?.type === 'error') {
       throw new Error(parsed.error || 'Unknown error occurred from API.');
     }
+  }
+
+  // A stream that ends without ever emitting a `done` frame (a dropped
+  // connection, a Fly machine restart, a truncated response) previously
+  // returned here with zero findings and no error — indistinguishable from a
+  // review that legitimately found nothing. A real review can also never
+  // report zero calls; both are treated as failures so evaluate.ts's retry
+  // logic (which only retries on a thrown error) actually retries them.
+  if (!receivedDone || finalMetrics.calls === 0) {
+    throw new Error('Review stream ended without a valid `done` frame (connection dropped or response truncated).');
   }
 
   return {

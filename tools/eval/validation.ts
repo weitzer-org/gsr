@@ -37,13 +37,22 @@ export function computeRecall(
 ): RecallResult {
   const recovered: ReviewFinding[] = [];
   const missedFindings: ReviewFinding[] = [];
+  // 1:1 greedy matching — a candidate finding, once matched, can't also
+  // "recover" a second nearby reference finding. The original `.some()`
+  // check let one candidate finding count as covering every reference
+  // finding within its proximity window, which silently inflated recall most
+  // in exactly the regime under study: a candidate with very few findings
+  // scattered across a large file.
+  const consumed = new Set<number>();
 
   for (const ref of referenceFindings) {
-    const isRecovered = candidateFindings.some(c =>
+    const matchIndex = candidateFindings.findIndex((c, i) =>
+      !consumed.has(i) &&
       filePathsMatch(c.fileName || '', ref.fileName || '') &&
       Math.abs((c.lineNumber || 0) - (ref.lineNumber || 0)) <= proximityLines
     );
-    if (isRecovered) {
+    if (matchIndex !== -1) {
+      consumed.add(matchIndex);
       recovered.push(ref);
     } else {
       missedFindings.push(ref);

@@ -74,14 +74,29 @@ function resolveDates({ date, from, to }) {
 // with a stale schemaVersion as untrustworthy and rebuilds it, which is what
 // keeps a --write-rollup run here from silently reintroducing an old-shape
 // rollup if this copy ever falls behind usage.ts's.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const UNTAGGED_REPOSITORY_LABEL = 'gsr (hosted)';
 
+// Mirrors adk/backend/src/usage.ts's KNOWN_REVIEW_CALL_TYPES allowlist —
+// keep both in sync. See that file's comment for the invariant (must never
+// overlap with any ingested source's own callType vocabulary).
+const KNOWN_REVIEW_CALL_TYPES = new Set([
+  'legacy',
+  'discovery',
+  'remediation',
+  'deduplicate',
+  'feedback_classify',
+  'feedback_adjudicate',
+  'debug_test_deduplicator',
+  'debug_single',
+]);
+
 function workloadOf(rec) {
-  return rec.callType === 'evaluate' ||
-    (typeof rec.callType === 'string' && rec.callType.startsWith('llm_compare'))
-    ? 'eval'
-    : 'review';
+  if (rec.callType === 'evaluate' || (typeof rec.callType === 'string' && rec.callType.startsWith('llm_compare'))) {
+    return 'eval';
+  }
+  if (KNOWN_REVIEW_CALL_TYPES.has(rec.callType)) return 'review';
+  return 'product';
 }
 
 // See adk/backend/src/usage.ts's addToBucket comment: `key` comes from

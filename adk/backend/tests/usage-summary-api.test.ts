@@ -113,9 +113,12 @@ describe('GET /api/usage/summary (integration, real app wiring)', () => {
 
     it('reads (not recomputes) a fresh cached rollup for a past day', async () => {
         // aggregate() isn't imported here, so build a minimal fresh-shaped
-        // rollup by hand at schemaVersion 2.
+        // rollup by hand at the current schema version — must be bumped in
+        // lockstep with adk/backend/src/usage.ts's CURRENT_SCHEMA_VERSION,
+        // or this "reads from cache" test starts exercising the rebuild path
+        // instead (schemaVersion mismatch treats the cache as stale).
         const cachedRollup = {
-            schemaVersion: 2, date: '2020-01-01',
+            schemaVersion: 3, date: '2020-01-01',
             totalCalls: 1, successCount: 1, failureCount: 0,
             totalInputTokens: 5, totalOutputTokens: 2, totalThinkingTokens: 0, totalCostUsd: 0.001,
             totalLatencyMs: 10, avgLatencyMs: 10,

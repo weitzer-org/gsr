@@ -268,12 +268,16 @@ export interface UsageBucket {
   costUsd: number;
 }
 
-// Bumped whenever Rollup's shape changes. getOrBuildDayRollup (below) uses
-// this to detect a cached usage/rollups/<date>.json written by an
-// out-of-sync producer (an older deploy, or a manual `usage-report.js
-// --write-rollup` run whose own hand-copied aggregate() hasn't been updated
-// to match) and transparently rebuild it instead of serving a stale shape.
-export const CURRENT_SCHEMA_VERSION = 2;
+// Bumped whenever Rollup's shape OR classification semantics change.
+// getOrBuildDayRollup (below) uses this to detect a cached
+// usage/rollups/<date>.json written by an out-of-sync producer (an older
+// deploy, or a manual `usage-report.js --write-rollup` run whose own
+// hand-copied aggregate() hasn't been updated to match) and transparently
+// rebuild it instead of serving a stale shape. Bumped to 3 when workloadOf()
+// gained the "product" classification — a cached rollup built under the old
+// binary eval/review split would otherwise keep serving that stale split
+// forever, since its shape (Rollup's fields) didn't change, only its values.
+export const CURRENT_SCHEMA_VERSION = 3;
 
 // byModelRepository/byModelWorkload/byRepositoryWorkload key their maps on
 // `${a}|${b}` — safe because model names, "owner/repo" repository strings,
@@ -312,9 +316,38 @@ const UNTAGGED_REPOSITORY_LABEL = 'gsr (hosted)';
 // `llm_compare_v2` (+ `_aggregate`) callTypes — the latter written by the
 // separate gsr-evaluator service's tools/eval/usage.ts into its own bucket,
 // read here via listUsageRecords/getOrBuildDayRollup's bucket parameter
-// rather than a shared module. Everything else is "review".
-function workloadOf(rec: UsageRecord): 'eval' | 'review' {
-  return rec.callType === 'evaluate' || rec.callType.startsWith('llm_compare') ? 'eval' : 'review';
+// rather than a shared module.
+//
+// "review" is an explicit allowlist of GSR's own known review/debug
+// callTypes, NOT a denylist of everything job_tracker/sound-profile-builder
+// might send — sound-profile-builder's callType is an open-ended free-text
+// agent-role string (e.g. "Tone Historian"), so a denylist couldn't work for
+// it anyway. Everything that isn't "eval" or one of these known GSR
+// callTypes is "product": job_tracker's/sound-profile-builder's own native
+// Gemini usage, reported via the same ingest path review-usage already uses
+// (see ingestUsageRecords below).
+//
+// INVARIANT: this Set must never overlap with any ingested source's own
+// callType vocabulary — that's what lets a new reporter push usage here
+// without GSR needing to learn its callTypes first. Confirmed disjoint from
+// job_tracker's (score_job, parse_jd, score_candidate, judge,
+// company_research, company_url_lookup) and sound-profile-builder's
+// (free-text agent role names) as of the "product" workload's introduction.
+const KNOWN_REVIEW_CALL_TYPES = new Set([
+  'legacy',
+  'discovery',
+  'remediation',
+  'deduplicate',
+  'feedback_classify',
+  'feedback_adjudicate',
+  'debug_test_deduplicator',
+  'debug_single',
+]);
+
+function workloadOf(rec: UsageRecord): 'eval' | 'review' | 'product' {
+  if (rec.callType === 'evaluate' || rec.callType.startsWith('llm_compare')) return 'eval';
+  if (KNOWN_REVIEW_CALL_TYPES.has(rec.callType)) return 'review';
+  return 'product';
 }
 
 async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
@@ -672,7 +705,23 @@ export async function ingestUsageRecords(
     }
     try {
       const tagged: UsageRecord = repository ? { ...record, repository } : record;
-      await uploadJson(getUsageBucketName(), objectKey(new Date()), tagged);
+      // Key the object by the record's OWN timestamp, not the moment it
+      // happens to be ingested — a batch can be POSTed minutes (a live
+      // reporter) or, for a backfill, months after the calls it describes
+      // actually happened. Keying by `new Date()` here would silently land
+      // every ingested record under today's prefix regardless of when the
+      // underlying Gemini call ran, which would have made a historical
+      // backfill land entirely on the day it was run instead of the dates
+      // it's restoring (the same bug class already fixed in tools/eval's
+      // local writer). Fall back to `new Date()` only if the reported
+      // timestamp doesn't parse, so a malformed record still lands somewhere
+      // findable instead of being silently dropped.
+      const parsed = new Date(tagged.timestamp);
+      const recordDate = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+      if (Number.isNaN(parsed.getTime())) {
+        console.warn('[usage] ingested record has an unparsable timestamp; filing under today instead:', tagged.timestamp);
+      }
+      await uploadJson(getUsageBucketName(), objectKey(recordDate), tagged);
       return true;
     } catch (err) {
       console.error('[usage] failed to ingest a reported usage record:', err);

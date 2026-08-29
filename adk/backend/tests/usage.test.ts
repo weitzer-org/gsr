@@ -164,6 +164,41 @@ describe('trackGeminiCall', () => {
     });
 });
 
+describe('recordParseFailure', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockUploadJson.mockResolvedValue(undefined);
+    });
+
+    it('records a failure with costUsd 0 to avoid double-billing an already-tracked call', async () => {
+        const response = { text: '{not valid json', usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 10, thoughtsTokenCount: 5 } };
+        await usage.recordParseFailure({ callType: 'discovery', model: 'gemini-3.1-pro-preview' }, response, 123);
+
+        expect(mockUploadJson).toHaveBeenCalledTimes(1);
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.success).toBe(false);
+        expect(data.errorKind).toBe('parse_error');
+        expect(data.costUsd).toBe(0);
+        // Token counts are still preserved for diagnosis even though cost is
+        // zeroed — e.g. distinguishing a MAX_TOKENS truncation from a
+        // genuinely malformed response.
+        expect(data.inputTokens).toBe(50);
+        expect(data.outputTokens).toBe(10);
+        expect(data.thinkingTokens).toBe(5);
+        expect(data.latencyMs).toBe(123);
+    });
+
+    it('captures finishReason and defaults token counts to 0 with no usageMetadata', async () => {
+        const response = { candidates: [{ finishReason: 'MAX_TOKENS' }] };
+        await usage.recordParseFailure({ callType: 'remediation', model: 'x' }, response, 0);
+
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.finishReason).toBe('MAX_TOKENS');
+        expect(data.inputTokens).toBe(0);
+        expect(data.outputTokens).toBe(0);
+    });
+});
+
 describe('aggregate', () => {
     it('returns a zero-value rollup for no records', () => {
         const rollup = usage.aggregate('2026-07-29', []);

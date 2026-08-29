@@ -4,7 +4,6 @@ import { trackGeminiCall } from './usage.js';
 
 export class DeduplicatorAgent {
   private ai: GoogleGenAI;
-  private static lock: Promise<void> = Promise.resolve();
 
   constructor() {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -12,15 +11,11 @@ export class DeduplicatorAgent {
 
   async deduplicate(findings: CandidateFinding[]): Promise<CandidateFinding[]> {
     if (!findings || findings.length === 0) return [];
-    
+
     // Fallback if deduplicator is disabled via config
     if (process.env.USE_DEDUPLICATOR === 'false') {
        return findings;
     }
-
-    await DeduplicatorAgent.lock;
-    let resolveLock: () => void;
-    DeduplicatorAgent.lock = new Promise((resolve) => { resolveLock = resolve; });
 
     try {
       console.log(`[Deduplicator] Starting deduplication of ${findings.length} findings...`);
@@ -53,6 +48,18 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
         contents: JSON.stringify(findings),
         config: {
           systemInstruction,
+          // Without an explicit cap, this model can pathologically hang past
+          // Node's 5-minute headers timeout with ZERO response when the
+          // input findings are highly repetitive/near-duplicate (e.g. the
+          // same pattern flagged at several similar call sites) — confirmed
+          // via a standalone repro outside the app. Root cause isn't excess
+          // latency from thinking itself: an 8192 cap still hung; 4096 and
+          // below reliably completed in ~12-17s on the same repetitive
+          // input. This model rejects thinkingBudget: 0 (requires "thinking
+          // mode"), so 4096 is the smallest well-tested safe floor, with
+          // ~1.8x headroom above the ~2200 thinking tokens a healthy
+          // 12-finding merge used natively.
+          thinkingConfig: { thinkingBudget: 4096 },
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.ARRAY,
@@ -104,8 +111,6 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
     } catch (e) {
       console.error("[Deduplicator] Failed to deduplicate findings:", e);
       return findings;
-    } finally {
-      resolveLock!();
     }
   }
 }

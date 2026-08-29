@@ -8,7 +8,7 @@ import { uploadResultsToGCS, ensureBucketExists } from './storage';
 import { buildRunMetadata } from './version-tracker';
 
 import { fetchBotComments } from './github-comments';
-import { validateFindingsAgainstDiff } from './validation';
+import { validateFindingsAgainstDiff, computeRecall } from './validation';
 import { compareResultsWithLLMV2, generateAggregateReportV2, V2ComparisonMetrics } from './llm-comparator-v2';
 import { GitHubClient } from '../../adk/backend/src/github';
 
@@ -169,39 +169,59 @@ export async function runEvaluation(options: EvalOptions = {}) {
   runPayload.targetA_model = await fetchTargetModel(targetAConfig.url);
   runPayload.targetB_model = await fetchTargetModel(targetBConfig.url);
 
+  // A PR only ever contributed a data point if it happened to succeed on
+  // whichever attempt was retried — a bias toward whichever run survived,
+  // not toward the model's true behavior, since large/volatile PRs error
+  // more often and therefore get disproportionately represented by
+  // degraded attempts. Retry each PR in place, in the SAME run, until
+  // both targets succeed or the attempt budget is exhausted, so "the
+  // complete set" and "the analyzed set" are the same thing.
+  // A non-numeric EVAL_MAX_PR_RETRIES parses to NaN, and `attempt <= NaN` is
+  // always false — the retry loop below would then never execute even its
+  // first iteration, leaving every PR's result at the `notAttempted`
+  // placeholder and silently producing a zero-result run with no thrown
+  // error. Fall back to the same default of 3 the rest of this file assumes.
+  const rawMaxAttempts = parseInt(process.env.EVAL_MAX_PR_RETRIES || '3', 10);
+  const maxAttempts = Number.isNaN(rawMaxAttempts) ? 3 : rawMaxAttempts;
+
+  async function runSingleTarget(url: string, label: string, prUrl: string): Promise<CombinedResult> {
+    try {
+      const res = await runReview(url, prUrl, githubPat as string);
+      console.log(`✅ [${label}] Retrieved ${res.findings.length} findings.`);
+      return res;
+    } catch (e: any) {
+      console.error(`❌ [${label}] Failed: ${e.message}`);
+      return { findings: [], metrics: { calls: 0, inputTokens: 0, outputTokens: 0 }, error: e.message };
+    }
+  }
+
   // 5. Evaluate all PRs concurrently
   const evalPromises = prs.map(async (prUrl: string) => {
     console.log(`\n================================`);
     console.log(`🔍 Evaluating PR: ${prUrl}`);
     console.log(`================================`);
 
-    console.log(`[${targetAConfig.label} & ${targetBConfig.label}] Sending review requests simultaneously...`);
-    
-    const targetAPromise = runReview(targetAConfig.url, prUrl, githubPat)
-      .then(res => {
-        console.log(`✅ [${targetAConfig.label}] Retrieved ${res.findings.length} findings.`);
-        return res;
-      })
-      .catch(e => {
-        console.error(`❌ [${targetAConfig.label}] Failed: ${e.message}`);
-        return { findings: [], metrics: { calls:0, inputTokens:0, outputTokens:0 }, error: e.message };
-      });
-
-    const targetBPromise = runReview(targetBConfig.url, prUrl, githubPat)
-      .then(res => {
-        console.log(`✅ [${targetBConfig.label}] Retrieved ${res.findings.length} findings.`);
-        return res;
-      })
-      .catch(e => {
-        console.error(`❌ [${targetBConfig.label}] Failed: ${e.message}`);
-        return { findings: [], metrics: { calls:0, inputTokens:0, outputTokens:0 }, error: e.message };
-      });
-
-    const [targetAResult, targetBResult] = await Promise.all([targetAPromise, targetBPromise]);
+    const notAttempted: CombinedResult = { findings: [], metrics: { calls: 0, inputTokens: 0, outputTokens: 0 }, error: 'not attempted' };
+    let targetAResult: CombinedResult = notAttempted;
+    let targetBResult: CombinedResult = notAttempted;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      console.log(`[${targetAConfig.label} & ${targetBConfig.label}] Sending review requests simultaneously (attempt ${attempt}/${maxAttempts})...`);
+      [targetAResult, targetBResult] = await Promise.all([
+        runSingleTarget(targetAConfig.url, targetAConfig.label, prUrl),
+        runSingleTarget(targetBConfig.url, targetBConfig.label, prUrl),
+      ]);
+      if (!targetAResult.error && !targetBResult.error) break;
+      if (attempt < maxAttempts) {
+        console.warn(`⚠️ [${prUrl}] Attempt ${attempt} had a failure, retrying...`);
+      }
+    }
 
     // 6. Compare results with LLM if both succeeded roughly
     let llmEvaluation = 'Skipped due to API errors.';
     let v2Metrics: V2ComparisonMetrics | undefined = undefined;
+    let recallMetrics: { targetA_vs_targetB: ReturnType<typeof computeRecall>; targetB_vs_targetA: ReturnType<typeof computeRecall> } | undefined = undefined;
+    let metricsPlausible: boolean | undefined = undefined;
+    let judgeSlotSwapped: boolean | undefined = undefined;
 
     if (!targetAResult.error && !targetBResult.error) {
        try {
@@ -219,12 +239,45 @@ export async function runEvaluation(options: EvalOptions = {}) {
              const bValid = validateFindingsAgainstDiff(targetBResult.findings, prDiff);
              const gcaValid = validateFindingsAgainstDiff(gcaFindings, prDiff);
              const codeRabbitValid = validateFindingsAgainstDiff(codeRabbitFindings, prDiff);
-             
-             // Run the V2 LLM comparator on the valid findings
-             const v2Res = await compareResultsWithLLMV2(prUrl, aValid.validFindings, bValid.validFindings, gcaValid.validFindings, codeRabbitValid.validFindings, targetAConfig.label, targetBConfig.label);
+
+             // Deterministic, judge-independent, no extra API calls — computed
+             // from findings already fetched above. See computeRecall's doc
+             // comment for why actionability alone can't catch this.
+             recallMetrics = {
+               targetA_vs_targetB: computeRecall(aValid.validFindings, bValid.validFindings),
+               targetB_vs_targetA: computeRecall(bValid.validFindings, aValid.validFindings),
+             };
+
+             // R0 (baseline scored against itself) showed a measurable position
+             // bias toward whichever target the judge sees first/labeled first —
+             // large enough to be a real confound against the effect sizes this
+             // harness is trying to detect. Randomize, per PR, which target the
+             // judge sees as "targetA" vs "targetB", then un-swap the returned
+             // metrics so the stored result always keeps targetA/targetB meaning
+             // "this run's structural target A/B" — no downstream analysis code
+             // needs to know the judge's presentation order was randomized.
+             const swapped = Math.random() < 0.5;
+             judgeSlotSwapped = swapped;
+             const v2Res = swapped
+               ? await compareResultsWithLLMV2(prUrl, bValid.validFindings, aValid.validFindings, gcaValid.validFindings, codeRabbitValid.validFindings, targetBConfig.label, targetAConfig.label)
+               : await compareResultsWithLLMV2(prUrl, aValid.validFindings, bValid.validFindings, gcaValid.validFindings, codeRabbitValid.validFindings, targetAConfig.label, targetBConfig.label);
              llmEvaluation = v2Res.report;
-             v2Metrics = v2Res.metrics;
-             
+             v2Metrics = swapped
+               ? {
+                   ...v2Res.metrics,
+                   targetA: v2Res.metrics.targetB,
+                   targetB: v2Res.metrics.targetA,
+                   overlapMatrix: {
+                     ...v2Res.metrics.overlapMatrix,
+                     targetA_gca: v2Res.metrics.overlapMatrix.targetB_gca,
+                     targetB_gca: v2Res.metrics.overlapMatrix.targetA_gca,
+                     targetA_codeRabbit: v2Res.metrics.overlapMatrix.targetB_codeRabbit,
+                     targetB_codeRabbit: v2Res.metrics.overlapMatrix.targetA_codeRabbit,
+                   },
+                 }
+               : v2Res.metrics;
+             metricsPlausible = v2Res.plausible;
+
              // Inject the extra stats into the payload
              (targetAResult as any).v2Validation = { valid: aValid.validFindings.length, hallucinated: aValid.hallucinatedFindings.length };
              (targetBResult as any).v2Validation = { valid: bValid.validFindings.length, hallucinated: bValid.hallucinatedFindings.length };
@@ -256,6 +309,9 @@ export async function runEvaluation(options: EvalOptions = {}) {
       targetB: targetBResult,
       llm_comparison_report: llmEvaluation,
       v2Metrics,
+      metricsPlausible,
+      judgeSlotSwapped,
+      recallMetrics,
       gcaFindingsCount,
       codeRabbitFindingsCount
     };
@@ -285,13 +341,18 @@ export async function runEvaluation(options: EvalOptions = {}) {
   };
   
   for (const r of runPayload.results) {
-    if (r.targetA?.metrics) {
+    // An errored target still carries a truthy `metrics` object (see
+    // runSingleTarget's catch: `{ findings: [], metrics: { calls: 0, ... },
+    // error: e.message }`), so this previously folded a failed review's
+    // zero-findings placeholder into the aggregate as if it were a
+    // legitimate zero-finding review, silently pulling the mean down.
+    if (r.targetA?.metrics && !r.targetA.error) {
        aggregateMetrics.targetA.inputTokens += r.targetA.metrics.inputTokens || 0;
        aggregateMetrics.targetA.outputTokens += r.targetA.metrics.outputTokens || 0;
        aggregateMetrics.targetA.calls += r.targetA.metrics.calls || 0;
        aggregateMetrics.targetA.findingsCount += r.targetA.findings?.length || 0;
     }
-    if (r.targetB?.metrics) {
+    if (r.targetB?.metrics && !r.targetB.error) {
        aggregateMetrics.targetB.inputTokens += r.targetB.metrics.inputTokens || 0;
        aggregateMetrics.targetB.outputTokens += r.targetB.metrics.outputTokens || 0;
        aggregateMetrics.targetB.calls += r.targetB.metrics.calls || 0;
@@ -321,7 +382,13 @@ export async function runEvaluation(options: EvalOptions = {}) {
     };
     let count = 0;
     for (const r of runPayload.results) {
-        if (r.v2Metrics) {
+        // metricsPlausible === false means the judge's own numbers are
+        // internally impossible (see compareResultsWithLLMV2) — a confirmed
+        // score-transcription error distinct from the key-naming mismatch
+        // normalizeV2Metrics guards against. Excluding it here, not just
+        // logging it, since silently including corrupted rows is exactly
+        // what let it inflate an earlier analysis undetected.
+        if (r.v2Metrics && r.metricsPlausible !== false) {
             count++;
             for (const key of ['targetA', 'targetB', 'gca', 'codeRabbit']) {
               llmAggregatedMetrics[key].actionability += r.v2Metrics[key]?.actionability || 0;

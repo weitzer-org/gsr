@@ -157,6 +157,7 @@ type GenerateContentLikeResponse = {
     cachedContentTokenCount?: number;
     thoughtsTokenCount?: number;
   };
+  candidates?: Array<{ finishReason?: string }>;
 };
 
 // trackGeminiCall wraps a single `ai.models.generateContent(...)` call (or
@@ -192,6 +193,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       thinkingTokens,
       latencyMs,
       costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens),
+      finishReason: response.candidates?.[0]?.finishReason,
       success: true,
     });
     return response;
@@ -210,6 +212,47 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
     });
     throw err;
   }
+}
+
+// recordParseFailure records that a call's response.text failed to
+// JSON.parse — a distinct failure mode from trackGeminiCall's own catch,
+// which only sees network/API-level errors. Previously, agent.ts's
+// JSON.parse calls happened outside trackGeminiCall entirely: a parse
+// failure was silently caught by analyze()'s outer catch and turned into
+// `{ findings: [] }` with no error propagated — indistinguishable in every
+// existing metric from "this agent legitimately found nothing." Call this
+// from that catch so the failure is visible in the same usage analytics as
+// every other failure kind, without changing analyze()'s graceful-degradation
+// behavior (the caller still gets `{ findings: [] }`; this only makes the
+// underlying cause visible after the fact).
+//
+// costUsd is deliberately 0 here, not the real cost of the underlying call:
+// trackGeminiCall already recorded that call as a success (the generateContent
+// request itself really did succeed and was billed) before this ever runs. A
+// second full-cost record for the same call would double it in every
+// aggregate. Token counts and finishReason are preserved for diagnosis (e.g.
+// distinguishing a MAX_TOKENS truncation from a genuinely malformed response)
+// without double-billing.
+export async function recordParseFailure(
+  ctx: { callType: string; model: string; refId?: string },
+  response: GenerateContentLikeResponse,
+  latencyMs: number
+): Promise<void> {
+  const u = response.usageMetadata;
+  await recordUsage({
+    callType: ctx.callType,
+    refId: ctx.refId,
+    model: ctx.model,
+    inputTokens: u?.promptTokenCount ?? 0,
+    outputTokens: u?.candidatesTokenCount ?? 0,
+    cachedTokens: u?.cachedContentTokenCount ?? 0,
+    thinkingTokens: u?.thoughtsTokenCount ?? 0,
+    latencyMs,
+    costUsd: 0,
+    finishReason: response.candidates?.[0]?.finishReason,
+    success: false,
+    errorKind: 'parse_error',
+  });
 }
 
 // --- Rollup aggregation, mirroring internal/usage's Aggregate/ListRecords

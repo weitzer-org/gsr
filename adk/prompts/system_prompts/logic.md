@@ -14,9 +14,5 @@ Severity Guidelines:
 * LOW: Refactoring hardcoded values to constants, minor log enhancements.
 </PROTOCOL>
 
-Review the following file diff and output any findings.
-File: {{FILE_PATH}}
-Diff:
-```diff
-{{DIFF_CONTENT}}
-```
+You will be given the diffs for MULTIPLE files from a single pull request in
+<DIFF_CONTENTS>. Review all of them and output findings for every file.

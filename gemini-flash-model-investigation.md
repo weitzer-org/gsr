@@ -155,6 +155,22 @@ measurement bug → fixing the bug reversed or shrank the result → repeat.
    secondary defense for malformed judge output specifically). **Fix this
    before trusting any future run's `normalizeV2Metrics`-recovered results
    under slot-swap.**
+9. **This investigation's own cost-billing claim was itself unverified.**
+   §7's original draft asserted `thoughtsTokenCount` was "previously silently
+   free" and should be billed at the output rate, framing this as a fix. A
+   concurrently-merged, unrelated PR (#73, a usage-metrics dashboard)
+   independently added the same `thoughtsTokenCount` capture but explicitly
+   chose **not** to fold it into cost — Gemini's pricing documentation
+   describes the output rate as already including thinking tokens, and
+   `candidatesTokenCount` may already reflect them for the models this
+   project bills, so adding them again risks double-billing rather than
+   correcting an undercount. That PR's reasoning is more carefully sourced
+   than this investigation's was; PR #74 was rebased onto it and dropped its
+   own billing change rather than defend an unverified assumption. **Any
+   cost-per-model figures cited earlier in this investigation (§1's pricing
+   comparison, any cost claims in older analysis) were computed without this
+   correction and should be treated as approximate** — re-verify against
+   current per-model API docs before relying on precise cost deltas.
 
 Two additional, non-code-bug limitations, not "fixed" so much as flagged:
 
@@ -215,13 +231,12 @@ before running comparisons, not after.**
   repetitive findings), raised Node's `requestTimeout` so the dedup-timeout
   fallback can reach the client.
 - 10 persona prompt files: fixed the broken template (§6.1).
-- `usage.ts` / `agent.ts`: capture `thoughtsTokenCount` and bill it
-  correctly (previously silently free, understating cost more for models
-  that think more by default — this alone had been distorting every
-  cross-model cost comparison in this investigation), capture
-  `finishReason`, record JSON-parse failures as a visible, distinct failure
-  mode instead of silently becoming `{ findings: [] }`, preserve accumulated
-  token usage on failure paths.
+- `usage.ts` / `agent.ts`: capture `finishReason`, record JSON-parse
+  failures as a visible, distinct failure mode instead of silently becoming
+  `{ findings: [] }`, preserve accumulated token usage on failure paths.
+  (`thoughtsTokenCount` capture/aggregation was added independently by a
+  concurrently-merged, unrelated PR — see the correction in §4 #9 below;
+  this investigation's own assumption about how to bill it was wrong.)
 - `tools/eval/*`: the fixes from §4 (#2, #3, #4, #5, #6-partial, #7)
   — judge key-naming + `metricsPlausible`, 1:1 `computeRecall`, retry-until-
   complete, slot-swap randomization, NDJSON error/truncation propagation,

@@ -1,13 +1,19 @@
 import { jest } from '@jest/globals';
 import { GeminiAgent } from '../src/agent';
+import { setUsageSink, resetUsageSink, UsageRecord } from '../src/usage';
 
-// trackGeminiCall's real implementation writes to S3-compatible storage
-// (see src/usage.ts) — transparently pass through to fn() here so these
-// tests exercise the real generateContent-mocking/response-handling logic
-// without making a real (and, in this sandboxed test environment, failing
-// and retrying) network call on every analyze() call.
+// jest.mock('../src/usage', ...) does not reliably intercept a statically-
+// imported named binding under this project's ESM jest config (see
+// usage.test.ts's comment on the same issue for src/storage.js) — agent.ts's
+// trackGeminiCall/recordParseFailure calls always hit the REAL usage.ts
+// module in this file regardless. That's harmless for most tests here (the
+// real trackGeminiCall just calls fn() and swallows its own S3-write
+// failures, which is what a passthrough mock would do anyway), but any test
+// that needs to observe what usage.ts recorded must do so via the real
+// module's own setUsageSink() override, not by asserting on a jest.fn().
 jest.mock('../src/usage', () => ({
     trackGeminiCall: jest.fn((_ctx: unknown, fn: () => Promise<unknown>) => fn()),
+    recordParseFailure: jest.fn(),
 }));
 
 describe('GeminiAgent', () => {
@@ -22,6 +28,7 @@ describe('GeminiAgent', () => {
 
     afterEach(() => {
         process.env = originalEnv;
+        resetUsageSink();
     });
 
     it('should construct correctly', () => {
@@ -39,6 +46,38 @@ describe('GeminiAgent', () => {
 
         const result = await agent.analyze([{ file: 'test.ts', content: '+ test' }]);
         expect(result.findings).toEqual([]);
+    });
+
+    it('should record a parse failure and preserve accumulated usage when discovery returns malformed JSON', async () => {
+        const recorded: UsageRecord[] = [];
+        setUsageSink(record => { recorded.push(record); });
+
+        const agent = new GeminiAgent('Logic', 'logic.md');
+        agent['ai'] = {
+            models: {
+                generateContent: jest.fn<any>().mockResolvedValueOnce({
+                    text: '{not valid json',
+                    usageMetadata: { promptTokenCount: 40, candidatesTokenCount: 15 }
+                })
+            }
+        } as any;
+
+        const result = await agent.analyze([{ file: 'app.ts', content: '+ app' }]);
+
+        // Graceful-degradation behavior is unchanged — the caller still gets
+        // an empty findings array, not a thrown error.
+        expect(result.findings).toEqual([]);
+        // trackGeminiCall records the underlying call as a success first,
+        // then the JSON.parse failure records its own distinct, zero-cost
+        // event — both land in the sink.
+        const parseFailures = recorded.filter(r => r.errorKind === 'parse_error');
+        expect(parseFailures).toHaveLength(1);
+        expect(parseFailures[0].callType).toBe('discovery');
+        expect(parseFailures[0].costUsd).toBe(0);
+        // Tokens already spent on the (successful, billed) call before the
+        // parse failure must not be silently discarded.
+        expect(result.usage?.promptTokenCount).toBe(40);
+        expect(result.usage?.candidatesTokenCount).toBe(15);
     });
 
     it('should perform two-pass analysis with filesAnalyzed coverage validation', async () => {

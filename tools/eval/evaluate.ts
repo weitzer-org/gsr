@@ -176,7 +176,13 @@ export async function runEvaluation(options: EvalOptions = {}) {
   // degraded attempts. Retry each PR in place, in the SAME run, until
   // both targets succeed or the attempt budget is exhausted, so "the
   // complete set" and "the analyzed set" are the same thing.
-  const maxAttempts = parseInt(process.env.EVAL_MAX_PR_RETRIES || '3', 10);
+  // A non-numeric EVAL_MAX_PR_RETRIES parses to NaN, and `attempt <= NaN` is
+  // always false — the retry loop below would then never execute even its
+  // first iteration, leaving every PR's result at the `notAttempted`
+  // placeholder and silently producing a zero-result run with no thrown
+  // error. Fall back to the same default of 3 the rest of this file assumes.
+  const rawMaxAttempts = parseInt(process.env.EVAL_MAX_PR_RETRIES || '3', 10);
+  const maxAttempts = Number.isNaN(rawMaxAttempts) ? 3 : rawMaxAttempts;
 
   async function runSingleTarget(url: string, label: string, prUrl: string): Promise<CombinedResult> {
     try {

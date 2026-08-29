@@ -33,5 +33,11 @@ const server = app.listen(PORT as number, '0.0.0.0', () => {
 // could get killed by Node itself before deduplicator.ts's graceful
 // un-deduped fallback ever reaches the client. Give the whole request
 // comfortable headroom beyond the deduplicator's own ceiling.
-const geminiTimeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '300000', 10);
+// An explicitly-set but non-numeric GEMINI_TIMEOUT_MS parses to NaN, which
+// would otherwise flow straight into server.requestTimeout — Node rejects
+// (or, depending on version, silently disables the timeout for) a NaN
+// value, either of which defeats the whole point of this setting. Fall
+// back to the same 300000 default the rest of the app uses.
+const rawGeminiTimeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '300000', 10);
+const geminiTimeoutMs = Number.isNaN(rawGeminiTimeoutMs) ? 300000 : rawGeminiTimeoutMs;
 server.requestTimeout = geminiTimeoutMs + 180000;

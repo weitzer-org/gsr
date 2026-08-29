@@ -112,9 +112,16 @@ export async function runReview(baseUrl: string, prUrl: string, pat: string): Pr
   // returned here with zero findings and no error — indistinguishable from a
   // review that legitimately found nothing. A real review can also never
   // report zero calls; both are treated as failures so evaluate.ts's retry
-  // logic (which only retries on a thrown error) actually retries them.
-  if (!receivedDone || finalMetrics.calls === 0) {
+  // logic (which only retries on a thrown error) actually retries them. Kept
+  // as two distinct error messages (not one combined check) so operator logs
+  // point at the actual failure mode — a dropped connection and a completed-
+  // but-empty pipeline call for different debugging, and collapsing them
+  // into one message would send whoever reads the log down the wrong path.
+  if (!receivedDone) {
     throw new Error('Review stream ended without a valid `done` frame (connection dropped or response truncated).');
+  }
+  if (finalMetrics.calls === 0) {
+    throw new Error('Review stream completed but reported 0 API calls (treated as a failure to trigger evaluation retry).');
   }
 
   return {

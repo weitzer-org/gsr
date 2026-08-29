@@ -111,21 +111,15 @@ function objectKey(date: Date): string {
   return `usage/${day}/${time}-${rand}.json`;
 }
 
-// recordUsage never throws — a broken/unreachable write (local or remote)
-// must never fail an eval run just because its analytics couldn't be
-// recorded. The two writes are independent and both always attempted: the
-// local one for this machine's own dashboard view, the production one so
-// this run shows up on the shared dashboard without needing R2 credentials
-// on this machine.
-export async function recordUsage(event: UsageEvent): Promise<void> {
-  const record: UsageRecord = { ...event, provider: 'gemini', repository: REPOSITORY_LABEL, timestamp: new Date().toISOString() };
-
+async function writeLocal(record: UsageRecord): Promise<void> {
   try {
     await uploadResultsToGCS(getUsageBucketName(), objectKey(new Date()), record);
   } catch (err) {
     console.error('[usage] failed to record usage event locally:', err);
   }
+}
 
+async function reportToProduction(record: UsageRecord): Promise<void> {
   const key = process.env.USAGE_INGEST_SHARED_SECRET;
   if (!key) {
     if (!warnedMissingIngestKey) {
@@ -135,8 +129,29 @@ export async function recordUsage(event: UsageEvent): Promise<void> {
     return;
   }
 
-  const url = process.env.USAGE_INGEST_URL || DEFAULT_USAGE_INGEST_URL;
-  await reportUsage([record], { url, key, repository: REPOSITORY_LABEL });
+  // reportUsage's own contract is "never throws" (it catches per-batch
+  // internally), but recordUsage's callers rely on that same guarantee
+  // transitively — don't let a future change to that contract silently
+  // break it here too.
+  try {
+    const url = process.env.USAGE_INGEST_URL || DEFAULT_USAGE_INGEST_URL;
+    await reportUsage([record], { url, key, repository: REPOSITORY_LABEL });
+  } catch (err) {
+    console.error('[usage] failed to report usage event to production:', err);
+  }
+}
+
+// recordUsage never throws — a broken/unreachable write (local or remote)
+// must never fail an eval run just because its analytics couldn't be
+// recorded. The two writes are independent and both always attempted, and
+// run CONCURRENTLY rather than one after the other: trackGeminiCall awaits
+// this before returning the tracked call's response to its own caller, so a
+// slow/unreachable production endpoint (reportUsage's own timeout is 10s)
+// stacked in series after the local write would otherwise add real,
+// avoidable wall-clock latency to every judge call in a run.
+export async function recordUsage(event: UsageEvent): Promise<void> {
+  const record: UsageRecord = { ...event, provider: 'gemini', repository: REPOSITORY_LABEL, timestamp: new Date().toISOString() };
+  await Promise.all([writeLocal(record), reportToProduction(record)]);
 }
 
 type GenerateContentLikeResponse = {

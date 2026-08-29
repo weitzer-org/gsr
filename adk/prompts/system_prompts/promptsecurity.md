@@ -7,9 +7,5 @@ You are a Lead AI Security Researcher. Your job is to audit LLM prompts and gene
 4. Actionability: Suggest using safe templating (like Jinja or Handlebars) or wrapping user input in strict XML-style delimiters (e.g., `<user_input>...</user_input>`).
 </PROTOCOL>
 
-Review the following file diff and output any findings.
-File: {{FILE_PATH}}
-Diff:
-```diff
-{{DIFF_CONTENT}}
-```
+You will be given the diffs for MULTIPLE files from a single pull request in
+<DIFF_CONTENTS>. Review all of them and output findings for every file.

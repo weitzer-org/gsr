@@ -23,6 +23,41 @@ export class GeminiAgent implements Subagent {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   }
 
+  // Single source of truth for the discovery system instruction — it was
+  // previously duplicated between the context-cache creation path and
+  // buildDiscoveryPrompt(), which only matters at all once the cache
+  // threshold (2048 tokens) is crossed; below it the cache is bypassed and
+  // the two copies are silently never compared. A future edit to just one
+  // copy would make cached and uncached runs use different prompts with no
+  // error — the eval harness's A/B comparisons would then be silently
+  // comparing two different things. One method removes that risk entirely.
+  //
+  // Diagnostic evidence (per-model discovery-call output token volume,
+  // gathered while investigating a Gemini-model-comparison recall gap)
+  // pointed at Pass 1 (discovery) as the primary source of under-reporting,
+  // not Pass 2 (remediation): flash-tier candidates converted far fewer
+  // discovery calls into any remediation call at all (~42-43% vs baseline's
+  // 67%), meaning they were finding nothing to report in the first pass far
+  // more often, not just pruning more after the fact. The COVERAGE and
+  // RECALL OVER PRECISION blocks below target that directly. The original
+  // instruction gave no guidance on where the precision/recall dial should
+  // sit, so each model used its own default — evidently tighter for
+  // gemini-3.6-flash/3.7-flash than for gemini-3.1-pro-preview.
+  private buildDiscoverySystemInstruction(): string {
+    return `You are the ${this.name} discovery agent.
+Your ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.
+Ensure you return your response in the strictly required JSON format.
+
+CRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it.
+If you skip a file, the system will fail.
+
+COVERAGE: Work through the files in <DIFF_CONTENTS> one at a time, in the order given. Do not stop early — the last file in the list must receive the same scrutiny as the first. Before emitting your answer, confirm that every file you list in \`filesAnalyzed\` was actually examined for issues in your specialty, not merely listed.
+
+RECALL OVER PRECISION: This is a discovery pass, not a final report. A separate downstream stage verifies, elaborates on, and merges everything you flag, and a human reviews the result. Report every location you have reasonable suspicion about, not only the ones you are certain about. Under-reporting costs this system more than over-reporting. When unsure whether something rises to the level of a finding, flag it at a lower severity (MEDIUM or LOW) rather than omitting it.
+
+${this.promptContent}`;
+  }
+
   async analyze(chunks: DiffChunk[]): Promise<AnalyzeResult> {
     if (process.env.USE_TRIAGE_AGENT === 'false') {
       const results = await Promise.all(chunks.map(chunk => this.analyzeLegacy(chunk)));
@@ -47,7 +82,7 @@ export class GeminiAgent implements Subagent {
       try {
         console.log(`[${this.name}] Initializing Context Cache for persona...`);
         // Note: GoogleGenAI caches.create defaults exactly
-        const discoverySystemInstruction = `You are the ${this.name} discovery agent.\nYour ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.\nEnsure you return your response in the strictly required JSON format.\nCRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. \nIf you skip a file, the system will fail.\n${this.promptContent}`;
+        const discoverySystemInstruction = this.buildDiscoverySystemInstruction();
         
         const envModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
         const cacheModel = envModel.startsWith('models/') ? envModel : `models/${envModel}`;
@@ -311,7 +346,7 @@ ${chunk.content}
 
   private buildDiscoveryPrompt(chunks: DiffChunk[]): { systemInstruction: string, contents: string } {
     const diffsText = chunks.map(c => `File: ${c.file}\n\`\`\`diff\n${c.content}\n\`\`\``).join('\n\n');
-    const systemInstruction = `You are the ${this.name} discovery agent.\nYour ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.\nEnsure you return your response in the strictly required JSON format.\nCRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. \nIf you skip a file, the system will fail.\n${this.promptContent}`;
+    const systemInstruction = this.buildDiscoverySystemInstruction();
 
     const contents = `<DIFF_CONTENTS>\n${diffsText}\n</DIFF_CONTENTS>`;
     return { systemInstruction, contents };

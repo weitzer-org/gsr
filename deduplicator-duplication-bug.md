@@ -37,7 +37,7 @@ batching change didn't make the underlying review better, it just changed
 how many findings were exposed to a single dedup call, which changed how
 often collapse triggered. Once collapse-affected runs were excluded from the
 recall-based analysis, the measured batching effect became statistically
-indistinguishable from noise (see the investigation doc §4c).
+indistinguishable from noise (see the investigation doc §4 #6).
 
 **Where to look:** `deduplicator.ts`'s dedup system instruction (the merge
 criteria it gives the model) and its `responseSchema` don't constrain output

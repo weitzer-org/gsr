@@ -235,7 +235,7 @@ before running comparisons, not after.**
   failures as a visible, distinct failure mode instead of silently becoming
   `{ findings: [] }`, preserve accumulated token usage on failure paths.
   (`thoughtsTokenCount` capture/aggregation was added independently by a
-  concurrently-merged, unrelated PR — see the correction in §4 #9 below;
+  concurrently-merged, unrelated PR — see the correction in §4 #9 above;
   this investigation's own assumption about how to bill it was wrong.)
 - `tools/eval/*`: the fixes from §4 (#2, #3, #4, #5, #6-partial, #7)
   — judge key-naming + `metricsPlausible`, 1:1 `computeRecall`, retry-until-

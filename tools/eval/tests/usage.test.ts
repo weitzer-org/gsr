@@ -140,4 +140,34 @@ describe('recordUsage (production reporting)', () => {
         expect(mockUploadResultsToGCS).toHaveBeenCalledTimes(2); // local write still happens either way
         warnSpy.mockRestore();
     });
+
+    it('swallows a local write failure without rejecting, and still attempts the production report', async () => {
+        process.env.USAGE_INGEST_SHARED_SECRET = 'test-secret';
+        // @ts-ignore
+        mockUploadResultsToGCS.mockRejectedValueOnce(new Error('GCS error'));
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+        await expect(
+            usage.recordUsage({ callType: 'llm_compare', model: 'gemini-2.5-pro', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true })
+        ).resolves.toBeUndefined();
+
+        expect(errorSpy).toHaveBeenCalled();
+        expect(mockReportUsage).toHaveBeenCalledTimes(1); // independent of the local write's outcome
+        errorSpy.mockRestore();
+    });
+
+    it('swallows a production report failure without rejecting, and still writes locally', async () => {
+        process.env.USAGE_INGEST_SHARED_SECRET = 'test-secret';
+        // @ts-ignore
+        mockReportUsage.mockRejectedValueOnce(new Error('network down'));
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+        await expect(
+            usage.recordUsage({ callType: 'llm_compare', model: 'gemini-2.5-pro', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true })
+        ).resolves.toBeUndefined();
+
+        expect(errorSpy).toHaveBeenCalled();
+        expect(mockUploadResultsToGCS).toHaveBeenCalledTimes(1); // independent of the report's outcome
+        errorSpy.mockRestore();
+    });
 });

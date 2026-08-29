@@ -27,6 +27,17 @@ export interface V2ComparisonMetrics {
 export interface V2ComparisonResult {
   report: string;
   metrics: V2ComparisonMetrics;
+  // false when the judge's own numbers are internally impossible (uniqueFindings
+  // exceeding how many findings that target actually had) — a confirmed failure
+  // mode distinct from the key-naming mismatch normalizeV2Metrics handles: the
+  // JSON block can use the correct literal "targetA"/"targetB" keys yet still
+  // transcribe one target's score under the other's key. Seen concretely: a
+  // judge run praised "Production" at length in prose (9 unique findings, a
+  // "senior staff engineer" review) while "Local" had made a single trivial
+  // finding — but the trailing JSON scored targetA (Local) 10/10 with 9 unique
+  // findings and targetB (Production) 8/10 with 0. Downstream consumers should
+  // treat metrics as unreliable for a PR where this is false.
+  plausible: boolean;
 }
 
 // The judge is asked to always key its JSON block "targetA"/"targetB", but the prompt also
@@ -169,8 +180,19 @@ tools are called above.
       metrics = emptyMetrics;
     }
 
+    const plausible =
+      metrics.targetA.uniqueFindings <= targetAFindings.length &&
+      metrics.targetB.uniqueFindings <= targetBFindings.length;
+    if (!plausible) {
+      console.warn(
+        `⚠️ [V2] Judge scores for ${prUrl} are internally implausible ` +
+        `(uniqueFindings exceeds actual finding count) — likely a target/score ` +
+        `transcription error, not a key-naming mismatch. Treat as unreliable.`
+      );
+    }
+
     console.log(`✅ V2 Evaluation complete.`);
-    return { report: response.text, metrics };
+    return { report: response.text, metrics, plausible };
   } catch (err) {
     console.error('Failed to run LLM Comparison.', err);
     throw err;

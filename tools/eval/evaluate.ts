@@ -214,6 +214,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
     let llmEvaluation = 'Skipped due to API errors.';
     let v2Metrics: V2ComparisonMetrics | undefined = undefined;
     let recallMetrics: { targetA_vs_targetB: ReturnType<typeof computeRecall>; targetB_vs_targetA: ReturnType<typeof computeRecall> } | undefined = undefined;
+    let metricsPlausible: boolean | undefined = undefined;
 
     if (!targetAResult.error && !targetBResult.error) {
        try {
@@ -267,7 +268,8 @@ export async function runEvaluation(options: EvalOptions = {}) {
                    },
                  }
                : v2Res.metrics;
-             
+             metricsPlausible = v2Res.plausible;
+
              // Inject the extra stats into the payload
              (targetAResult as any).v2Validation = { valid: aValid.validFindings.length, hallucinated: aValid.hallucinatedFindings.length };
              (targetBResult as any).v2Validation = { valid: bValid.validFindings.length, hallucinated: bValid.hallucinatedFindings.length };
@@ -299,6 +301,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
       targetB: targetBResult,
       llm_comparison_report: llmEvaluation,
       v2Metrics,
+      metricsPlausible,
       recallMetrics,
       gcaFindingsCount,
       codeRabbitFindingsCount
@@ -365,7 +368,13 @@ export async function runEvaluation(options: EvalOptions = {}) {
     };
     let count = 0;
     for (const r of runPayload.results) {
-        if (r.v2Metrics) {
+        // metricsPlausible === false means the judge's own numbers are
+        // internally impossible (see compareResultsWithLLMV2) — a confirmed
+        // score-transcription error distinct from the key-naming mismatch
+        // normalizeV2Metrics guards against. Excluding it here, not just
+        // logging it, since silently including corrupted rows is exactly
+        // what let it inflate an earlier analysis undetected.
+        if (r.v2Metrics && r.metricsPlausible !== false) {
             count++;
             for (const key of ['targetA', 'targetB', 'gca', 'codeRabbit']) {
               llmAggregatedMetrics[key].actionability += r.v2Metrics[key]?.actionability || 0;

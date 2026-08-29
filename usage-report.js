@@ -93,6 +93,13 @@ function workloadOf(rec) {
 // truthiness check.
 const UNSAFE_BUCKET_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
+// Same guard, for byErrorKind's plain Record<string, number> shape.
+function incrementCount(map, key, by) {
+  if (!key || UNSAFE_BUCKET_KEYS.has(key)) return;
+  const current = Object.prototype.hasOwnProperty.call(map, key) ? map[key] : 0;
+  map[key] = current + by;
+}
+
 function addToBucket(map, key, rec) {
   if (!key || UNSAFE_BUCKET_KEYS.has(key)) return;
   if (!Object.prototype.hasOwnProperty.call(map, key)) {
@@ -128,7 +135,7 @@ function aggregate(date, records) {
       rollup.successCount++;
     } else {
       rollup.failureCount++;
-      if (rec.errorKind) rollup.byErrorKind[rec.errorKind] = (rollup.byErrorKind[rec.errorKind] || 0) + 1;
+      incrementCount(rollup.byErrorKind, rec.errorKind, 1);
     }
     rollup.totalInputTokens += rec.inputTokens || 0;
     rollup.totalOutputTokens += rec.outputTokens || 0;

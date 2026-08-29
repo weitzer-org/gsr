@@ -258,6 +258,19 @@ describe('aggregate', () => {
         expect((Object.prototype as any).calls).toBe(before);
         expect(Object.keys({})).toHaveLength(0);
     });
+
+    it('does not silently drop/miscount an errorKind of literally "__proto__"', () => {
+        const records: Array<Record<string, unknown>> = [
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'x', inputTokens: 0, outputTokens: 0, latencyMs: 1, costUsd: 0, success: false, errorKind: '__proto__' },
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'x', inputTokens: 0, outputTokens: 0, latencyMs: 1, costUsd: 0, success: false, errorKind: 'rate_limit' },
+        ];
+        const rollup = usage.aggregate('2026-07-29', records as any);
+        // The unsafe key is skipped entirely rather than silently coerced
+        // into a garbled/no-op'd entry — a legitimate key alongside it still
+        // counts normally.
+        expect(Object.keys(rollup.byErrorKind)).not.toContain('__proto__');
+        expect(rollup.byErrorKind['rate_limit']).toBe(1);
+    });
 });
 
 describe('sumRollups', () => {
@@ -474,6 +487,25 @@ describe('ingestUsageRecords', () => {
         expect(result).toEqual({ accepted: 1, failed: 0 });
         const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
         expect(data.repository).toBeUndefined();
+    });
+
+    it('rejects a record whose errorKind is an unsafe key like "__proto__"', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), errorKind: '__proto__' }] as any);
+        expect(result).toEqual({ accepted: 0, failed: 1 });
+        errorSpy.mockRestore();
+    });
+
+    it('rejects a record with a negative cachedTokens', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), cachedTokens: -1 }] as any);
+        expect(result).toEqual({ accepted: 0, failed: 1 });
+        errorSpy.mockRestore();
+    });
+
+    it('accepts a record with a valid errorKind and cachedTokens', async () => {
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), errorKind: 'rate_limit', cachedTokens: 50, success: false }] as any);
+        expect(result).toEqual({ accepted: 1, failed: 0 });
     });
 });
 

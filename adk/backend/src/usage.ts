@@ -344,6 +344,22 @@ function addToBucket(m: Record<string, UsageBucket>, key: string | undefined, re
   b.costUsd += rec.costUsd;
 }
 
+// Unlike addToBucket, `key === '__proto__'` here does NOT actually corrupt
+// Object.prototype in practice — verified empirically: reading m['__proto__']
+// returns Object.prototype (truthy), the arithmetic coerces it through
+// ToPrimitive into a string ("[object Object]1"), and writing that string
+// back through the `__proto__` accessor is a silent no-op per spec (it only
+// accepts an object or null). The real bug is quieter: the record's error
+// silently vanishes from byErrorKind instead of being counted anywhere.
+// Guarding explicitly is still worth doing — correctness shouldn't depend on
+// an accessor's exact no-op semantics for non-object values — but this is a
+// silent-miscount fix, not a prototype-pollution fix like addToBucket's.
+function incrementCount(m: Record<string, number>, key: string | undefined, by: number): void {
+  if (!key || UNSAFE_BUCKET_KEYS.has(key)) return;
+  const current = Object.prototype.hasOwnProperty.call(m, key) ? m[key] : 0;
+  m[key] = current + by;
+}
+
 // aggregate summarizes records into a Rollup for date. Pure/deterministic —
 // no I/O — so it's independently testable from listUsageRecords/writeRollup.
 export function aggregate(date: string, records: UsageRecord[]): Rollup {
@@ -375,9 +391,7 @@ export function aggregate(date: string, records: UsageRecord[]): Rollup {
       rollup.successCount++;
     } else {
       rollup.failureCount++;
-      if (rec.errorKind) {
-        rollup.byErrorKind[rec.errorKind] = (rollup.byErrorKind[rec.errorKind] || 0) + 1;
-      }
+      incrementCount(rollup.byErrorKind, rec.errorKind, 1);
     }
     rollup.totalInputTokens += rec.inputTokens;
     rollup.totalOutputTokens += rec.outputTokens;
@@ -523,7 +537,7 @@ export function sumRollups(label: string, rollups: Rollup[]): Rollup {
     result.totalCostUsd += r.totalCostUsd;
     result.totalLatencyMs += r.totalLatencyMs;
     for (const kind of Object.keys(r.byErrorKind)) {
-      result.byErrorKind[kind] = (result.byErrorKind[kind] || 0) + r.byErrorKind[kind];
+      incrementCount(result.byErrorKind, kind, r.byErrorKind[kind]);
     }
     result.byCallType = mergeBucketMaps(result.byCallType, r.byCallType);
     result.byModel = mergeBucketMaps(result.byModel, r.byModel);
@@ -569,7 +583,14 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
     typeof r.timestamp === 'string' &&
     r.provider === 'gemini' &&
     (r.thinkingTokens === undefined || (typeof r.thinkingTokens === 'number' && Number.isFinite(r.thinkingTokens) && r.thinkingTokens >= 0)) &&
-    (r.repository === undefined || (typeof r.repository === 'string' && !r.repository.includes('|')))
+    (r.repository === undefined || (typeof r.repository === 'string' && !r.repository.includes('|'))) &&
+    (r.cachedTokens === undefined || (typeof r.cachedTokens === 'number' && Number.isFinite(r.cachedTokens) && r.cachedTokens >= 0)) &&
+    // errorKind flows into byErrorKind[key] unguarded by addToBucket's
+    // UNSAFE_BUCKET_KEYS check (that's for the UsageBucket maps only) — the
+    // aggregate()/sumRollups() incrementCount() helper is the actual
+    // backstop, but reject it here too as defense-in-depth so a malformed
+    // record never lands in storage in the first place.
+    (r.errorKind === undefined || (typeof r.errorKind === 'string' && !UNSAFE_BUCKET_KEYS.has(r.errorKind)))
   );
 }
 

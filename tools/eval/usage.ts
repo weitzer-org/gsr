@@ -1,20 +1,31 @@
 // Persists per-Gemini-call token/latency/cost/success records for
-// tools/eval's own judge calls (llm-comparator.ts / llm-comparator-v2.ts),
-// to this service's own bucket (S3_BUCKET, default gsr-eval-results) — a
-// deliberate, separate copy of adk/backend/src/usage.ts's write-path shapes
-// and logic rather than a shared import, since tools/eval is a genuinely
-// separate deployable with its own storage.ts (same convention already
-// established: usage-report.js at the repo root keeps its own hand-copied
-// `aggregate()` in sync with adk/backend's for the same reason).
+// tools/eval's own judge calls (llm-comparator.ts / llm-comparator-v2.ts) —
+// both to this service's own bucket (S3_BUCKET, default gsr-eval-results,
+// a deliberate separate copy of adk/backend/src/usage.ts's write-path
+// shapes and logic rather than a shared import, matching the existing
+// usage-report.js convention) AND, unconditionally, to the hosted
+// production dashboard via POST /api/usage/ingest — reusing
+// adk/backend/src/usageReporter.ts's reportUsage() rather than writing a
+// second HTTP client. tools/eval already imports adk/backend code in this
+// direction (evaluate.ts imports ./github), so this isn't a new pattern;
+// it's the *other* cross-directory import direction (adk/backend importing
+// from tools/eval) that's off-limits, since adk/backend's tsconfig has
+// `rootDir: "."`.
+//
+// Deliberately does NOT gate this on whether a shared secret happens to be
+// configured — every local run's usage is meant to show up in the
+// production dashboard, the same way a GitHub Action's reported usage does,
+// just without needing storage write credentials on every laptop.
+// recordUsage() still never throws either way: a missing/invalid secret or
+// an unreachable backend logs a warning (via reportUsage's own handling)
+// but must never fail the eval run itself.
 //
 // This module deliberately only owns the WRITE path. Reading/aggregating
-// this bucket for the usage dashboard is done by adk/backend/src/usage.ts's
-// own listUsageRecords/getOrBuildDayRollup, parameterized with this
-// service's bucket name — that avoids a cross-directory TypeScript import
-// between two independently-built projects (adk/backend's tsconfig has
-// `rootDir: "."`, which rejects sources outside adk/backend at build time),
-// and it means there's exactly one aggregate()/Rollup implementation to
-// keep correct, not two.
+// the *local* bucket for the local dev dashboard is done by
+// adk/backend/src/usage.ts's own listUsageRecords/getOrBuildDayRollup,
+// parameterized with this service's bucket name — that's a second,
+// unrelated reason the read side isn't duplicated here: it means there's
+// exactly one aggregate()/Rollup implementation to keep correct, not two.
 //
 // Every record here is tagged `repository: 'tools-eval (local)'` up front so
 // it lands in its own bucket of adk/backend's "consuming project" breakdown
@@ -24,8 +35,18 @@
 // callType.
 import { randomBytes } from 'crypto';
 import { uploadResultsToGCS } from './storage';
+import { reportUsage } from '../../adk/backend/src/usageReporter';
 
 const REPOSITORY_LABEL = 'tools-eval (local)';
+
+// The hosted backend's ingest endpoint — overridable (e.g. for a staging
+// deploy) via USAGE_INGEST_URL, but reporting itself isn't optional; only
+// the destination is.
+const DEFAULT_USAGE_INGEST_URL = 'https://gsr-code-review.fly.dev/api/usage/ingest';
+
+// Logged at most once per process — every recordUsage() call would
+// otherwise repeat the same warning for every Gemini call in a run.
+let warnedMissingIngestKey = false;
 
 export interface UsageEvent {
   callType: string; // "llm_compare"/"llm_compare_aggregate" (llm-comparator.ts),
@@ -90,15 +111,52 @@ function objectKey(date: Date): string {
   return `usage/${day}/${time}-${rand}.json`;
 }
 
-// recordUsage never throws — a broken/unreachable write must never fail an
-// eval run just because its analytics couldn't be recorded.
+async function writeLocal(record: UsageRecord): Promise<void> {
+  try {
+    // Derive the key's date from record.timestamp, not a fresh `new Date()`
+    // — using a separately-computed timestamp risks a call landing in the
+    // wrong day's prefix if execution happens to straddle a UTC midnight
+    // between the two Date() calls (a real, if narrow, pre-existing pattern
+    // also present in adk/backend/src/usage.ts's own defaultSink).
+    await uploadResultsToGCS(getUsageBucketName(), objectKey(new Date(record.timestamp)), record);
+  } catch (err) {
+    console.error('[usage] failed to record usage event locally:', err);
+  }
+}
+
+async function reportToProduction(record: UsageRecord): Promise<void> {
+  const key = process.env.USAGE_INGEST_SHARED_SECRET;
+  if (!key) {
+    if (!warnedMissingIngestKey) {
+      console.warn('[usage] USAGE_INGEST_SHARED_SECRET is not set — this run\'s usage will not be reported to the production dashboard (recorded locally only).');
+      warnedMissingIngestKey = true;
+    }
+    return;
+  }
+
+  // reportUsage's own contract is "never throws" (it catches per-batch
+  // internally), but recordUsage's callers rely on that same guarantee
+  // transitively — don't let a future change to that contract silently
+  // break it here too.
+  try {
+    const url = process.env.USAGE_INGEST_URL || DEFAULT_USAGE_INGEST_URL;
+    await reportUsage([record], { url, key, repository: REPOSITORY_LABEL });
+  } catch (err) {
+    console.error('[usage] failed to report usage event to production:', err);
+  }
+}
+
+// recordUsage never throws — a broken/unreachable write (local or remote)
+// must never fail an eval run just because its analytics couldn't be
+// recorded. The two writes are independent and both always attempted, and
+// run CONCURRENTLY rather than one after the other: trackGeminiCall awaits
+// this before returning the tracked call's response to its own caller, so a
+// slow/unreachable production endpoint (reportUsage's own timeout is 10s)
+// stacked in series after the local write would otherwise add real,
+// avoidable wall-clock latency to every judge call in a run.
 export async function recordUsage(event: UsageEvent): Promise<void> {
   const record: UsageRecord = { ...event, provider: 'gemini', repository: REPOSITORY_LABEL, timestamp: new Date().toISOString() };
-  try {
-    await uploadResultsToGCS(getUsageBucketName(), objectKey(new Date()), record);
-  } catch (err) {
-    console.error('[usage] failed to record usage event:', err);
-  }
+  await Promise.all([writeLocal(record), reportToProduction(record)]);
 }
 
 type GenerateContentLikeResponse = {

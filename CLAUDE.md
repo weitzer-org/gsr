@@ -92,6 +92,15 @@ just guessable. Independent gates now cover this:
   main backend attaches this header when it triggers a remote eval run
   (`/api/evals/start` → `EVALUATOR_SERVICE_URL/api/evaluate`); both apps'
   Fly secrets must hold the same value.
+- `POST /api/usage/ingest` (`adk/backend/src/usageIngestAuth.ts`): shared
+  secret via `X-Usage-Ingest-Key`, value = `USAGE_INGEST_SHARED_SECRET`. Two
+  independent callers use it: a consumer repo's GitHub Action reporting
+  review usage, and `tools/eval/usage.ts` reporting its own judge-call usage
+  from *any* environment it runs in — a developer's laptop included, via
+  `adk/backend/src/usageReporter.ts`'s `reportUsage()` (shared by both
+  callers, not duplicated). This is why local `tools/eval` runs show up on
+  the production usage dashboard without ever holding real R2 write
+  credentials — see `usage_analytics_reference.md`.
 - `POST/GET /api/findings/feedback` (`adk/backend/src/feedbackAuth.ts`, the
   finding-feedback push endpoint — `finding-feedback-requirements.md`):
   `POST` accepts **either** a `X-Feedback-Key` header matching

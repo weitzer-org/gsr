@@ -180,7 +180,19 @@ ${this.promptContent}`;
         let retries = 0;
 
         while (chunksToProcess.length > 0 && retries <= maxRetries) {
-          const promptPayload = this.buildDiscoveryPrompt(chunks, isFocused ? chunksToProcess : undefined);
+          // When windowing is off (isFocused false — today's default), this
+          // must stay BYTE-IDENTICAL to pre-windowing behavior: a retry
+          // re-sends ONLY the missed files as the diff, with no <FOCUS_FILES>
+          // block. An earlier version of this always passed the full `chunks`
+          // plus a focus set, which meant an unwindowed retry silently
+          // re-sent the ENTIRE diff instead of just the missed files — a
+          // real regression in the control arm, not just an artifact of
+          // windowing. When windowing IS on, each call (including retries)
+          // gets the full diff for cross-file context, scoped to the current
+          // window/missed-files via <FOCUS_FILES> — see buildDiscoveryPrompt.
+          const promptPayload = isFocused
+            ? this.buildDiscoveryPrompt(chunks, chunksToProcess)
+            : this.buildDiscoveryPrompt(chunksToProcess);
 
           const requestArgs: any = {
              model,
@@ -254,7 +266,26 @@ ${this.promptContent}`;
                 throw parseErr;
               }
               if (result.issues) {
-                  discoveryIssues.push(...result.issues);
+                  // A model can be told via <FOCUS_FILES> to only report on
+                  // this call's window, but nothing enforces that — the
+                  // model has the full diff as context and may report on
+                  // out-of-window files anyway, especially since a stronger,
+                  // system-instruction-level directive elsewhere in this
+                  // same prompt says the opposite ("output findings for
+                  // every file"). Don't trust prompt compliance for the
+                  // metric this feature exists to measure: filter in code.
+                  // Un-filtered, a multi-window PR would silently accumulate
+                  // near-duplicate copies of the same findings across
+                  // windows, inflating the very finding-volume metric this
+                  // investigation is trying to fix, not from real improved
+                  // coverage but from duplication.
+                  const issuesInWindow = isFocused
+                    ? result.issues.filter(issue => chunksToProcess.some(c => c.file === issue.file))
+                    : result.issues;
+                  if (issuesInWindow.length < result.issues.length) {
+                    console.warn(`[${this.name}] Discarded ${result.issues.length - issuesInWindow.length} issue(s) reported outside this call's <FOCUS_FILES> window.`);
+                  }
+                  discoveryIssues.push(...issuesInWindow);
               }
 
               // Strict Coverage Diffing Logic
@@ -347,11 +378,19 @@ ${this.promptContent}`;
             }
           };
       }
-      return { findings: [] };
+      return { findings: [], usage: { promptTokenCount: promptTokens, candidatesTokenCount: candidatesTokens, totalTokenCount: promptTokens + candidatesTokens } };
 
     } catch (e) {
       console.error(`⚠️ Note: The ${this.name} Agent failed to complete its review for ${aggregatedFiles}`, e);
-      return { findings: [] };
+      // Preserve whatever was actually spent before the failure (e.g. a
+      // successful Pass 1 across several windows, then a Pass 2 timeout) —
+      // previously this discarded that accounting entirely, under-reporting
+      // exactly the runs that spent the most, since a failure partway
+      // through is more likely on the larger/multi-window PRs this feature
+      // targets. The real per-call cost is still in the S3 usage records
+      // regardless (trackGeminiCall writes those independently); this only
+      // affects what this function itself returns.
+      return { findings: [], usage: { promptTokenCount: promptTokens, candidatesTokenCount: candidatesTokens, totalTokenCount: promptTokens + candidatesTokens } };
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
     }
@@ -445,7 +484,18 @@ ${chunk.content}
     let contents = `<DIFF_CONTENTS>\n${diffsText}\n</DIFF_CONTENTS>`;
     if (focusChunks && focusChunks.length < allChunks.length) {
       const focusFiles = focusChunks.map(c => c.file).join('\n');
-      contents += `\n\n<FOCUS_FILES>\n${focusFiles}\n</FOCUS_FILES>\n\nOnly report issues located in the files listed in <FOCUS_FILES> above, and only list those files in \`filesAnalyzed\`. The other files in <DIFF_CONTENTS> are provided solely as context for cross-file reasoning (e.g. checking whether a symbol referenced in a focus file is defined elsewhere in the diff) — do not report findings located in them.`;
+      // This OVERRIDES the system instruction's CRITICAL/COVERAGE requirements
+      // and the persona's own "review all of them" line for THIS call only —
+      // the system instruction is shared (and, above the context-cache
+      // threshold, literally cached) across every window of this agent's
+      // work, so it can't itself say "except when focused"; the override has
+      // to live here, in the part of the prompt that actually varies per
+      // call. Said explicitly and first, since a single user-turn sentence
+      // competing unmarked against several system-instruction directives is
+      // liable to lose. Findings outside the focus set are also filtered out
+      // in code regardless (see analyze()) — this instruction is what makes
+      // that filtering rarely need to do anything, not the only safeguard.
+      contents += `\n\n<FOCUS_FILES>\n${focusFiles}\n</FOCUS_FILES>\n\nOVERRIDE FOR THIS CALL ONLY: ignore any instruction above telling you to cover or report on every file in <DIFF_CONTENTS>. For this call, only report issues located in the files listed in <FOCUS_FILES> above, and \`filesAnalyzed\` must contain exactly those files and no others. The other files in <DIFF_CONTENTS> are provided solely as context for cross-file reasoning (e.g. checking whether a symbol referenced in a focus file is defined elsewhere in the diff) — do not report findings located in them, even if you notice a real issue there; a separate call already covers those files.`;
     }
     return { systemInstruction, contents };
   }

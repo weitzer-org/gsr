@@ -156,18 +156,30 @@ export async function runEvaluation(options: EvalOptions = {}) {
   // 4.6 Record which Gemini model each target is actually running, so
   // archived runs are self-describing (a run's `runPayload` previously had
   // no record of this at all — indistinguishable from any other run by model).
-  const fetchTargetModel = async (baseUrl: string): Promise<string> => {
+  // Also captures the large-PR routing config: a large PR can run on a
+  // different model entirely (agent.ts's selectModel), so targetA_model
+  // alone would mislabel every large-PR review under that config.
+  const fetchTargetStatus = async (baseUrl: string): Promise<{ model: string; largePrModel: string | null; largePrFileThreshold: number | null; discoveryFocusWindow: number | null }> => {
     try {
       const res = await fetch(`${baseUrl}/api/status`);
-      if (!res.ok) return 'unknown';
+      if (!res.ok) return { model: 'unknown', largePrModel: null, largePrFileThreshold: null, discoveryFocusWindow: null };
       const data: any = await res.json();
-      return data.model || 'unknown';
+      return {
+        model: data.model || 'unknown',
+        largePrModel: data.largePrModel ?? null,
+        largePrFileThreshold: data.largePrFileThreshold ?? null,
+        discoveryFocusWindow: data.discoveryFocusWindow ?? null,
+      };
     } catch {
-      return 'unknown';
+      return { model: 'unknown', largePrModel: null, largePrFileThreshold: null, discoveryFocusWindow: null };
     }
   };
-  runPayload.targetA_model = await fetchTargetModel(targetAConfig.url);
-  runPayload.targetB_model = await fetchTargetModel(targetBConfig.url);
+  const targetAStatus = await fetchTargetStatus(targetAConfig.url);
+  const targetBStatus = await fetchTargetStatus(targetBConfig.url);
+  runPayload.targetA_model = targetAStatus.model;
+  runPayload.targetB_model = targetBStatus.model;
+  runPayload.targetA_routing = { largePrModel: targetAStatus.largePrModel, largePrFileThreshold: targetAStatus.largePrFileThreshold, discoveryFocusWindow: targetAStatus.discoveryFocusWindow };
+  runPayload.targetB_routing = { largePrModel: targetBStatus.largePrModel, largePrFileThreshold: targetBStatus.largePrFileThreshold, discoveryFocusWindow: targetBStatus.discoveryFocusWindow };
 
   // A PR only ever contributed a data point if it happened to succeed on
   // whichever attempt was retried — a bias toward whichever run survived,

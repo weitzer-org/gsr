@@ -113,10 +113,18 @@ app.get('/api/status', (req, res) => {
   const isConnected = !!process.env.GEMINI_API_KEY;
   const modelStr = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
 
+  // Large-PR requests can route to a different model entirely (see
+  // agent.ts's selectModel) — without these, an eval run recording this
+  // response as "the model" would mislabel every large-PR review, exactly
+  // the kind of archived-run ambiguity targetA_model/targetB_model were
+  // added to eliminate in the first place.
   res.json({
     status: 'success',
     geminiConnected: isConnected,
-    model: modelStr
+    model: modelStr,
+    largePrModel: process.env.GEMINI_MODEL_LARGE_PR || null,
+    largePrFileThreshold: process.env.GEMINI_LARGE_PR_FILE_THRESHOLD ? parseInt(process.env.GEMINI_LARGE_PR_FILE_THRESHOLD, 10) : null,
+    discoveryFocusWindow: process.env.DISCOVERY_FOCUS_WINDOW ? parseInt(process.env.DISCOVERY_FOCUS_WINDOW, 10) : null,
   });
 });
 

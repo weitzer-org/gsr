@@ -10,6 +10,64 @@ export interface ValidationResult {
   hallucinatedFindings: ReviewFinding[];
 }
 
+export interface RecallResult {
+  recoveredCount: number;
+  totalReference: number;
+  recallFraction: number;
+  missedFindings: ReviewFinding[];
+}
+
+/**
+ * Deterministic recall proxy: what fraction of `referenceFindings` (e.g. the
+ * baseline model's findings) does `candidateFindings` also cover?
+ *
+ * The judge's actionability score rates the quality of what a target found,
+ * not whether it found enough — a target that goes silent on a 15-file PR
+ * scores fine on actionability for its (empty) output. This computes a
+ * proximity match (same file, within `proximityLines` lines — the same
+ * "same or nearby lines" convention the deduplicator's own grouping prompt
+ * uses to treat findings as one issue) so a real coverage gap shows up
+ * independent of the judge, and independent of any extra LLM calls — this
+ * runs entirely on findings the harness has already fetched.
+ */
+export function computeRecall(
+  candidateFindings: ReviewFinding[],
+  referenceFindings: ReviewFinding[],
+  proximityLines = 10
+): RecallResult {
+  const recovered: ReviewFinding[] = [];
+  const missedFindings: ReviewFinding[] = [];
+  // 1:1 greedy matching — a candidate finding, once matched, can't also
+  // "recover" a second nearby reference finding. The original `.some()`
+  // check let one candidate finding count as covering every reference
+  // finding within its proximity window, which silently inflated recall most
+  // in exactly the regime under study: a candidate with very few findings
+  // scattered across a large file.
+  const consumed = new Set<number>();
+
+  for (const ref of referenceFindings) {
+    const matchIndex = candidateFindings.findIndex((c, i) =>
+      !consumed.has(i) &&
+      filePathsMatch(c.fileName || '', ref.fileName || '') &&
+      Math.abs((c.lineNumber || 0) - (ref.lineNumber || 0)) <= proximityLines
+    );
+    if (matchIndex !== -1) {
+      consumed.add(matchIndex);
+      recovered.push(ref);
+    } else {
+      missedFindings.push(ref);
+    }
+  }
+
+  const totalReference = referenceFindings.length;
+  return {
+    recoveredCount: recovered.length,
+    totalReference,
+    recallFraction: totalReference > 0 ? recovered.length / totalReference : 1,
+    missedFindings,
+  };
+}
+
 /** Strips a leading '/' and a git-style 'a/'/'b/' diff prefix from a file path. */
 export function normalizeFilePath(filePath: string): string {
   return filePath.replace(/^\//, '').replace(/^[ab]\//, '');

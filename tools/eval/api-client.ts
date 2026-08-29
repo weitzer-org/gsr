@@ -45,6 +45,7 @@ export async function runReview(baseUrl: string, prUrl: string, pat: string): Pr
   let finalFindings: ReviewFinding[] = [];
   let finalMetrics: ReviewMetrics = { inputTokens: 0, outputTokens: 0, calls: 0 };
   let finalEvaluation: string | undefined = undefined;
+  let receivedDone = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -56,43 +57,64 @@ export async function runReview(baseUrl: string, prUrl: string, pat: string): Pr
 
     for (const line of lines) {
       if (!line.trim()) continue;
+      // Parsing and handling are two different failure modes: a malformed line is
+      // recoverable (skip and warn), but a `type: 'error'` line is the server
+      // deliberately signaling a failed review and must propagate as a real error,
+      // not get caught by the same try as a "failed to parse" case and silently
+      // logged as a warning — a failed review must never masquerade as a clean
+      // zero-findings result.
+      let parsed: any;
       try {
-        const parsed = JSON.parse(line);
-        if (parsed.type === 'done') {
-          finalFindings = (parsed.findings || []).map((f: any) => ({
-             ...f,
-             fileName: f.fileName || f.file || '',
-             lineNumber: f.lineNumber || f.line || 1
-          }));
-          finalMetrics = parsed.metrics || { inputTokens: 0, outputTokens: 0, calls: 0 };
-          finalEvaluation = parsed.evaluation;
-        } else if (parsed.type === 'error') {
-          throw new Error(parsed.error || 'Unknown error occurred from API.');
-        }
+        parsed = JSON.parse(line);
       } catch (e: any) {
-        if (e.message !== 'Unexpected token') {
-            console.warn('Failed to parse NDJSON line:', line.substring(0, 100));
-        }
+        console.warn('Failed to parse NDJSON line:', line.substring(0, 100));
+        continue;
       }
-    }
-  }
-
-  // Parse remaining buffer
-  if (buffer.trim()) {
-    try {
-      const parsed = JSON.parse(buffer);
       if (parsed.type === 'done') {
         finalFindings = (parsed.findings || []).map((f: any) => ({
            ...f,
            fileName: f.fileName || f.file || '',
            lineNumber: f.lineNumber || f.line || 1
         }));
-        finalMetrics = parsed.metrics || finalMetrics;
+        finalMetrics = parsed.metrics || { inputTokens: 0, outputTokens: 0, calls: 0 };
         finalEvaluation = parsed.evaluation;
+        receivedDone = true;
       } else if (parsed.type === 'error') {
-        throw new Error(parsed.error);
+        throw new Error(parsed.error || 'Unknown error occurred from API.');
       }
-    } catch(e) {}
+    }
+  }
+
+  // Parse remaining buffer
+  if (buffer.trim()) {
+    let parsed: any;
+    try {
+      parsed = JSON.parse(buffer);
+    } catch (e) {
+      parsed = undefined;
+    }
+    if (parsed?.type === 'done') {
+      finalFindings = (parsed.findings || []).map((f: any) => ({
+         ...f,
+         fileName: f.fileName || f.file || '',
+         lineNumber: f.lineNumber || f.line || 1
+      }));
+      finalMetrics = parsed.metrics || finalMetrics;
+      finalEvaluation = parsed.evaluation;
+      receivedDone = true;
+    } else if (parsed?.type === 'error') {
+      throw new Error(parsed.error || 'Unknown error occurred from API.');
+    }
+  }
+
+  // A stream that ends without ever emitting a `done` frame (a dropped
+  // connection, a Fly machine restart, a truncated response) previously
+  // returned here with zero findings and no error — indistinguishable from a
+  // review that legitimately found nothing. A real review can also never
+  // report zero calls; both are treated as failures so evaluate.ts's retry
+  // logic (which only retries on a thrown error) actually retries them.
+  if (!receivedDone || finalMetrics.calls === 0) {
+    throw new Error('Review stream ended without a valid `done` frame (connection dropped or response truncated).');
   }
 
   return {

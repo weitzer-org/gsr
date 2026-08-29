@@ -503,6 +503,19 @@ describe('ingestUsageRecords', () => {
         errorSpy.mockRestore();
     });
 
+    it('rejects a record with negative inputTokens, outputTokens, latencyMs, or costUsd', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const cases = [
+            { ...record('discovery'), inputTokens: -1 },
+            { ...record('discovery'), outputTokens: -1 },
+            { ...record('discovery'), latencyMs: -1 },
+            { ...record('discovery'), costUsd: -1 },
+        ];
+        const result = await usage.ingestUsageRecords(cases as any);
+        expect(result).toEqual({ accepted: 0, failed: cases.length });
+        errorSpy.mockRestore();
+    });
+
     it('accepts a record with a valid errorKind and cachedTokens', async () => {
         const result = await usage.ingestUsageRecords([{ ...record('discovery'), errorKind: 'rate_limit', cachedTokens: 50, success: false }] as any);
         expect(result).toEqual({ accepted: 1, failed: 0 });

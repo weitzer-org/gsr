@@ -575,10 +575,10 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
   return (
     typeof r.callType === 'string' &&
     typeof r.model === 'string' && !r.model.includes('|') &&
-    typeof r.inputTokens === 'number' && Number.isFinite(r.inputTokens) &&
-    typeof r.outputTokens === 'number' && Number.isFinite(r.outputTokens) &&
-    typeof r.latencyMs === 'number' && Number.isFinite(r.latencyMs) &&
-    typeof r.costUsd === 'number' && Number.isFinite(r.costUsd) &&
+    typeof r.inputTokens === 'number' && Number.isFinite(r.inputTokens) && r.inputTokens >= 0 &&
+    typeof r.outputTokens === 'number' && Number.isFinite(r.outputTokens) && r.outputTokens >= 0 &&
+    typeof r.latencyMs === 'number' && Number.isFinite(r.latencyMs) && r.latencyMs >= 0 &&
+    typeof r.costUsd === 'number' && Number.isFinite(r.costUsd) && r.costUsd >= 0 &&
     typeof r.success === 'boolean' &&
     typeof r.timestamp === 'string' &&
     r.provider === 'gemini' &&

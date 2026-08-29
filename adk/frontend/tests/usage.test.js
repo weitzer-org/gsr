@@ -128,6 +128,25 @@ describe('Usage dashboard frontend logic (usage.js)', () => {
         expect(rows.length).toBe(2);
     });
 
+    it('scales bars to the actual dataset max instead of a hardcoded floor, even for sub-$1 costs', async () => {
+        const smallCostResponse = {
+            ...summaryResponse,
+            buckets: [
+                { ...summaryResponse.buckets[0], totalCostUsd: 0.02 },
+                { ...summaryResponse.buckets[1], totalCostUsd: 0.05 },
+            ],
+        };
+        global.fetch.mockResolvedValueOnce({ ok: true, json: async () => smallCostResponse });
+        initUsage();
+        await new Promise(process.nextTick);
+
+        const fills = document.querySelectorAll('#usage-timeseries .usage-bar-fill');
+        // The larger bucket (0.05, the dataset max) should render at (close
+        // to) full width, not a tiny sliver relative to a floor of 1.
+        const widths = Array.from(fills).map(el => parseInt(el.style.width, 10));
+        expect(Math.max(...widths)).toBeGreaterThanOrEqual(95);
+    });
+
     it('renders the byModel breakdown by default', async () => {
         global.fetch.mockResolvedValueOnce({ ok: true, json: async () => summaryResponse });
         initUsage();

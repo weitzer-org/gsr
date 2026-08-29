@@ -109,6 +109,7 @@ export function initUsage() {
             breakdownBody.innerHTML = '<tr><td colspan="7">No data for this range.</td></tr>';
             return;
         }
+        const fragment = document.createDocumentFragment();
         for (const [rowKey, bucket] of rows) {
             const parts = intersect ? rowKey.split('|') : [rowKey, ''];
             const tr = document.createElement('tr');
@@ -121,8 +122,9 @@ export function initUsage() {
                 <td>${formatNumber(bucket.thinkingTokens)}</td>
                 <td>${formatUsd(bucket.costUsd)}</td>
             `;
-            breakdownBody.appendChild(tr);
+            fragment.appendChild(tr);
         }
+        breakdownBody.appendChild(fragment);
     }
 
     function renderTimeseries() {
@@ -134,7 +136,12 @@ export function initUsage() {
             timeseriesContainer.innerHTML = '<p>No data for this range.</p>';
             return;
         }
-        const max = Math.max(1, ...buckets.map(b => b[metric] || 0));
+        // Scale to the actual dataset max, not a hardcoded floor of 1 — for
+        // a cost metric (typically well under $1/day) a floor of 1 would
+        // squash every bar down to a near-invisible sliver relative to that
+        // floor instead of the real relative variation between days.
+        const datasetMax = Math.max(...buckets.map(b => b[metric] || 0));
+        const max = datasetMax > 0 ? datasetMax : 1;
         for (const bucket of buckets) {
             const value = bucket[metric] || 0;
             const pct = Math.max(2, Math.round((value / max) * 100));

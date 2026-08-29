@@ -47,6 +47,6 @@ describe('getFileJson', () => {
 
     it('rethrows a real S3 transport/auth error', async () => {
         mockSend.mockRejectedValue(Object.assign(new Error('access denied'), { name: 'AccessDenied' }));
-        await expect(storage.getFileJson('bucket', 'key')).rejects.toThrow('access denied');
+        await expect(storage.getFileJson('bucket', 'key')).rejects.toThrow(/access denied/i);
     });
 });

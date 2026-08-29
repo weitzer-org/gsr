@@ -83,7 +83,8 @@ describe('trackGeminiCall', () => {
 });
 
 describe('recordUsage (production reporting)', () => {
-    const originalEnv = { ...process.env };
+    const originalSecret = process.env.USAGE_INGEST_SHARED_SECRET;
+    const originalUrl = process.env.USAGE_INGEST_URL;
 
     beforeEach(() => {
         jest.clearAllMocks();
@@ -96,7 +97,15 @@ describe('recordUsage (production reporting)', () => {
     });
 
     afterEach(() => {
-        process.env = { ...originalEnv };
+        // Restore only the specific keys this suite touches, rather than
+        // reassigning process.env wholesale — Node's process.env is a
+        // special binding (e.g. it auto-stringifies assigned values), and
+        // replacing the whole object with a plain one loses that for the
+        // rest of the process.
+        if (originalSecret !== undefined) process.env.USAGE_INGEST_SHARED_SECRET = originalSecret;
+        else delete process.env.USAGE_INGEST_SHARED_SECRET;
+        if (originalUrl !== undefined) process.env.USAGE_INGEST_URL = originalUrl;
+        else delete process.env.USAGE_INGEST_URL;
     });
 
     it('reports to the production ingest endpoint when a shared secret is configured', async () => {

@@ -40,9 +40,11 @@ describe('computeCostUsd', () => {
         expect(usage.computeCostUsd('some-future-model', 1000, 1000)).toBe(0);
     });
 
-    it('bills thinking tokens at the output rate', () => {
-        const withThinking = usage.computeCostUsd('gemini-3.1-pro-preview', 0, 0, 0, 1_000_000);
-        expect(withThinking).toBeCloseTo(12.0, 5);
+    it('does not bill thinking tokens on top of the fifth arg (avoids double-counting candidatesTokenCount)', () => {
+        // computeCostUsd only takes 4 args now — a stray 5th argument must
+        // be silently ignored, not folded into the output rate.
+        const cost = (usage.computeCostUsd as any)('gemini-3.1-pro-preview', 0, 0, 0, 1_000_000);
+        expect(cost).toBe(0);
     });
 });
 
@@ -140,13 +142,16 @@ describe('trackGeminiCall', () => {
         expect(data.inputTokens).toBe(0);
     });
 
-    it('records thinking tokens from thoughtsTokenCount and folds them into cost', async () => {
+    it('records thinking tokens from thoughtsTokenCount as telemetry, without folding them into cost', async () => {
         const response = { text: 'ok', usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 10, thoughtsTokenCount: 30 } };
         await usage.trackGeminiCall({ callType: 'legacy', model: 'gemini-3.1-pro-preview' }, () => Promise.resolve(response));
 
         const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
         expect(data.thinkingTokens).toBe(30);
-        expect(data.costUsd).toBeCloseTo(usage.computeCostUsd('gemini-3.1-pro-preview', 50, 10, 0, 30), 8);
+        // costUsd reflects only inputTokens/outputTokens — candidatesTokenCount
+        // (outputTokens) already reflects thinking tokens per Gemini's own
+        // pricing docs, so thinkingTokens must not be billed a second time.
+        expect(data.costUsd).toBeCloseTo(usage.computeCostUsd('gemini-3.1-pro-preview', 50, 10, 0), 8);
     });
 
     it('handles a response with no usageMetadata as zero tokens, still success', async () => {
@@ -243,6 +248,16 @@ describe('aggregate', () => {
         const rollup = usage.aggregate('2026-07-29', []);
         expect(rollup.schemaVersion).toBe(usage.CURRENT_SCHEMA_VERSION);
     });
+
+    it('does not pollute Object.prototype when a record field is literally "__proto__"', () => {
+        const before = (Object.prototype as any).calls;
+        const records: Array<Record<string, unknown>> = [
+            { timestamp: 't', provider: 'gemini', callType: '__proto__', model: '__proto__', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: '__proto__' },
+        ];
+        usage.aggregate('2026-07-29', records as any);
+        expect((Object.prototype as any).calls).toBe(before);
+        expect(Object.keys({})).toHaveLength(0);
+    });
 });
 
 describe('sumRollups', () => {
@@ -281,6 +296,14 @@ describe('getOrBuildDayRollup', () => {
         expect(mockGetFileJson).not.toHaveBeenCalled();
         expect(mockUploadJson).not.toHaveBeenCalled();
         expect(rollup.date).toBe('2026-07-29');
+    });
+
+    it('never caches a future date — an empty rollup for it would otherwise permanently mask real data once that date arrives', async () => {
+        mockListFiles.mockResolvedValue([]);
+        const rollup = await usage.getOrBuildDayRollup('2026-07-30', '2026-07-29');
+        expect(mockGetFileJson).not.toHaveBeenCalled();
+        expect(mockUploadJson).not.toHaveBeenCalled();
+        expect(rollup.date).toBe('2026-07-30');
     });
 
     it('serves a cached past-day rollup at the current schema version without recomputing', async () => {

@@ -66,9 +66,18 @@ function workloadOf(rec) {
     : 'review';
 }
 
+// See adk/backend/src/usage.ts's addToBucket comment: `key` comes from
+// record fields read straight out of S3 JSON objects, which could in
+// principle be `__proto__` — for a plain object literal that's a live
+// accessor to the real, process-wide Object.prototype, so `!map[key]` would
+// be falsy (skipping init) and `b.calls++` would corrupt every plain object
+// in the process. Guard against it and use hasOwnProperty instead of a
+// truthiness check.
+const UNSAFE_BUCKET_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function addToBucket(map, key, rec) {
-  if (!key) return;
-  if (!map[key]) {
+  if (!key || UNSAFE_BUCKET_KEYS.has(key)) return;
+  if (!Object.prototype.hasOwnProperty.call(map, key)) {
     map[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0, costUsd: 0 };
   }
   const b = map[key];

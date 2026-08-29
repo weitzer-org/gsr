@@ -58,17 +58,21 @@ const PRICE_TABLE: Record<string, { input: number; output: number }> = {
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // used by debug-single.ts and tools/eval's llm-comparator*.ts; <=200k-token-prompt tier — verify against current pricing if usage grows large
 };
 
-// thinkingTokens is billed at the model's output rate — ASSUMPTION, not a
-// confirmed fact: Gemini's public pricing treats "thinking"/reasoning tokens
-// as output tokens for the model families in PRICE_TABLE, but this hasn't
-// been verified against current pricing docs. Re-check before relying on
-// this for real cost reporting.
-export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0, thinkingTokens = 0): number {
+// thinkingTokens is NOT added to outputTokens here — Gemini's own pricing
+// page describes the output rate as already "including thinking tokens",
+// and multiple developer reports (Google's own AI forum has several threads
+// asking this exact question, with inconsistent answers across models/API
+// versions) suggest `candidatesTokenCount` (this file's `outputTokens`) may
+// already reflect them for the models in PRICE_TABLE. Adding thinkingTokens
+// on top risks double-billing; it's tracked in UsageRecord/UsageBucket
+// purely as an observability metric, not folded into cost. Re-verify against
+// current per-model docs before changing this.
+export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
   const price = PRICE_TABLE[model];
   if (!price) return 0;
   const perM = 1_000_000;
   const billedInput = Math.max(0, inputTokens - cachedTokens);
-  return (billedInput * price.input) / perM + ((outputTokens + thinkingTokens) * price.output) / perM;
+  return (billedInput * price.input) / perM + (outputTokens * price.output) / perM;
 }
 
 // classifyError gives a coarse, stable label for a failed call so usage
@@ -187,7 +191,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       cachedTokens,
       thinkingTokens,
       latencyMs,
-      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens, thinkingTokens),
+      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens),
       success: true,
     });
     return response;
@@ -301,9 +305,21 @@ export async function listUsageRecords(date: string, bucket: string = getUsageBu
   return records;
 }
 
+// `key` comes from record fields (model/repository/callType, or a
+// composite built from them) that ultimately trace back to the
+// shared-secret-authenticated ingest path — not fully trusted. `m` is a
+// plain object literal, so `m['__proto__']` is a live accessor to the real,
+// process-wide Object.prototype: `!m[key]` for that key is falsy (skipping
+// the own-property init below) and `b.calls++` would then mutate the actual
+// shared prototype, corrupting every plain object in the process. Guard
+// against `__proto__`/`constructor`/`prototype` and use hasOwnProperty
+// instead of a truthiness check so only genuine own properties count as
+// "already initialized".
+const UNSAFE_BUCKET_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function addToBucket(m: Record<string, UsageBucket>, key: string | undefined, rec: UsageRecord): void {
-  if (!key) return;
-  if (!m[key]) {
+  if (!key || UNSAFE_BUCKET_KEYS.has(key)) return;
+  if (!Object.prototype.hasOwnProperty.call(m, key)) {
     m[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0, costUsd: 0 };
   }
   const b = m[key];
@@ -400,14 +416,18 @@ function isFreshRollup(value: unknown): value is Rollup {
 
 // getOrBuildDayRollup is the self-healing cache read the API/CLI should use
 // instead of calling aggregate() over listUsageRecords() directly:
-// - `date === today`: always recomputed from raw records, never cached —
-//   today's data is still accumulating throughout the day.
-// - any past date: served from usage/rollups/<date>.json when present and
-//   at CURRENT_SCHEMA_VERSION; otherwise (missing, unparsable, or written by
-//   an out-of-sync producer — an older deploy, or usage-report.js's own
-//   hand-copied aggregate() before it's updated to match) recomputed and
-//   the cache overwritten, so a stale shape self-heals on first read rather
-//   than requiring a manual re-run.
+// - `date >= today` (today itself, or a future date — the API route doesn't
+//   reject a `to` beyond today): always recomputed from raw records, never
+//   cached. Today's data is still accumulating; a future date would
+//   otherwise get a permanently-cached EMPTY rollup that then masks real
+//   data once that date actually arrives — caching must be strictly bounded
+//   to the immutable past.
+// - any date before today: served from usage/rollups/<date>.json when
+//   present and at CURRENT_SCHEMA_VERSION; otherwise (missing, unparsable,
+//   or written by an out-of-sync producer — an older deploy, or
+//   usage-report.js's own hand-copied aggregate() before it's updated to
+//   match) recomputed and the cache overwritten, so a stale shape self-heals
+//   on first read rather than requiring a manual re-run.
 //
 // `bucket` defaults to this service's own S3_REVIEW_BUCKET; the usage-
 // summary route (app.ts) also calls this with tools/eval's bucket
@@ -415,7 +435,8 @@ function isFreshRollup(value: unknown): value is Rollup {
 // view — see workloadOf's comment for why that's a bucket parameter here
 // rather than a cross-project import.
 export async function getOrBuildDayRollup(date: string, today: string = currentDateString(), bucket: string = getUsageBucketName()): Promise<Rollup> {
-  if (date !== today) {
+  const isPast = date < today;
+  if (isPast) {
     const cached = await getFileJson(bucket, `usage/rollups/${date}.json`);
     if (isFreshRollup(cached)) {
       return cached;
@@ -423,28 +444,35 @@ export async function getOrBuildDayRollup(date: string, today: string = currentD
   }
 
   const rollup = aggregate(date, await listUsageRecords(date, bucket));
-  if (date !== today) {
+  if (isPast) {
     await writeRollup(rollup, bucket);
   }
   return rollup;
 }
 
+// Mutates and returns `a` — safe because every call site passes its own
+// private accumulator (built fresh inside sumRollups, never aliased
+// elsewhere before the function returns), so there's no risk of mutating
+// something a caller still holds a reference to. Iterating only `b`'s keys
+// (rather than the union of both) and updating `a` directly avoids
+// reallocating a whole new object on every merge.
 function mergeBucketMaps(a: Record<string, UsageBucket>, b: Record<string, UsageBucket>): Record<string, UsageBucket> {
-  const merged: Record<string, UsageBucket> = {};
-  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-    const x = a[key];
+  for (const key of Object.keys(b)) {
     const y = b[key];
-    merged[key] = {
-      calls: (x?.calls ?? 0) + (y?.calls ?? 0),
-      successCount: (x?.successCount ?? 0) + (y?.successCount ?? 0),
-      failureCount: (x?.failureCount ?? 0) + (y?.failureCount ?? 0),
-      inputTokens: (x?.inputTokens ?? 0) + (y?.inputTokens ?? 0),
-      outputTokens: (x?.outputTokens ?? 0) + (y?.outputTokens ?? 0),
-      thinkingTokens: (x?.thinkingTokens ?? 0) + (y?.thinkingTokens ?? 0),
-      costUsd: (x?.costUsd ?? 0) + (y?.costUsd ?? 0),
-    };
+    if (!Object.prototype.hasOwnProperty.call(a, key)) {
+      a[key] = { ...y };
+      continue;
+    }
+    const x = a[key];
+    x.calls += y.calls;
+    x.successCount += y.successCount;
+    x.failureCount += y.failureCount;
+    x.inputTokens += y.inputTokens;
+    x.outputTokens += y.outputTokens;
+    x.thinkingTokens += y.thinkingTokens;
+    x.costUsd += y.costUsd;
   }
-  return merged;
+  return a;
 }
 
 // sumRollups folds several day-rollups (or a backend rollup + a tools/eval

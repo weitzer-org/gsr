@@ -54,15 +54,16 @@ const PRICE_TABLE: Record<string, { input: number; output: number }> = {
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // <=200k-token-prompt tier — verify against current pricing if usage grows large
 };
 
-// thinkingTokens billed at the output rate — same unverified assumption as
-// adk/backend/src/usage.ts's computeCostUsd; re-check before relying on
-// this for real cost reporting.
-export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0, thinkingTokens = 0): number {
+// thinkingTokens is NOT added to outputTokens — same reasoning as
+// adk/backend/src/usage.ts's computeCostUsd: Gemini's pricing page describes
+// the output rate as already "including thinking tokens", so adding them on
+// top risks double-billing. Tracked as observability only.
+export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
   const price = PRICE_TABLE[model];
   if (!price) return 0;
   const perM = 1_000_000;
   const billedInput = Math.max(0, inputTokens - cachedTokens);
-  return (billedInput * price.input) / perM + ((outputTokens + thinkingTokens) * price.output) / perM;
+  return (billedInput * price.input) / perM + (outputTokens * price.output) / perM;
 }
 
 // classifyError mirrors adk/backend/src/usage.ts's version.
@@ -133,7 +134,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       cachedTokens,
       thinkingTokens,
       latencyMs,
-      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens, thinkingTokens),
+      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens),
       success: true,
     });
     return response;

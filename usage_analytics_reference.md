@@ -215,8 +215,13 @@ directly rather than reinventing the S3 listing/reading logic.
   model names, `owner/repo` strings, and the two workload labels never
   contain it), built only from combinations actually observed in the
   aggregated records, not a full cross-product of every distinct value.
-- **Thinking-token pricing is an unverified assumption**: `computeCostUsd`
-  (in both `adk/backend/src/usage.ts` and `tools/eval/usage.ts`) bills
-  `thinkingTokens` at the model's output rate. Re-check against current
-  Gemini pricing before treating `totalCostUsd` as authoritative for a
-  thinking-heavy workload.
+- **`thinkingTokens` is telemetry, not part of `costUsd`**: `computeCostUsd`
+  (in both `adk/backend/src/usage.ts` and `tools/eval/usage.ts`) bills only
+  `inputTokens`/`outputTokens` — it deliberately does NOT add `thinkingTokens`
+  on top. Gemini's own pricing page describes the output rate as already
+  "including thinking tokens," and multiple developer reports (Google's AI
+  forum has several threads on this exact question, with answers that
+  differ across models/API versions) suggest `candidatesTokenCount` — this
+  file's `outputTokens` — may already reflect them for the models in
+  `PRICE_TABLE`. Adding `thinkingTokens` again would risk double-billing.
+  Re-verify against current per-model docs before changing this.

@@ -13,9 +13,9 @@ describe('computeCostUsd', () => {
         expect(cost).toBeCloseTo(1.25 + 10.0, 5);
     });
 
-    it('bills thinking tokens at the output rate', () => {
-        const cost = usage.computeCostUsd('gemini-2.5-pro', 0, 0, 0, 1_000_000);
-        expect(cost).toBeCloseTo(10.0, 5);
+    it('does not bill a stray 5th argument (avoids double-counting candidatesTokenCount)', () => {
+        const cost = (usage.computeCostUsd as any)('gemini-2.5-pro', 0, 0, 0, 1_000_000);
+        expect(cost).toBe(0);
     });
 
     it('returns 0 for an unknown model', () => {

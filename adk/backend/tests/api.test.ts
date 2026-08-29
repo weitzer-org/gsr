@@ -9,7 +9,8 @@ const uploadJsonMock = jest.fn<any>();
 jest.unstable_mockModule('../src/storage.js', () => ({
   uploadJson: uploadJsonMock,
   listFiles: jest.fn(),
-  getFileStream: jest.fn()
+  getFileStream: jest.fn(),
+  getFileJson: jest.fn()
 }));
 
 describe('GET /api/status', () => {

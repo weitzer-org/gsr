@@ -1084,3 +1084,131 @@ button:disabled {
   color: var(--text-secondary);
 }
 
+/* Usage Dashboard */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 12px;
+}
+
+.form-select, .form-input {
+  padding: 8px 12px;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.form-select:focus, .form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+.usage-controls-card {
+  margin-bottom: 20px;
+}
+
+.usage-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.usage-controls-row label {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.usage-quick-ranges {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.quick-range-btn {
+  padding: 6px 14px;
+  background-color: rgba(30, 41, 59, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-range-btn:hover {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.quick-range-btn.active {
+  background-color: var(--accent);
+  color: white;
+  border-color: var(--accent-hover);
+}
+
+.usage-breakdown-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.usage-breakdown-controls label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.usage-timeseries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.usage-bar-row {
+  display: grid;
+  grid-template-columns: 100px 1fr 90px;
+  align-items: center;
+  gap: 12px;
+}
+
+.usage-bar-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.usage-bar-track {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  height: 10px;
+  overflow: hidden;
+}
+
+.usage-bar-fill {
+  background-color: var(--accent);
+  height: 100%;
+  border-radius: 4px;
+}
+
+.usage-bar-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: right;
+}
+

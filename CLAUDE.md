@@ -58,14 +58,21 @@ path anymore (removed in the Fly.io migration); don't reintroduce
 `GOOGLE_APPLICATION_CREDENTIALS`-style auto-loading.
 
 **Usage analytics.** Every real Gemini call in `adk/backend` (agent.ts,
-deduplicator.ts, evaluator.ts) is wrapped by `trackGeminiCall`
+deduplicator.ts, evaluator.ts, adjudicator.ts, plus the `test_deduplicator.ts`/
+`debug-single.ts` dev scripts) is wrapped by `trackGeminiCall`
 (`adk/backend/src/usage.ts`), which persists a per-call token/latency/cost/
-success record to `S3_REVIEW_BUCKET` under `usage/<date>/`. See
+success record to `S3_REVIEW_BUCKET` under `usage/<date>/`. `tools/eval`'s
+own judge calls (`llm-comparator.ts`/`llm-comparator-v2.ts`) are tracked the
+same way by a separate, parallel `tools/eval/usage.ts`, into that service's
+own bucket (`S3_BUCKET`, default `gsr-eval-results`) — `GET /api/usage/
+summary` and the `/usage.html` dashboard read both. See
 `usage_analytics_reference.md` for the schema and query recipes (the
-`usage-report.js` CLI, or raw `jq`-over-S3) — read that before answering any
-"what's our token spend/error rate" question instead of re-deriving the
-storage layout. `usage.ts`'s `PRICE_TABLE` mirrors `job_tracker`'s
-`internal/scoring/pricing.go` — keep both in sync when Gemini prices change.
+`usage-report.js` CLI, the dashboard API, or raw `jq`-over-S3) — read that
+before answering any "what's our token spend/error rate" question instead of
+re-deriving the storage layout. `PRICE_TABLE` now has **three** copies to
+keep in sync when Gemini prices change: `adk/backend/src/usage.ts`,
+`tools/eval/usage.ts`, and the sibling `job_tracker` project's
+`internal/scoring/pricing.go`.
 
 ## Auth
 Both Fly apps were originally deployed with zero auth on their public URLs

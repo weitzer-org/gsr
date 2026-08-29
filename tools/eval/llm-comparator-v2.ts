@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { ReviewFinding } from './api-client';
+import { trackGeminiCall } from './usage';
 
 const MODEL_NAME = 'gemini-2.5-pro';
 
@@ -102,11 +103,11 @@ Replace the numbers with your actual evaluation. Do not write anything after the
 
   try {
     console.log(`Asking Gemini to evaluate the V2 comparison...`);
-    const response = await ai.models.generateContent({
+    const response = await trackGeminiCall({ callType: 'llm_compare_v2', model: MODEL_NAME }, () => ai.models.generateContent({
       model: MODEL_NAME,
       contents: prompt,
       config: { temperature: 0.2 }
-    });
+    }));
 
     if (!response.text) throw new Error('LLM returned empty text');
 
@@ -181,11 +182,11 @@ Format your output in clean Markdown.
 
   try {
     console.log(`Asking Gemini to generate an aggregate V2 evaluation summary...`);
-    const response = await ai.models.generateContent({
+    const response = await trackGeminiCall({ callType: 'llm_compare_v2_aggregate', model: MODEL_NAME }, () => ai.models.generateContent({
       model: MODEL_NAME,
       contents: prompt,
       config: { temperature: 0.2 }
-    });
+    }));
 
     if (!response.text) throw new Error('LLM returned empty text for aggregate report');
     console.log(`✅ Aggregate V2 evaluation complete.`);

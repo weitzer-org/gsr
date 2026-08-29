@@ -51,16 +51,29 @@ function resolveDates({ date, from, to }) {
   return [new Date().toISOString().slice(0, 10)];
 }
 
+// Bumped in lockstep with adk/backend/src/usage.ts's CURRENT_SCHEMA_VERSION
+// — the API's getOrBuildDayRollup() treats a cached usage/rollups/<date>.json
+// with a stale schemaVersion as untrustworthy and rebuilds it, which is what
+// keeps a --write-rollup run here from silently reintroducing an old-shape
+// rollup if this copy ever falls behind usage.ts's.
+const SCHEMA_VERSION = 2;
+const UNTAGGED_REPOSITORY_LABEL = 'gsr (hosted)';
+
+function workloadOf(rec) {
+  return rec.callType === 'evaluate' ? 'eval' : 'review';
+}
+
 function addToBucket(map, key, rec) {
   if (!key) return;
   if (!map[key]) {
-    map[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+    map[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0, costUsd: 0 };
   }
   const b = map[key];
   b.calls++;
   if (rec.success) b.successCount++; else b.failureCount++;
   b.inputTokens += rec.inputTokens || 0;
   b.outputTokens += rec.outputTokens || 0;
+  b.thinkingTokens += rec.thinkingTokens || 0;
   b.costUsd += rec.costUsd || 0;
 }
 
@@ -71,11 +84,14 @@ function addToBucket(map, key, rec) {
 // sync if the Rollup/Record shape changes.
 function aggregate(date, records) {
   const rollup = {
+    schemaVersion: SCHEMA_VERSION,
     date, totalCalls: 0, successCount: 0, failureCount: 0,
-    totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: 0, avgLatencyMs: 0,
+    totalInputTokens: 0, totalOutputTokens: 0, totalThinkingTokens: 0, totalCostUsd: 0,
+    totalLatencyMs: 0, avgLatencyMs: 0,
     byCallType: {}, byModel: {}, byErrorKind: {},
+    byRepository: {}, byWorkload: {},
+    byModelRepository: {}, byModelWorkload: {}, byRepositoryWorkload: {},
   };
-  let totalLatencyMs = 0;
   for (const rec of records) {
     rollup.totalCalls++;
     if (rec.success) {
@@ -86,12 +102,21 @@ function aggregate(date, records) {
     }
     rollup.totalInputTokens += rec.inputTokens || 0;
     rollup.totalOutputTokens += rec.outputTokens || 0;
+    rollup.totalThinkingTokens += rec.thinkingTokens || 0;
     rollup.totalCostUsd += rec.costUsd || 0;
-    totalLatencyMs += rec.latencyMs || 0;
+    rollup.totalLatencyMs += rec.latencyMs || 0;
+
+    const repository = rec.repository || UNTAGGED_REPOSITORY_LABEL;
+    const workload = workloadOf(rec);
     addToBucket(rollup.byCallType, rec.callType, rec);
     addToBucket(rollup.byModel, rec.model, rec);
+    addToBucket(rollup.byRepository, repository, rec);
+    addToBucket(rollup.byWorkload, workload, rec);
+    addToBucket(rollup.byModelRepository, `${rec.model}|${repository}`, rec);
+    addToBucket(rollup.byModelWorkload, `${rec.model}|${workload}`, rec);
+    addToBucket(rollup.byRepositoryWorkload, `${repository}|${workload}`, rec);
   }
-  if (rollup.totalCalls > 0) rollup.avgLatencyMs = totalLatencyMs / rollup.totalCalls;
+  if (rollup.totalCalls > 0) rollup.avgLatencyMs = rollup.totalLatencyMs / rollup.totalCalls;
   return rollup;
 }
 
@@ -114,18 +139,20 @@ function printBuckets(label, map) {
   console.log(`${label}:`);
   for (const k of keys) {
     const b = map[k];
-    console.log(`  ${k.padEnd(20)} calls=${b.calls} success=${b.successCount} failure=${b.failureCount} input=${b.inputTokens} output=${b.outputTokens} cost=$${b.costUsd.toFixed(4)}`);
+    console.log(`  ${k.padEnd(30)} calls=${b.calls} success=${b.successCount} failure=${b.failureCount} input=${b.inputTokens} output=${b.outputTokens} thinking=${b.thinkingTokens} cost=$${b.costUsd.toFixed(4)}`);
   }
 }
 
 function printRollup(r) {
   console.log(`=== ${r.date} ===`);
   console.log(`Calls: ${r.totalCalls} (success=${r.successCount}, failure=${r.failureCount})`);
-  console.log(`Tokens: input=${r.totalInputTokens} output=${r.totalOutputTokens}`);
+  console.log(`Tokens: input=${r.totalInputTokens} output=${r.totalOutputTokens} thinking=${r.totalThinkingTokens}`);
   console.log(`Cost: $${r.totalCostUsd.toFixed(4)}`);
   console.log(`Avg latency: ${r.avgLatencyMs.toFixed(0)}ms`);
   printBuckets('By call type', r.byCallType);
   printBuckets('By model', r.byModel);
+  printBuckets('By repository (consuming project)', r.byRepository);
+  printBuckets('By workload', r.byWorkload);
   const errKeys = Object.keys(r.byErrorKind).sort();
   if (errKeys.length > 0) {
     console.log('By error kind:');

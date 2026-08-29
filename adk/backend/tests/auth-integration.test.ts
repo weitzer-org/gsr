@@ -8,7 +8,8 @@ const uploadJsonMock = jest.fn<any>();
 jest.unstable_mockModule('../src/storage.js', () => ({
     uploadJson: uploadJsonMock,
     listFiles: listFilesMock,
-    getFileStream: getFileStreamMock
+    getFileStream: getFileStreamMock,
+    getFileJson: jest.fn()
 }));
 
 // Route-gating behavior lives partly in auth.ts and partly in how app.ts

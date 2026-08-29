@@ -18,7 +18,7 @@
 // concurrent subagent calls (Orchestrator's PromisePool, up to 5 in flight)
 // never contend the way a single shared/appended file would.
 import { randomBytes } from 'crypto';
-import { uploadJson, listFiles, getFileStream } from './storage';
+import { uploadJson, listFiles, getFileStream, getFileJson } from './storage';
 import { PromisePool } from './pool';
 
 export interface UsageEvent {
@@ -30,6 +30,7 @@ export interface UsageEvent {
   inputTokens: number;
   outputTokens: number;
   cachedTokens?: number;
+  thinkingTokens?: number; // present only when > 0 — Gemini's usageMetadata.thoughtsTokenCount
   latencyMs: number;
   costUsd: number;
   finishReason?: string;
@@ -54,14 +55,20 @@ const PRICE_TABLE: Record<string, { input: number; output: number }> = {
   'gemini-3.5-flash': { input: 1.5, output: 9.0 },
   'gemini-3.6-flash': { input: 1.5, output: 7.5 },
   'gemini-3.7-flash': { input: 0.75, output: 3.75 }, // introductory rate through 2026-12-31; doubles to 1.50/7.50 after
+  'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // used by debug-single.ts and tools/eval's llm-comparator*.ts; <=200k-token-prompt tier — verify against current pricing if usage grows large
 };
 
-export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
+// thinkingTokens is billed at the model's output rate — ASSUMPTION, not a
+// confirmed fact: Gemini's public pricing treats "thinking"/reasoning tokens
+// as output tokens for the model families in PRICE_TABLE, but this hasn't
+// been verified against current pricing docs. Re-check before relying on
+// this for real cost reporting.
+export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0, thinkingTokens = 0): number {
   const price = PRICE_TABLE[model];
   if (!price) return 0;
   const perM = 1_000_000;
   const billedInput = Math.max(0, inputTokens - cachedTokens);
-  return (billedInput * price.input) / perM + (outputTokens * price.output) / perM;
+  return (billedInput * price.input) / perM + ((outputTokens + thinkingTokens) * price.output) / perM;
 }
 
 // classifyError gives a coarse, stable label for a failed call so usage
@@ -144,6 +151,7 @@ type GenerateContentLikeResponse = {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
     cachedContentTokenCount?: number;
+    thoughtsTokenCount?: number;
   };
 };
 
@@ -169,6 +177,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
     const inputTokens = u?.promptTokenCount ?? 0;
     const outputTokens = u?.candidatesTokenCount ?? 0;
     const cachedTokens = u?.cachedContentTokenCount ?? 0;
+    const thinkingTokens = u?.thoughtsTokenCount ?? 0;
     await recordUsage({
       callType: ctx.callType,
       refId: ctx.refId,
@@ -176,8 +185,9 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       inputTokens,
       outputTokens,
       cachedTokens,
+      thinkingTokens,
       latencyMs,
-      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens),
+      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens, thinkingTokens),
       success: true,
     });
     return response;
@@ -207,21 +217,57 @@ export interface UsageBucket {
   failureCount: number;
   inputTokens: number;
   outputTokens: number;
+  thinkingTokens: number;
   costUsd: number;
 }
 
+// Bumped whenever Rollup's shape changes. getOrBuildDayRollup (below) uses
+// this to detect a cached usage/rollups/<date>.json written by an
+// out-of-sync producer (an older deploy, or a manual `usage-report.js
+// --write-rollup` run whose own hand-copied aggregate() hasn't been updated
+// to match) and transparently rebuild it instead of serving a stale shape.
+export const CURRENT_SCHEMA_VERSION = 2;
+
+// byModelRepository/byModelWorkload/byRepositoryWorkload key their maps on
+// `${a}|${b}` — safe because model names, "owner/repo" repository strings,
+// and the two workload labels ("eval"/"review") never contain "|".
 export interface Rollup {
+  schemaVersion: number;
   date: string;
   totalCalls: number;
   successCount: number;
   failureCount: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalThinkingTokens: number;
   totalCostUsd: number;
+  totalLatencyMs: number;
   avgLatencyMs: number;
   byCallType: Record<string, UsageBucket>;
   byModel: Record<string, UsageBucket>;
   byErrorKind: Record<string, number>;
+  byRepository: Record<string, UsageBucket>;
+  byWorkload: Record<string, UsageBucket>;
+  byModelRepository: Record<string, UsageBucket>;
+  byModelWorkload: Record<string, UsageBucket>;
+  byRepositoryWorkload: Record<string, UsageBucket>;
+}
+
+// UNTAGGED_REPOSITORY_LABEL is applied only during aggregation, never
+// written into a stored raw record — a record with no `repository` really
+// did have none reported, and callers reading raw records directly (e.g.
+// listUsageRecords) should keep seeing that truthfully. Only the
+// "consuming project" breakdown needs every record bucketed somewhere.
+const UNTAGGED_REPOSITORY_LABEL = 'gsr (hosted)';
+
+// "eval" covers adk/backend's own `evaluate` callType (the Evaluator
+// subagent-vs-basic comparison narrative) AND tools/eval's `llm_compare`/
+// `llm_compare_v2` (+ `_aggregate`) callTypes — the latter written by the
+// separate gsr-evaluator service's tools/eval/usage.ts into its own bucket,
+// read here via listUsageRecords/getOrBuildDayRollup's bucket parameter
+// rather than a shared module. Everything else is "review".
+function workloadOf(rec: UsageRecord): 'eval' | 'review' {
+  return rec.callType === 'evaluate' || rec.callType.startsWith('llm_compare') ? 'eval' : 'review';
 }
 
 async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
@@ -232,12 +278,16 @@ async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
   return Buffer.concat(chunks).toString('utf-8');
 }
 
-// listUsageRecords reads every record written under usage/<date>/. A record
-// that fails to fetch or decode is skipped with a logged warning rather than
-// failing the whole listing — one malformed object shouldn't block
-// aggregating everything else that day.
-export async function listUsageRecords(date: string): Promise<UsageRecord[]> {
-  const bucket = getUsageBucketName();
+// listUsageRecords reads every record written under usage/<date>/ in
+// `bucket` (defaults to this service's own S3_REVIEW_BUCKET). Passing
+// tools/eval's bucket (S3_BUCKET, default gsr-eval-results) lets the same
+// aggregation logic fold in that service's usage without a cross-project
+// import — see workloadOf's comment above.
+//
+// A record that fails to fetch or decode is skipped with a logged warning
+// rather than failing the whole listing — one malformed object shouldn't
+// block aggregating everything else that day.
+export async function listUsageRecords(date: string, bucket: string = getUsageBucketName()): Promise<UsageRecord[]> {
   const files = await listFiles(bucket, `usage/${date}/`);
   const records: UsageRecord[] = [];
   for (const file of files) {
@@ -254,7 +304,7 @@ export async function listUsageRecords(date: string): Promise<UsageRecord[]> {
 function addToBucket(m: Record<string, UsageBucket>, key: string | undefined, rec: UsageRecord): void {
   if (!key) return;
   if (!m[key]) {
-    m[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+    m[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0, costUsd: 0 };
   }
   const b = m[key];
   b.calls++;
@@ -265,6 +315,7 @@ function addToBucket(m: Record<string, UsageBucket>, key: string | undefined, re
   }
   b.inputTokens += rec.inputTokens;
   b.outputTokens += rec.outputTokens;
+  b.thinkingTokens += rec.thinkingTokens ?? 0;
   b.costUsd += rec.costUsd;
 }
 
@@ -272,20 +323,27 @@ function addToBucket(m: Record<string, UsageBucket>, key: string | undefined, re
 // no I/O — so it's independently testable from listUsageRecords/writeRollup.
 export function aggregate(date: string, records: UsageRecord[]): Rollup {
   const rollup: Rollup = {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     date,
     totalCalls: 0,
     successCount: 0,
     failureCount: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    totalThinkingTokens: 0,
     totalCostUsd: 0,
+    totalLatencyMs: 0,
     avgLatencyMs: 0,
     byCallType: {},
     byModel: {},
     byErrorKind: {},
+    byRepository: {},
+    byWorkload: {},
+    byModelRepository: {},
+    byModelWorkload: {},
+    byRepositoryWorkload: {},
   };
 
-  let totalLatencyMs = 0;
   for (const rec of records) {
     rollup.totalCalls++;
     if (rec.success) {
@@ -298,15 +356,24 @@ export function aggregate(date: string, records: UsageRecord[]): Rollup {
     }
     rollup.totalInputTokens += rec.inputTokens;
     rollup.totalOutputTokens += rec.outputTokens;
+    rollup.totalThinkingTokens += rec.thinkingTokens ?? 0;
     rollup.totalCostUsd += rec.costUsd;
-    totalLatencyMs += rec.latencyMs;
+    rollup.totalLatencyMs += rec.latencyMs;
+
+    const repository = rec.repository || UNTAGGED_REPOSITORY_LABEL;
+    const workload = workloadOf(rec);
 
     addToBucket(rollup.byCallType, rec.callType, rec);
     addToBucket(rollup.byModel, rec.model, rec);
+    addToBucket(rollup.byRepository, repository, rec);
+    addToBucket(rollup.byWorkload, workload, rec);
+    addToBucket(rollup.byModelRepository, `${rec.model}|${repository}`, rec);
+    addToBucket(rollup.byModelWorkload, `${rec.model}|${workload}`, rec);
+    addToBucket(rollup.byRepositoryWorkload, `${repository}|${workload}`, rec);
   }
 
   if (rollup.totalCalls > 0) {
-    rollup.avgLatencyMs = totalLatencyMs / rollup.totalCalls;
+    rollup.avgLatencyMs = rollup.totalLatencyMs / rollup.totalCalls;
   }
   return rollup;
 }
@@ -316,8 +383,124 @@ export function aggregate(date: string, records: UsageRecord[]): Rollup {
 // idempotently, not an append-only log, so an unconditional PUT is correct
 // here (unlike per-call records, which are already inherently non-colliding
 // thanks to their random-suffixed keys).
-export async function writeRollup(rollup: Rollup): Promise<void> {
-  await uploadJson(getUsageBucketName(), `usage/rollups/${rollup.date}.json`, rollup);
+export async function writeRollup(rollup: Rollup, bucket: string = getUsageBucketName()): Promise<void> {
+  await uploadJson(bucket, `usage/rollups/${rollup.date}.json`, rollup);
+}
+
+// currentDateString returns today's YYYY-MM-DD in UTC — split out so tests
+// can pass an explicit `today` to getOrBuildDayRollup instead of depending
+// on wall-clock time.
+export function currentDateString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isFreshRollup(value: unknown): value is Rollup {
+  return !!value && typeof value === 'object' && (value as Rollup).schemaVersion === CURRENT_SCHEMA_VERSION;
+}
+
+// getOrBuildDayRollup is the self-healing cache read the API/CLI should use
+// instead of calling aggregate() over listUsageRecords() directly:
+// - `date === today`: always recomputed from raw records, never cached —
+//   today's data is still accumulating throughout the day.
+// - any past date: served from usage/rollups/<date>.json when present and
+//   at CURRENT_SCHEMA_VERSION; otherwise (missing, unparsable, or written by
+//   an out-of-sync producer — an older deploy, or usage-report.js's own
+//   hand-copied aggregate() before it's updated to match) recomputed and
+//   the cache overwritten, so a stale shape self-heals on first read rather
+//   than requiring a manual re-run.
+//
+// `bucket` defaults to this service's own S3_REVIEW_BUCKET; the usage-
+// summary route (app.ts) also calls this with tools/eval's bucket
+// (S3_BUCKET, default gsr-eval-results) to build its "eval-harness" source
+// view — see workloadOf's comment for why that's a bucket parameter here
+// rather than a cross-project import.
+export async function getOrBuildDayRollup(date: string, today: string = currentDateString(), bucket: string = getUsageBucketName()): Promise<Rollup> {
+  if (date !== today) {
+    const cached = await getFileJson(bucket, `usage/rollups/${date}.json`);
+    if (isFreshRollup(cached)) {
+      return cached;
+    }
+  }
+
+  const rollup = aggregate(date, await listUsageRecords(date, bucket));
+  if (date !== today) {
+    await writeRollup(rollup, bucket);
+  }
+  return rollup;
+}
+
+function mergeBucketMaps(a: Record<string, UsageBucket>, b: Record<string, UsageBucket>): Record<string, UsageBucket> {
+  const merged: Record<string, UsageBucket> = {};
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const x = a[key];
+    const y = b[key];
+    merged[key] = {
+      calls: (x?.calls ?? 0) + (y?.calls ?? 0),
+      successCount: (x?.successCount ?? 0) + (y?.successCount ?? 0),
+      failureCount: (x?.failureCount ?? 0) + (y?.failureCount ?? 0),
+      inputTokens: (x?.inputTokens ?? 0) + (y?.inputTokens ?? 0),
+      outputTokens: (x?.outputTokens ?? 0) + (y?.outputTokens ?? 0),
+      thinkingTokens: (x?.thinkingTokens ?? 0) + (y?.thinkingTokens ?? 0),
+      costUsd: (x?.costUsd ?? 0) + (y?.costUsd ?? 0),
+    };
+  }
+  return merged;
+}
+
+// sumRollups folds several day-rollups (or a backend rollup + a tools/eval
+// rollup, since both share this exact shape) into one, labeled `label`
+// (e.g. a week/month/range identifier, not necessarily a single date).
+// Every Rollup/UsageBucket field is additive except avgLatencyMs, which is
+// re-derived from the summed totalLatencyMs/totalCalls rather than averaged
+// a second time.
+export function sumRollups(label: string, rollups: Rollup[]): Rollup {
+  const result: Rollup = {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    date: label,
+    totalCalls: 0,
+    successCount: 0,
+    failureCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalThinkingTokens: 0,
+    totalCostUsd: 0,
+    totalLatencyMs: 0,
+    avgLatencyMs: 0,
+    byCallType: {},
+    byModel: {},
+    byErrorKind: {},
+    byRepository: {},
+    byWorkload: {},
+    byModelRepository: {},
+    byModelWorkload: {},
+    byRepositoryWorkload: {},
+  };
+
+  for (const r of rollups) {
+    result.totalCalls += r.totalCalls;
+    result.successCount += r.successCount;
+    result.failureCount += r.failureCount;
+    result.totalInputTokens += r.totalInputTokens;
+    result.totalOutputTokens += r.totalOutputTokens;
+    result.totalThinkingTokens += r.totalThinkingTokens;
+    result.totalCostUsd += r.totalCostUsd;
+    result.totalLatencyMs += r.totalLatencyMs;
+    for (const kind of Object.keys(r.byErrorKind)) {
+      result.byErrorKind[kind] = (result.byErrorKind[kind] || 0) + r.byErrorKind[kind];
+    }
+    result.byCallType = mergeBucketMaps(result.byCallType, r.byCallType);
+    result.byModel = mergeBucketMaps(result.byModel, r.byModel);
+    result.byRepository = mergeBucketMaps(result.byRepository, r.byRepository);
+    result.byWorkload = mergeBucketMaps(result.byWorkload, r.byWorkload);
+    result.byModelRepository = mergeBucketMaps(result.byModelRepository, r.byModelRepository);
+    result.byModelWorkload = mergeBucketMaps(result.byModelWorkload, r.byModelWorkload);
+    result.byRepositoryWorkload = mergeBucketMaps(result.byRepositoryWorkload, r.byRepositoryWorkload);
+  }
+
+  if (result.totalCalls > 0) {
+    result.avgLatencyMs = result.totalLatencyMs / result.totalCalls;
+  }
+  return result;
 }
 
 // --- Ingest from remote GSR Action runs ---
@@ -342,7 +525,8 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
     typeof r.costUsd === 'number' && Number.isFinite(r.costUsd) &&
     typeof r.success === 'boolean' &&
     typeof r.timestamp === 'string' &&
-    r.provider === 'gemini'
+    r.provider === 'gemini' &&
+    (r.thinkingTokens === undefined || (typeof r.thinkingTokens === 'number' && Number.isFinite(r.thinkingTokens)))
   );
 }
 

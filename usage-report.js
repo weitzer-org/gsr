@@ -17,6 +17,24 @@
 // Report-only (writes nothing) by default.
 const { listFiles, downloadJson, uploadJson } = require('./tools/eval/usage-report-client');
 
+// mapWithConcurrency mirrors adk/backend/src/pool.ts's PromisePool usage —
+// this script has no TS build step to import that class directly, so it's a
+// minimal inline equivalent: bounded-concurrency reads instead of one
+// downloadJson per file awaited sequentially, which turns into a
+// multi-second-or-worse fetch on a heavy-usage day.
+async function mapWithConcurrency(items, concurrency, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
+
 function parseArgs(argv) {
   const args = { writeRollup: false };
   for (let i = 0; i < argv.length; i++) {
@@ -134,15 +152,15 @@ function aggregate(date, records) {
 
 async function listRecordsForDate(date) {
   const files = await listFiles(`usage/${date}/`);
-  const records = [];
-  for (const f of files) {
+  const results = await mapWithConcurrency(files, 20, async (f) => {
     try {
-      records.push(await downloadJson(f.name));
+      return await downloadJson(f.name);
     } catch (err) {
       console.error(`Failed to read/parse ${f.name}:`, err.message);
+      return undefined;
     }
-  }
-  return records;
+  });
+  return results.filter((r) => r !== undefined);
 }
 
 function printBuckets(label, map) {

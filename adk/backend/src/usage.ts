@@ -291,18 +291,27 @@ async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
 // A record that fails to fetch or decode is skipped with a logged warning
 // rather than failing the whole listing — one malformed object shouldn't
 // block aggregating everything else that day.
+// Bounded-concurrency reads (mirroring ingestUsageRecords's PromisePool
+// usage) rather than one getFileStream per file awaited sequentially — a
+// heavy-usage day (hundreds+ of individual call records) awaited one at a
+// time turns into a multi-second-or-worse fetch, and this path runs
+// uncached on every request for "today" (getOrBuildDayRollup never caches
+// it), so it's on the hot path for every dashboard load.
+const LIST_RECORDS_CONCURRENCY = 20;
+
 export async function listUsageRecords(date: string, bucket: string = getUsageBucketName()): Promise<UsageRecord[]> {
   const files = await listFiles(bucket, `usage/${date}/`);
-  const records: UsageRecord[] = [];
-  for (const file of files) {
+  const pool = new PromisePool(LIST_RECORDS_CONCURRENCY);
+  const results = await Promise.all(files.map(file => pool.add(async (): Promise<UsageRecord | undefined> => {
     try {
       const stream = await getFileStream(bucket, file.name);
-      records.push(JSON.parse(await streamToString(stream)));
+      return JSON.parse(await streamToString(stream));
     } catch (err) {
       console.error(`[usage] failed to read/parse ${file.name}:`, err);
+      return undefined;
     }
-  }
-  return records;
+  })));
+  return results.filter((r): r is UsageRecord => r !== undefined);
 }
 
 // `key` comes from record fields (model/repository/callType, or a

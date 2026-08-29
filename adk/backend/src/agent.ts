@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { CandidateFinding, DiffChunk, Subagent, AnalyzeResult } from './types';
-import { trackGeminiCall } from './usage';
+import { trackGeminiCall, recordParseFailure } from './usage';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -154,7 +154,19 @@ export class GeminiAgent implements Subagent {
         }
 
         if (response.text) {
-            const result = JSON.parse(response.text) as { filesAnalyzed: string[], issues: DiscoveryIssue[] };
+            let result: { filesAnalyzed: string[], issues: DiscoveryIssue[] };
+            try {
+              result = JSON.parse(response.text);
+            } catch (parseErr) {
+              // The call succeeded and was billed (trackGeminiCall already
+              // recorded that) but the response can't be used — previously
+              // this thrown error was caught by analyze()'s outer catch and
+              // turned into a silent `{ findings: [] }`, indistinguishable
+              // from "found nothing". Record it as its own visible failure
+              // mode before letting that same graceful-degradation path run.
+              await recordParseFailure({ callType: 'discovery', model: requestArgs.model }, response, 0);
+              throw parseErr;
+            }
             if (result.issues) {
                 discoveryIssues.push(...result.issues);
             }
@@ -224,7 +236,13 @@ export class GeminiAgent implements Subagent {
       }
 
       if (remediationResponse.text) {
-          const findings = JSON.parse(remediationResponse.text) as CandidateFinding[];
+          let findings: CandidateFinding[];
+          try {
+            findings = JSON.parse(remediationResponse.text);
+          } catch (parseErr) {
+            await recordParseFailure({ callType: 'remediation', model: remediationModel }, remediationResponse, 0);
+            throw parseErr;
+          }
           console.log(`[${this.name}] Successfully generated ${findings.length} final actionable findings.`);
           return {
             findings: findings.map(f => ({ ...f, agent: this.name })),
@@ -235,11 +253,16 @@ export class GeminiAgent implements Subagent {
             }
           };
       }
-      return { findings: [] };
+      return { findings: [], usage: { promptTokenCount: promptTokens, candidatesTokenCount: candidatesTokens, totalTokenCount: promptTokens + candidatesTokens } };
 
     } catch (e) {
       console.error(`⚠️ Note: The ${this.name} Agent failed to complete its review for ${aggregatedFiles}`, e);
-      return { findings: [] };
+      // Preserve whatever was actually spent before the failure (e.g. a
+      // successful Pass 1, then a Pass 2 timeout) — previously this
+      // discarded that accounting entirely. The real per-call cost is still
+      // in the S3 usage records regardless (trackGeminiCall writes those
+      // independently); this only affects what this function itself returns.
+      return { findings: [], usage: { promptTokenCount: promptTokens, candidatesTokenCount: candidatesTokens, totalTokenCount: promptTokens + candidatesTokens } };
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
     }
@@ -292,7 +315,13 @@ ${chunk.content}
       );
 
       if (response.text) {
-          const findings = JSON.parse(response.text) as CandidateFinding[];
+          let findings: CandidateFinding[];
+          try {
+            findings = JSON.parse(response.text);
+          } catch (parseErr) {
+            await recordParseFailure({ callType: 'legacy', model: legacyModel }, response, 0);
+            throw parseErr;
+          }
           return {
             findings: findings.map(f => ({ ...f, file: chunk.file, agent: this.name })),
             usage: response.usageMetadata ? {

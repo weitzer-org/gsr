@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSR - Usage Dashboard</title>
+    <!-- Use Inter font for a modern look -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container eval-container">
+        <header>
+            <div class="nav-bar">
+                <a href="index.html" class="nav-link">Code Review</a>
+                <a href="evals.html" class="nav-link">Evaluations</a>
+                <a href="usage.html" class="nav-link active">Usage</a>
+                <a href="#" id="logout-link" class="nav-link">Log Out</a>
+            </div>
+            <h1>Usage Dashboard</h1>
+            <p>Gemini API token and cost usage across every consuming project, model, and workload.</p>
+        </header>
+
+        <div class="card usage-controls-card">
+            <div class="usage-controls">
+                <div class="usage-quick-ranges">
+                    <button type="button" class="quick-range-btn active" data-range="today">Today</button>
+                    <button type="button" class="quick-range-btn" data-range="week">This week</button>
+                    <button type="button" class="quick-range-btn" data-range="month">This month</button>
+                    <button type="button" class="quick-range-btn" data-range="90d">Last 90 days</button>
+                </div>
+                <div class="usage-controls-row">
+                    <label for="usage-from">From</label>
+                    <input type="date" id="usage-from" class="form-input">
+                    <label for="usage-to">To</label>
+                    <input type="date" id="usage-to" class="form-input">
+                    <label for="usage-granularity">Granularity</label>
+                    <select id="usage-granularity" class="form-select">
+                        <option value="day" selected>Day</option>
+                        <option value="week">Week</option>
+                        <option value="month">Month</option>
+                    </select>
+                    <label for="usage-source">Source</label>
+                    <select id="usage-source" class="form-select">
+                        <option value="all" selected>All</option>
+                        <option value="backend">GSR backend</option>
+                        <option value="eval-harness">Eval harness (tools/eval)</option>
+                    </select>
+                </div>
+            </div>
+            <div id="usage-status-notice" class="status-notice hidden"></div>
+        </div>
+
+        <div class="card summary-card">
+            <div class="card-header">
+                <h2>Totals</h2>
+                <span id="usage-range-badge" class="badge"></span>
+            </div>
+            <div class="metrics-panel">
+                <div class="metric-box">
+                    <span class="metric-label">Input tokens</span>
+                    <span id="usage-total-input" class="metric-value">0</span>
+                </div>
+                <div class="metric-box">
+                    <span class="metric-label">Output tokens</span>
+                    <span id="usage-total-output" class="metric-value">0</span>
+                </div>
+                <div class="metric-box">
+                    <span class="metric-label">Thinking tokens</span>
+                    <span id="usage-total-thinking" class="metric-value">0</span>
+                </div>
+                <div class="metric-box">
+                    <span class="metric-label">Estimated cost</span>
+                    <span id="usage-total-cost" class="metric-value">$0.00</span>
+                </div>
+                <div class="metric-box">
+                    <span class="metric-label">LLM calls</span>
+                    <span id="usage-total-calls" class="metric-value">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Over time</h2>
+                <select id="usage-timeseries-metric" class="form-select">
+                    <option value="totalCostUsd" selected>Cost</option>
+                    <option value="totalInputTokens">Input tokens</option>
+                    <option value="totalOutputTokens">Output tokens</option>
+                    <option value="totalThinkingTokens">Thinking tokens</option>
+                </select>
+            </div>
+            <div id="usage-timeseries" class="usage-timeseries">
+                <!-- Populated by JS: one .usage-bar-row per bucket -->
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Breakdown</h2>
+                <div class="usage-breakdown-controls">
+                    <label for="usage-breakdown-by">By</label>
+                    <select id="usage-breakdown-by" class="form-select">
+                        <option value="byModel" selected>Model</option>
+                        <option value="byRepository">Consuming project</option>
+                        <option value="byWorkload">Workload</option>
+                    </select>
+                    <label for="usage-breakdown-intersect">Intersect with</label>
+                    <select id="usage-breakdown-intersect" class="form-select">
+                        <option value="" selected>None</option>
+                        <option value="byModelRepository">Model &times; consuming project</option>
+                        <option value="byModelWorkload">Model &times; workload</option>
+                        <option value="byRepositoryWorkload">Consuming project &times; workload</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-scroll">
+                <table class="comparison-table" id="usage-breakdown-table">
+                    <thead>
+                        <tr>
+                            <th id="usage-breakdown-col-1">Model</th>
+                            <th id="usage-breakdown-col-2"></th>
+                            <th>Calls</th>
+                            <th>Input</th>
+                            <th>Output</th>
+                            <th>Thinking</th>
+                            <th>Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usage-breakdown-body">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="usage.js"></script>
+</body>
+</html>

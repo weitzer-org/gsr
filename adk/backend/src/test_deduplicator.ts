@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import * as fs from 'fs';
 import * as path from 'path';
+import { trackGeminiCall } from './usage';
 
 async function main() {
   const jsonPath = process.argv[2];
@@ -33,8 +34,9 @@ Your final output MUST match the schema of an array of CandidateFinding objects.
 CRITICAL: You MUST retain the 'agent' field for every single finding. Without this, the UI breaks.`;
 
   console.log("[Test] Calling Gemini...");
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.1-pro-preview',
+  const model = 'gemini-3.1-pro-preview';
+  const response = await trackGeminiCall({ callType: 'debug_test_deduplicator', model }, () => ai.models.generateContent({
+    model,
     contents: JSON.stringify(findings),
     config: {
       systemInstruction,
@@ -57,7 +59,7 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
         }
       }
     }
-  });
+  }));
 
   console.log("[Test] Response received!");
   if (response.text) {

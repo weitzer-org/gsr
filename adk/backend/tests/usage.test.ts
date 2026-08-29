@@ -4,6 +4,7 @@ import { Readable } from 'stream';
 const mockUploadJson = jest.fn<any>().mockResolvedValue(undefined);
 const mockListFiles = jest.fn<any>();
 const mockGetFileStream = jest.fn<any>();
+const mockGetFileJson = jest.fn<any>();
 
 // ESM modules are resolved/evaluated before a hoisted classic jest.mock()
 // can apply, so — mirroring tests/evaluator.test.ts's proven pattern for
@@ -14,6 +15,7 @@ jest.unstable_mockModule('../src/storage.js', () => ({
     uploadJson: mockUploadJson,
     listFiles: mockListFiles,
     getFileStream: mockGetFileStream,
+    getFileJson: mockGetFileJson,
 }));
 
 let usage: typeof import('../src/usage.js');
@@ -36,6 +38,13 @@ describe('computeCostUsd', () => {
 
     it('returns 0 for an unknown model rather than throwing', () => {
         expect(usage.computeCostUsd('some-future-model', 1000, 1000)).toBe(0);
+    });
+
+    it('does not bill thinking tokens on top of the fifth arg (avoids double-counting candidatesTokenCount)', () => {
+        // computeCostUsd only takes 4 args now — a stray 5th argument must
+        // be silently ignored, not folded into the output rate.
+        const cost = (usage.computeCostUsd as any)('gemini-3.1-pro-preview', 0, 0, 0, 1_000_000);
+        expect(cost).toBe(0);
     });
 });
 
@@ -133,6 +142,18 @@ describe('trackGeminiCall', () => {
         expect(data.inputTokens).toBe(0);
     });
 
+    it('records thinking tokens from thoughtsTokenCount as telemetry, without folding them into cost', async () => {
+        const response = { text: 'ok', usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 10, thoughtsTokenCount: 30 } };
+        await usage.trackGeminiCall({ callType: 'legacy', model: 'gemini-3.1-pro-preview' }, () => Promise.resolve(response));
+
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.thinkingTokens).toBe(30);
+        // costUsd reflects only inputTokens/outputTokens — candidatesTokenCount
+        // (outputTokens) already reflects thinking tokens per Gemini's own
+        // pricing docs, so thinkingTokens must not be billed a second time.
+        expect(data.costUsd).toBeCloseTo(usage.computeCostUsd('gemini-3.1-pro-preview', 50, 10, 0), 8);
+    });
+
     it('handles a response with no usageMetadata as zero tokens, still success', async () => {
         const result = await usage.trackGeminiCall({ callType: 'legacy', model: 'x' }, () => Promise.resolve({ text: 'ok' } as any));
         expect((result as any).text).toBe('ok');
@@ -171,6 +192,171 @@ describe('aggregate', () => {
         expect(rollup.byCallType['discovery'].failureCount).toBe(1);
         expect(rollup.byModel['gemini-3.5-flash'].calls).toBe(1);
         expect(rollup.avgLatencyMs).toBeCloseTo((1000 + 3000 + 500 + 500) / 4, 5);
+    });
+
+    it('defaults an untagged record to the "gsr (hosted)" repository bucket, and passes through a tagged one', () => {
+        const records: Array<Record<string, unknown>> = [
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'x', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true },
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'x', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: 'weitzer-org/logo-maker' },
+        ];
+        const rollup = usage.aggregate('2026-07-29', records as any);
+        expect(rollup.byRepository['gsr (hosted)'].calls).toBe(1);
+        expect(rollup.byRepository['weitzer-org/logo-maker'].calls).toBe(1);
+    });
+
+    it('splits by workload: "evaluate" callType is eval, everything else is review', () => {
+        const records: Array<Record<string, unknown>> = [
+            { timestamp: 't', provider: 'gemini', callType: 'evaluate', model: 'x', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true },
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'x', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true },
+            { timestamp: 't', provider: 'gemini', callType: 'deduplicate', model: 'x', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true },
+        ];
+        const rollup = usage.aggregate('2026-07-29', records as any);
+        expect(rollup.byWorkload['eval'].calls).toBe(1);
+        expect(rollup.byWorkload['review'].calls).toBe(2);
+    });
+
+    it('classifies tools/eval\'s llm_compare* callTypes as eval workload too', () => {
+        const records: Array<Record<string, unknown>> = [
+            { timestamp: 't', provider: 'gemini', callType: 'llm_compare', model: 'gemini-2.5-pro', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: 'tools-eval (local)' },
+            { timestamp: 't', provider: 'gemini', callType: 'llm_compare_v2_aggregate', model: 'gemini-2.5-pro', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: 'tools-eval (local)' },
+        ];
+        const rollup = usage.aggregate('2026-07-29', records as any);
+        expect(rollup.byWorkload['eval'].calls).toBe(2);
+        expect(rollup.byRepository['tools-eval (local)'].calls).toBe(2);
+    });
+
+    it('builds the model x repository intersection keyed on "model|repository"', () => {
+        const records: Array<Record<string, unknown>> = [
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'gemini-3.1-pro-preview', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: 'weitzer-org/logo-maker' },
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'gemini-3.1-pro-preview', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true },
+        ];
+        const rollup = usage.aggregate('2026-07-29', records as any);
+        expect(rollup.byModelRepository['gemini-3.1-pro-preview|weitzer-org/logo-maker'].calls).toBe(1);
+        expect(rollup.byModelRepository['gemini-3.1-pro-preview|gsr (hosted)'].calls).toBe(1);
+    });
+
+    it('sums thinkingTokens into totals and per-bucket', () => {
+        const records: Array<Record<string, unknown>> = [
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'x', inputTokens: 1, outputTokens: 1, thinkingTokens: 40, latencyMs: 1, costUsd: 0, success: true },
+        ];
+        const rollup = usage.aggregate('2026-07-29', records as any);
+        expect(rollup.totalThinkingTokens).toBe(40);
+        expect(rollup.byModel['x'].thinkingTokens).toBe(40);
+    });
+
+    it('stamps the current schemaVersion', () => {
+        const rollup = usage.aggregate('2026-07-29', []);
+        expect(rollup.schemaVersion).toBe(usage.CURRENT_SCHEMA_VERSION);
+    });
+
+    it('does not pollute Object.prototype when a record field is literally "__proto__"', () => {
+        const before = (Object.prototype as any).calls;
+        const records: Array<Record<string, unknown>> = [
+            { timestamp: 't', provider: 'gemini', callType: '__proto__', model: '__proto__', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: '__proto__' },
+        ];
+        usage.aggregate('2026-07-29', records as any);
+        expect((Object.prototype as any).calls).toBe(before);
+        expect(Object.keys({})).toHaveLength(0);
+    });
+
+    it('does not silently drop/miscount an errorKind of literally "__proto__"', () => {
+        const records: Array<Record<string, unknown>> = [
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'x', inputTokens: 0, outputTokens: 0, latencyMs: 1, costUsd: 0, success: false, errorKind: '__proto__' },
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'x', inputTokens: 0, outputTokens: 0, latencyMs: 1, costUsd: 0, success: false, errorKind: 'rate_limit' },
+        ];
+        const rollup = usage.aggregate('2026-07-29', records as any);
+        // The unsafe key is skipped entirely rather than silently coerced
+        // into a garbled/no-op'd entry — a legitimate key alongside it still
+        // counts normally.
+        expect(Object.keys(rollup.byErrorKind)).not.toContain('__proto__');
+        expect(rollup.byErrorKind['rate_limit']).toBe(1);
+    });
+});
+
+describe('sumRollups', () => {
+    it('sums additive fields and merges bucket maps across rollups', () => {
+        const a = usage.aggregate('2026-07-28', [
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'x', inputTokens: 10, outputTokens: 5, latencyMs: 100, costUsd: 0.01, success: true } as any,
+        ]);
+        const b = usage.aggregate('2026-07-29', [
+            { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'x', inputTokens: 20, outputTokens: 10, latencyMs: 300, costUsd: 0.02, success: true } as any,
+        ]);
+
+        const summed = usage.sumRollups('2026-W31', [a, b]);
+        expect(summed.totalCalls).toBe(2);
+        expect(summed.totalInputTokens).toBe(30);
+        expect(summed.byModel['x'].calls).toBe(2);
+        expect(summed.avgLatencyMs).toBeCloseTo((100 + 300) / 2, 5);
+        expect(summed.date).toBe('2026-W31');
+    });
+
+    it('returns a zero-value rollup for an empty list', () => {
+        const summed = usage.sumRollups('empty', []);
+        expect(summed.totalCalls).toBe(0);
+        expect(summed.avgLatencyMs).toBe(0);
+    });
+});
+
+describe('getOrBuildDayRollup', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockUploadJson.mockResolvedValue(undefined);
+    });
+
+    it("always recomputes today's rollup and never reads or writes the cache", async () => {
+        mockListFiles.mockResolvedValue([]);
+        const rollup = await usage.getOrBuildDayRollup('2026-07-29', '2026-07-29');
+        expect(mockGetFileJson).not.toHaveBeenCalled();
+        expect(mockUploadJson).not.toHaveBeenCalled();
+        expect(rollup.date).toBe('2026-07-29');
+    });
+
+    it('never caches a future date — an empty rollup for it would otherwise permanently mask real data once that date arrives', async () => {
+        mockListFiles.mockResolvedValue([]);
+        const rollup = await usage.getOrBuildDayRollup('2026-07-30', '2026-07-29');
+        expect(mockGetFileJson).not.toHaveBeenCalled();
+        expect(mockUploadJson).not.toHaveBeenCalled();
+        expect(rollup.date).toBe('2026-07-30');
+    });
+
+    it('serves a cached past-day rollup at the current schema version without recomputing', async () => {
+        const cached = usage.aggregate('2026-07-28', []);
+        mockGetFileJson.mockResolvedValue(cached);
+
+        const rollup = await usage.getOrBuildDayRollup('2026-07-28', '2026-07-29');
+        expect(rollup).toBe(cached);
+        expect(mockListFiles).not.toHaveBeenCalled();
+    });
+
+    it('rebuilds and overwrites a stale-schema cached rollup for a past day', async () => {
+        mockGetFileJson.mockResolvedValue({ date: '2026-07-28', schemaVersion: 1 });
+        mockListFiles.mockResolvedValue([]);
+
+        const rollup = await usage.getOrBuildDayRollup('2026-07-28', '2026-07-29');
+        expect(rollup.schemaVersion).toBe(usage.CURRENT_SCHEMA_VERSION);
+        expect(mockUploadJson).toHaveBeenCalledTimes(1);
+        const [, key] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(key).toBe('usage/rollups/2026-07-28.json');
+    });
+
+    it('rebuilds a missing cached rollup for a past day', async () => {
+        mockGetFileJson.mockResolvedValue(undefined);
+        mockListFiles.mockResolvedValue([]);
+
+        const rollup = await usage.getOrBuildDayRollup('2026-07-28', '2026-07-29');
+        expect(rollup.totalCalls).toBe(0);
+        expect(mockUploadJson).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads/writes an explicit bucket override instead of the default S3_REVIEW_BUCKET', async () => {
+        mockGetFileJson.mockResolvedValue(undefined);
+        mockListFiles.mockResolvedValue([]);
+
+        await usage.getOrBuildDayRollup('2026-07-28', '2026-07-29', 'gsr-eval-results');
+        expect(mockGetFileJson).toHaveBeenCalledWith('gsr-eval-results', 'usage/rollups/2026-07-28.json');
+        expect(mockListFiles).toHaveBeenCalledWith('gsr-eval-results', 'usage/2026-07-28/');
+        const [bucket] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(bucket).toBe('gsr-eval-results');
     });
 });
 
@@ -266,6 +452,7 @@ describe('ingestUsageRecords', () => {
             { ...record('discovery'), inputTokens: 'not-a-number' },
             { ...record('discovery'), provider: 'openai' },
             { ...record('discovery'), success: 'true' },
+            { ...record('discovery'), thinkingTokens: 'not-a-number' },
         ];
 
         const result = await usage.ingestUsageRecords(malformed as any);
@@ -273,6 +460,65 @@ describe('ingestUsageRecords', () => {
         expect(result).toEqual({ accepted: 0, failed: malformed.length });
         expect(mockUploadJson).not.toHaveBeenCalled();
         errorSpy.mockRestore();
+    });
+
+    it('accepts a record with a numeric thinkingTokens', async () => {
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), thinkingTokens: 15 }] as any);
+        expect(result).toEqual({ accepted: 1, failed: 0 });
+    });
+
+    it('rejects a record whose model contains the "|" composite-key delimiter', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), model: 'evil|model' }] as any);
+        expect(result).toEqual({ accepted: 0, failed: 1 });
+        expect(mockUploadJson).not.toHaveBeenCalled();
+        errorSpy.mockRestore();
+    });
+
+    it('rejects a record whose own repository field contains "|"', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), repository: 'owner|repo' }] as any);
+        expect(result).toEqual({ accepted: 0, failed: 1 });
+        errorSpy.mockRestore();
+    });
+
+    it('drops (rather than rejects the whole batch for) a batch-level repository containing "|"', async () => {
+        const result = await usage.ingestUsageRecords([record('discovery')], { repository: 'owner|repo' });
+        expect(result).toEqual({ accepted: 1, failed: 0 });
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.repository).toBeUndefined();
+    });
+
+    it('rejects a record whose errorKind is an unsafe key like "__proto__"', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), errorKind: '__proto__' }] as any);
+        expect(result).toEqual({ accepted: 0, failed: 1 });
+        errorSpy.mockRestore();
+    });
+
+    it('rejects a record with a negative cachedTokens', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), cachedTokens: -1 }] as any);
+        expect(result).toEqual({ accepted: 0, failed: 1 });
+        errorSpy.mockRestore();
+    });
+
+    it('rejects a record with negative inputTokens, outputTokens, latencyMs, or costUsd', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const cases = [
+            { ...record('discovery'), inputTokens: -1 },
+            { ...record('discovery'), outputTokens: -1 },
+            { ...record('discovery'), latencyMs: -1 },
+            { ...record('discovery'), costUsd: -1 },
+        ];
+        const result = await usage.ingestUsageRecords(cases as any);
+        expect(result).toEqual({ accepted: 0, failed: cases.length });
+        errorSpy.mockRestore();
+    });
+
+    it('accepts a record with a valid errorKind and cachedTokens', async () => {
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), errorKind: 'rate_limit', cachedTokens: 50, success: false }] as any);
+        expect(result).toEqual({ accepted: 1, failed: 0 });
     });
 });
 
@@ -315,6 +561,12 @@ describe('listUsageRecords', () => {
         const records = await usage.listUsageRecords('2026-07-29');
         expect(records).toHaveLength(2);
         expect(records.map(r => r.callType).sort()).toEqual(['deduplicate', 'discovery']);
+    });
+
+    it('lists against an explicit bucket override instead of the default S3_REVIEW_BUCKET', async () => {
+        mockListFiles.mockResolvedValue([]);
+        await usage.listUsageRecords('2026-07-29', 'gsr-eval-results');
+        expect(mockListFiles).toHaveBeenCalledWith('gsr-eval-results', 'usage/2026-07-29/');
     });
 
     it('skips a record that fails to read/parse instead of throwing', async () => {

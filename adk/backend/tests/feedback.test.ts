@@ -10,6 +10,7 @@ jest.unstable_mockModule('../src/storage.js', () => ({
     uploadJson: mockUploadJson,
     listFiles: mockListFiles,
     getFileStream: mockGetFileStream,
+    getFileJson: jest.fn(),
 }));
 
 let feedback: typeof import('../src/feedback.js');

@@ -17,6 +17,24 @@
 // Report-only (writes nothing) by default.
 const { listFiles, downloadJson, uploadJson } = require('./tools/eval/usage-report-client');
 
+// mapWithConcurrency mirrors adk/backend/src/pool.ts's PromisePool usage —
+// this script has no TS build step to import that class directly, so it's a
+// minimal inline equivalent: bounded-concurrency reads instead of one
+// downloadJson per file awaited sequentially, which turns into a
+// multi-second-or-worse fetch on a heavy-usage day.
+async function mapWithConcurrency(items, concurrency, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
+
 function parseArgs(argv) {
   const args = { writeRollup: false };
   for (let i = 0; i < argv.length; i++) {
@@ -51,16 +69,48 @@ function resolveDates({ date, from, to }) {
   return [new Date().toISOString().slice(0, 10)];
 }
 
+// Bumped in lockstep with adk/backend/src/usage.ts's CURRENT_SCHEMA_VERSION
+// — the API's getOrBuildDayRollup() treats a cached usage/rollups/<date>.json
+// with a stale schemaVersion as untrustworthy and rebuilds it, which is what
+// keeps a --write-rollup run here from silently reintroducing an old-shape
+// rollup if this copy ever falls behind usage.ts's.
+const SCHEMA_VERSION = 2;
+const UNTAGGED_REPOSITORY_LABEL = 'gsr (hosted)';
+
+function workloadOf(rec) {
+  return rec.callType === 'evaluate' ||
+    (typeof rec.callType === 'string' && rec.callType.startsWith('llm_compare'))
+    ? 'eval'
+    : 'review';
+}
+
+// See adk/backend/src/usage.ts's addToBucket comment: `key` comes from
+// record fields read straight out of S3 JSON objects, which could in
+// principle be `__proto__` — for a plain object literal that's a live
+// accessor to the real, process-wide Object.prototype, so `!map[key]` would
+// be falsy (skipping init) and `b.calls++` would corrupt every plain object
+// in the process. Guard against it and use hasOwnProperty instead of a
+// truthiness check.
+const UNSAFE_BUCKET_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+// Same guard, for byErrorKind's plain Record<string, number> shape.
+function incrementCount(map, key, by) {
+  if (!key || UNSAFE_BUCKET_KEYS.has(key)) return;
+  const current = Object.prototype.hasOwnProperty.call(map, key) ? map[key] : 0;
+  map[key] = current + by;
+}
+
 function addToBucket(map, key, rec) {
-  if (!key) return;
-  if (!map[key]) {
-    map[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  if (!key || UNSAFE_BUCKET_KEYS.has(key)) return;
+  if (!Object.prototype.hasOwnProperty.call(map, key)) {
+    map[key] = { calls: 0, successCount: 0, failureCount: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0, costUsd: 0 };
   }
   const b = map[key];
   b.calls++;
   if (rec.success) b.successCount++; else b.failureCount++;
   b.inputTokens += rec.inputTokens || 0;
   b.outputTokens += rec.outputTokens || 0;
+  b.thinkingTokens += rec.thinkingTokens || 0;
   b.costUsd += rec.costUsd || 0;
 }
 
@@ -71,41 +121,53 @@ function addToBucket(map, key, rec) {
 // sync if the Rollup/Record shape changes.
 function aggregate(date, records) {
   const rollup = {
+    schemaVersion: SCHEMA_VERSION,
     date, totalCalls: 0, successCount: 0, failureCount: 0,
-    totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: 0, avgLatencyMs: 0,
+    totalInputTokens: 0, totalOutputTokens: 0, totalThinkingTokens: 0, totalCostUsd: 0,
+    totalLatencyMs: 0, avgLatencyMs: 0,
     byCallType: {}, byModel: {}, byErrorKind: {},
+    byRepository: {}, byWorkload: {},
+    byModelRepository: {}, byModelWorkload: {}, byRepositoryWorkload: {},
   };
-  let totalLatencyMs = 0;
   for (const rec of records) {
     rollup.totalCalls++;
     if (rec.success) {
       rollup.successCount++;
     } else {
       rollup.failureCount++;
-      if (rec.errorKind) rollup.byErrorKind[rec.errorKind] = (rollup.byErrorKind[rec.errorKind] || 0) + 1;
+      incrementCount(rollup.byErrorKind, rec.errorKind, 1);
     }
     rollup.totalInputTokens += rec.inputTokens || 0;
     rollup.totalOutputTokens += rec.outputTokens || 0;
+    rollup.totalThinkingTokens += rec.thinkingTokens || 0;
     rollup.totalCostUsd += rec.costUsd || 0;
-    totalLatencyMs += rec.latencyMs || 0;
+    rollup.totalLatencyMs += rec.latencyMs || 0;
+
+    const repository = rec.repository || UNTAGGED_REPOSITORY_LABEL;
+    const workload = workloadOf(rec);
     addToBucket(rollup.byCallType, rec.callType, rec);
     addToBucket(rollup.byModel, rec.model, rec);
+    addToBucket(rollup.byRepository, repository, rec);
+    addToBucket(rollup.byWorkload, workload, rec);
+    addToBucket(rollup.byModelRepository, `${rec.model}|${repository}`, rec);
+    addToBucket(rollup.byModelWorkload, `${rec.model}|${workload}`, rec);
+    addToBucket(rollup.byRepositoryWorkload, `${repository}|${workload}`, rec);
   }
-  if (rollup.totalCalls > 0) rollup.avgLatencyMs = totalLatencyMs / rollup.totalCalls;
+  if (rollup.totalCalls > 0) rollup.avgLatencyMs = rollup.totalLatencyMs / rollup.totalCalls;
   return rollup;
 }
 
 async function listRecordsForDate(date) {
   const files = await listFiles(`usage/${date}/`);
-  const records = [];
-  for (const f of files) {
+  const results = await mapWithConcurrency(files, 20, async (f) => {
     try {
-      records.push(await downloadJson(f.name));
+      return await downloadJson(f.name);
     } catch (err) {
       console.error(`Failed to read/parse ${f.name}:`, err.message);
+      return undefined;
     }
-  }
-  return records;
+  });
+  return results.filter((r) => r !== undefined);
 }
 
 function printBuckets(label, map) {
@@ -114,18 +176,20 @@ function printBuckets(label, map) {
   console.log(`${label}:`);
   for (const k of keys) {
     const b = map[k];
-    console.log(`  ${k.padEnd(20)} calls=${b.calls} success=${b.successCount} failure=${b.failureCount} input=${b.inputTokens} output=${b.outputTokens} cost=$${b.costUsd.toFixed(4)}`);
+    console.log(`  ${k.padEnd(30)} calls=${b.calls} success=${b.successCount} failure=${b.failureCount} input=${b.inputTokens} output=${b.outputTokens} thinking=${b.thinkingTokens} cost=$${b.costUsd.toFixed(4)}`);
   }
 }
 
 function printRollup(r) {
   console.log(`=== ${r.date} ===`);
   console.log(`Calls: ${r.totalCalls} (success=${r.successCount}, failure=${r.failureCount})`);
-  console.log(`Tokens: input=${r.totalInputTokens} output=${r.totalOutputTokens}`);
+  console.log(`Tokens: input=${r.totalInputTokens} output=${r.totalOutputTokens} thinking=${r.totalThinkingTokens}`);
   console.log(`Cost: $${r.totalCostUsd.toFixed(4)}`);
   console.log(`Avg latency: ${r.avgLatencyMs.toFixed(0)}ms`);
   printBuckets('By call type', r.byCallType);
   printBuckets('By model', r.byModel);
+  printBuckets('By repository (consuming project)', r.byRepository);
+  printBuckets('By workload', r.byWorkload);
   const errKeys = Object.keys(r.byErrorKind).sort();
   if (errKeys.length > 0) {
     console.log('By error kind:');

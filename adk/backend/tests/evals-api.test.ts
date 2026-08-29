@@ -15,7 +15,8 @@ const getFileStreamMock = jest.fn<any>();
 jest.unstable_mockModule('../src/storage.js', () => ({
   uploadJson: jest.fn(),
   listFiles: listFilesMock,
-  getFileStream: getFileStreamMock
+  getFileStream: getFileStreamMock,
+  getFileJson: jest.fn()
 }));
 
 class MockStream {

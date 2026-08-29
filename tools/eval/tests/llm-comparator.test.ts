@@ -4,6 +4,11 @@ import { GoogleGenAI } from '@google/genai';
 
 // Mock the entire genai module
 jest.mock('@google/genai');
+// trackGeminiCall (../usage) writes a usage record via storage.ts's
+// uploadResultsToGCS on every call — auto-mock storage.ts so that resolves
+// to undefined instead of making a real S3 call in tests, same pattern
+// api-gcs.test.ts already uses.
+jest.mock('../storage');
 
 describe('LLM Comparator', () => {
   let generateContentMock: any;

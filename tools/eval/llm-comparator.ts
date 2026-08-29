@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { ReviewFinding } from './api-client';
+import { trackGeminiCall } from './usage';
 
 const MODEL_NAME = 'gemini-2.5-pro';
 
@@ -54,13 +55,13 @@ Provide your report in clean Markdown. Conclude with a clear verdict on whether 
 
   try {
     console.log(`Asking Gemini to evaluate the comparison...`);
-    const response = await ai.models.generateContent({
+    const response = await trackGeminiCall({ callType: 'llm_compare', model: MODEL_NAME }, () => ai.models.generateContent({
       model: MODEL_NAME,
       contents: prompt,
       config: {
         temperature: 0.2, // Keep it grounded
       }
-    });
+    }));
 
     if (!response.text) {
       throw new Error('LLM returned empty text');
@@ -117,13 +118,13 @@ Format your output in clean Markdown.
 
   try {
     console.log(`Asking Gemini to generate an aggregate evaluation summary...`);
-    const response = await ai.models.generateContent({
+    const response = await trackGeminiCall({ callType: 'llm_compare_aggregate', model: MODEL_NAME }, () => ai.models.generateContent({
       model: MODEL_NAME,
       contents: prompt,
       config: {
         temperature: 0.2, // Keep it grounded
       }
-    });
+    }));
 
     if (!response.text) {
       throw new Error('LLM returned empty text for aggregate report');

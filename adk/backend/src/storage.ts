@@ -75,3 +75,29 @@ export async function getFileStream(bucket: string, key: string): Promise<Readab
   const result = await getClient().send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   return result.Body as Readable;
 }
+
+// getFileJson reads and parses a JSON object, returning undefined when the
+// key doesn't exist OR when its content isn't valid JSON, rather than
+// throwing — used by callers (e.g. usage.ts's rollup cache) that treat
+// either case as a normal "nothing usable here yet" outcome to rebuild
+// from, not an error. S3 transport/auth errors still propagate.
+export async function getFileJson(bucket: string, key: string): Promise<unknown | undefined> {
+  let result;
+  try {
+    result = await getClient().send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  } catch (error: any) {
+    if (error?.name === 'NoSuchKey' || error?.$metadata?.httpStatusCode === 404) {
+      return undefined;
+    }
+    throw error;
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of result.Body as AsyncIterable<Buffer | string>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+  } catch {
+    return undefined;
+  }
+}

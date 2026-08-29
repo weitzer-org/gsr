@@ -9,7 +9,8 @@ import { Evaluator } from './evaluator';
 import { ReviewSource } from './types';
 import { requireAuth, handleLogin, handleLogout } from './auth';
 import { isValidUsageIngestKey } from './usageIngestAuth';
-import { ingestUsageRecords, UsageRecord } from './usage';
+import { ingestUsageRecords, UsageRecord, getOrBuildDayRollup, sumRollups, currentDateString, Rollup } from './usage';
+import { PromisePool } from './pool';
 import { runFeedbackPass, escapeFeedbackResultForApiResponse } from './feedbackLoop';
 import { isValidFeedbackRequest } from './feedbackAuth';
 import { ingestFeedbackBody, listFeedbackFiles, getFeedbackRecordStream } from './feedback';
@@ -460,6 +461,127 @@ app.get('/api/review/history/:id', async (req, res) => {
       .pipe(res);
   } catch (error: any) {
     console.error('Error initializing review history stream:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  }
+});
+
+// --- Usage Summary API (dashboard read side) ---
+// Behind the existing session gate (requireAuth, above) — a normal
+// authenticated dashboard route, unrelated to POST /api/usage/ingest's
+// shared-secret write path above.
+const MAX_USAGE_SUMMARY_RANGE_DAYS = 92;
+const USAGE_SUMMARY_CONCURRENCY = 10;
+const USAGE_SUMMARY_GRANULARITIES = ['day', 'week', 'month'] as const;
+const USAGE_SUMMARY_SOURCES = ['all', 'backend', 'eval-harness'] as const;
+type UsageSummaryGranularity = typeof USAGE_SUMMARY_GRANULARITIES[number];
+type UsageSummarySource = typeof USAGE_SUMMARY_SOURCES[number];
+
+// Rejects a syntactically-valid-but-nonexistent calendar date (e.g.
+// "2026-02-30") — the Date constructor normalizes those (Feb 30 -> Mar 2)
+// rather than producing NaN, so a round-trip through toISOString() is
+// needed to catch the mismatch, not just a getTime() NaN check.
+function isValidDateString(s: unknown): s is string {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const date = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === s;
+}
+
+function datesBetween(from: string, to: string): string[] {
+  const dates: string[] = [];
+  for (let d = new Date(`${from}T00:00:00Z`); d.toISOString().slice(0, 10) <= to; d = new Date(d.getTime() + 86400000)) {
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  return dates;
+}
+
+// isoWeekLabel returns "<ISO week-year>-W<01-53>" for a YYYY-MM-DD date,
+// per the standard ISO-8601 week definition (weeks start Monday, week 1 is
+// the week containing the year's first Thursday).
+function isoWeekLabel(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  const dayNr = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - dayNr + 3);
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const firstDayNr = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNr + 3);
+  const weekNumber = 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 86400000));
+  return `${d.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
+}
+
+function bucketLabel(dateStr: string, granularity: UsageSummaryGranularity): string {
+  if (granularity === 'month') return dateStr.slice(0, 7);
+  if (granularity === 'week') return isoWeekLabel(dateStr);
+  return dateStr;
+}
+
+// buildSourceRollups fetches (bounded-concurrency, mirroring ingestUsageRecords's
+// PromisePool usage) one day-rollup per date from `bucket`, via usage.ts's
+// self-healing getOrBuildDayRollup cache.
+async function buildSourceRollups(dates: string[], bucket: string, today: string): Promise<Rollup[]> {
+  const pool = new PromisePool(USAGE_SUMMARY_CONCURRENCY);
+  return Promise.all(dates.map(date => pool.add(() => getOrBuildDayRollup(date, today, bucket))));
+}
+
+app.get('/api/usage/summary', async (req, res) => {
+  const from = req.query.from;
+  const to = req.query.to;
+  const granularity = (typeof req.query.granularity === 'string' ? req.query.granularity : 'day') as UsageSummaryGranularity;
+  const source = (typeof req.query.source === 'string' ? req.query.source : 'all') as UsageSummarySource;
+
+  if (!isValidDateString(from) || !isValidDateString(to)) {
+    return res.status(400).json({ error: '"from" and "to" are required and must be YYYY-MM-DD.' });
+  }
+  if (to < from) {
+    return res.status(400).json({ error: '"to" must not be before "from".' });
+  }
+  if (!(USAGE_SUMMARY_GRANULARITIES as readonly string[]).includes(granularity)) {
+    return res.status(400).json({ error: `"granularity" must be one of: ${USAGE_SUMMARY_GRANULARITIES.join(', ')}.` });
+  }
+  if (!(USAGE_SUMMARY_SOURCES as readonly string[]).includes(source)) {
+    return res.status(400).json({ error: `"source" must be one of: ${USAGE_SUMMARY_SOURCES.join(', ')}.` });
+  }
+
+  // Check the day count via arithmetic before materializing the full date
+  // array — datesBetween builds one Date + string per day, so a validly
+  // formatted but absurd range (e.g. 0001-01-01..9999-12-31) would allocate
+  // millions of entries before the length check below ever ran.
+  const approxDayCount = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
+  if (approxDayCount > MAX_USAGE_SUMMARY_RANGE_DAYS) {
+    return res.status(400).json({ error: `Range too large (max ${MAX_USAGE_SUMMARY_RANGE_DAYS} days).` });
+  }
+
+  const dates = datesBetween(from, to);
+
+  try {
+    const today = currentDateString();
+    // source=all (the default) reads two independent buckets — build both
+    // concurrently rather than one after the other, since each can take
+    // several seconds on a cold rollup cache.
+    const [backendRollups, evalRollups] = await Promise.all([
+      source !== 'eval-harness' ? buildSourceRollups(dates, getReviewBucketName(), today) : Promise.resolve(null),
+      source !== 'backend' ? buildSourceRollups(dates, getBucketName(), today) : Promise.resolve(null),
+    ]);
+
+    const perDateRollups = dates.map((date, i) => {
+      const parts: Rollup[] = [];
+      if (backendRollups) parts.push(backendRollups[i]);
+      if (evalRollups) parts.push(evalRollups[i]);
+      return sumRollups(date, parts);
+    });
+
+    const grouped = new Map<string, Rollup[]>();
+    dates.forEach((date, i) => {
+      const label = bucketLabel(date, granularity);
+      if (!grouped.has(label)) grouped.set(label, []);
+      grouped.get(label)!.push(perDateRollups[i]);
+    });
+
+    const buckets = Array.from(grouped.entries()).map(([label, rollups]) => sumRollups(label, rollups));
+    const total = sumRollups(`${from}..${to}`, perDateRollups);
+
+    res.json({ granularity, source, buckets, total });
+  } catch (error: any) {
+    console.error('Error building usage summary:', error);
     if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 });

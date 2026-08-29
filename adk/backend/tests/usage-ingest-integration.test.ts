@@ -8,7 +8,8 @@ const uploadJsonMock = jest.fn<any>();
 jest.unstable_mockModule('../src/storage.js', () => ({
     uploadJson: uploadJsonMock,
     listFiles: listFilesMock,
-    getFileStream: getFileStreamMock
+    getFileStream: getFileStreamMock,
+    getFileJson: jest.fn()
 }));
 
 // Exercises the real app.ts wiring end-to-end (route placement relative to

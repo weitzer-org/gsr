@@ -1,11 +1,14 @@
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
 jest.mock('../storage');
+jest.mock('../../../adk/backend/src/usageReporter');
 
 import * as storage from '../storage';
+import * as usageReporter from '../../../adk/backend/src/usageReporter';
 import * as usage from '../usage';
 
 const mockUploadResultsToGCS = storage.uploadResultsToGCS as jest.Mock;
+const mockReportUsage = usageReporter.reportUsage as jest.Mock;
 
 describe('computeCostUsd', () => {
     it('computes cost for a known model', () => {
@@ -76,5 +79,56 @@ describe('trackGeminiCall', () => {
 
         expect(errorSpy).toHaveBeenCalled();
         errorSpy.mockRestore();
+    });
+});
+
+describe('recordUsage (production reporting)', () => {
+    const originalEnv = { ...process.env };
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        // @ts-ignore
+        mockUploadResultsToGCS.mockResolvedValue(undefined);
+        // @ts-ignore
+        mockReportUsage.mockResolvedValue({ batchesSent: 1, batchesFailed: 0 });
+        delete process.env.USAGE_INGEST_SHARED_SECRET;
+        delete process.env.USAGE_INGEST_URL;
+    });
+
+    afterEach(() => {
+        process.env = { ...originalEnv };
+    });
+
+    it('reports to the production ingest endpoint when a shared secret is configured', async () => {
+        process.env.USAGE_INGEST_SHARED_SECRET = 'test-secret';
+        await usage.recordUsage({ callType: 'llm_compare', model: 'gemini-2.5-pro', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true });
+
+        expect(mockReportUsage).toHaveBeenCalledTimes(1);
+        const [records, config] = mockReportUsage.mock.calls[0] as [any[], any];
+        expect(records).toHaveLength(1);
+        expect(records[0].callType).toBe('llm_compare');
+        expect(config.key).toBe('test-secret');
+        expect(config.url).toBe('https://gsr-code-review.fly.dev/api/usage/ingest');
+        expect(config.repository).toBe('tools-eval (local)');
+    });
+
+    it('uses USAGE_INGEST_URL as an override when set', async () => {
+        process.env.USAGE_INGEST_SHARED_SECRET = 'test-secret';
+        process.env.USAGE_INGEST_URL = 'https://staging.example.com/api/usage/ingest';
+        await usage.recordUsage({ callType: 'llm_compare', model: 'gemini-2.5-pro', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true });
+
+        const [, config] = mockReportUsage.mock.calls[0] as [any[], any];
+        expect(config.url).toBe('https://staging.example.com/api/usage/ingest');
+    });
+
+    it('skips production reporting without failing when no shared secret is configured, but still records locally', async () => {
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        await usage.recordUsage({ callType: 'llm_compare', model: 'gemini-2.5-pro', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true });
+        await usage.recordUsage({ callType: 'llm_compare', model: 'gemini-2.5-pro', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true });
+
+        expect(mockReportUsage).not.toHaveBeenCalled();
+        expect(mockUploadResultsToGCS).toHaveBeenCalledTimes(2); // local write still happens either way
+        warnSpy.mockRestore();
     });
 });

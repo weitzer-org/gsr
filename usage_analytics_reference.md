@@ -33,21 +33,40 @@ the `Promise.race` timeouts in `agent.ts`/`deduplicator.ts`).
 
 ### `tools/eval`'s own usage tracking
 
-`tools/eval` (the separately-deployed `gsr-evaluator` Fly app) has its own
+`tools/eval` (the separately-deployed `gsr-evaluator` Fly app, but just as
+often run directly on a developer's laptop via `npm run eval`) has its own
 Gemini judge calls in `llm-comparator.ts`/`llm-comparator-v2.ts`
 (`callType`s `llm_compare`, `llm_compare_aggregate`, `llm_compare_v2`,
 `llm_compare_v2_aggregate`), tracked by a **separate, parallel** module,
 `tools/eval/usage.ts` — not a shared import of this file, since `tools/eval`
-is an independently deployed service with its own `storage.ts`. Its records
-land under `usage/<date>/...` in **`tools/eval`'s own bucket** (`S3_BUCKET`,
-default `gsr-eval-results`), each tagged `repository: 'tools-eval (local)'`.
+is an independently deployed service with its own `storage.ts`. Every call
+is recorded **twice, unconditionally**:
 
-The dashboard (`GET /api/usage/summary`, below) reads both buckets and
-merges them — `adk/backend/src/usage.ts`'s `listUsageRecords`/
-`getOrBuildDayRollup` take a `bucket` parameter for exactly this, rather than
-this file importing `tools/eval/usage.ts` directly (that would put a file
-outside `adk/backend`'s TypeScript `rootDir` and break its production
-`tsc` build). Its `workloadOf()` treats any `callType` starting with
+1. **Locally**: written under `usage/<date>/...` in `tools/eval`'s own
+   bucket (`S3_BUCKET`, default `gsr-eval-results` — MinIO locally, R2 when
+   actually deployed as `gsr-evaluator`), each tagged
+   `repository: 'tools-eval (local)'`. This is what the *local* dashboard
+   (a locally-running `adk/backend` pointed at the same MinIO) reads.
+2. **To production**: POSTed to the hosted backend's `POST /api/usage/ingest`
+   (`tools/eval/usage.ts` reuses `adk/backend/src/usageReporter.ts`'s
+   `reportUsage()` — the exact same helper a GitHub Action uses to report
+   review usage, not a second HTTP client), authenticated with
+   `USAGE_INGEST_SHARED_SECRET`. This is what makes a run on *anyone's*
+   laptop show up on the shared production dashboard, without needing to
+   hand out real R2 write credentials to every machine that runs the eval
+   harness. If the shared secret isn't configured, this half is skipped
+   (logged once, never fails the run) — the local write still happens
+   either way.
+
+The dashboard (`GET /api/usage/summary`, below) reads local-bucket data by
+having `adk/backend/src/usage.ts`'s `listUsageRecords`/`getOrBuildDayRollup`
+take a `bucket` parameter, rather than importing `tools/eval/usage.ts`
+directly (that would put a file outside `adk/backend`'s TypeScript `rootDir`
+and break its production `tsc` build) — production-reported records need no
+such trick, since they land in `adk/backend`'s own bucket via the normal
+ingest path, indistinguishable from a GitHub Action's reported batch except
+for the `repository` tag. Its `workloadOf()` treats any `callType` starting
+with
 `llm_compare` as `"eval"` workload, alongside its own `evaluate` callType —
 **this is a distinct concept from the `eval-harness` *source*** described
 below: the workload split says *what kind of work* a call did (review vs.

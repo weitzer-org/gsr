@@ -268,16 +268,31 @@ export interface UsageBucket {
   costUsd: number;
 }
 
-// Bumped whenever Rollup's shape OR classification semantics change.
-// getOrBuildDayRollup (below) uses this to detect a cached
-// usage/rollups/<date>.json written by an out-of-sync producer (an older
-// deploy, or a manual `usage-report.js --write-rollup` run whose own
-// hand-copied aggregate() hasn't been updated to match) and transparently
-// rebuild it instead of serving a stale shape. Bumped to 3 when workloadOf()
-// gained the "product" classification — a cached rollup built under the old
-// binary eval/review split would otherwise keep serving that stale split
-// forever, since its shape (Rollup's fields) didn't change, only its values.
-export const CURRENT_SCHEMA_VERSION = 3;
+// Bumped whenever Rollup's shape OR classification semantics change, OR
+// whenever a past date's underlying records changed after that date's
+// rollup was already cached. getOrBuildDayRollup (below) uses this to
+// detect a cached usage/rollups/<date>.json written by an out-of-sync
+// producer (an older deploy, or a manual `usage-report.js --write-rollup`
+// run whose own hand-copied aggregate() hasn't been updated to match) and
+// transparently rebuild it instead of serving a stale shape.
+//
+// Bumped to 3 when workloadOf() gained the "product" classification — a
+// cached rollup built under the old binary eval/review split would
+// otherwise keep serving that stale split forever, since its shape
+// (Rollup's fields) didn't change, only its values.
+//
+// Bumped to 4 after the one-time job_tracker/sound-profile-builder native-
+// usage backfill (2026-08-30): ingestUsageRecords writes raw per-call
+// objects but never invalidates a date's cached rollup, so every past date
+// in the backfilled range that anyone had already queried before the
+// backfill ran (this backfill's own idempotency check included) kept
+// serving its pre-backfill cached rollup indefinitely even after real
+// records existed underneath it. This bump forces every cached rollup to
+// rebuild once, picking up the backfilled data. A future backfill into an
+// already-queried date range will hit the same gap — see
+// usage_analytics_reference.md's backfill section for the mitigation
+// (query the target range for the first time only after the writes land).
+export const CURRENT_SCHEMA_VERSION = 4;
 
 // byModelRepository/byModelWorkload/byRepositoryWorkload key their maps on
 // `${a}|${b}` — safe because model names, "owner/repo" repository strings,

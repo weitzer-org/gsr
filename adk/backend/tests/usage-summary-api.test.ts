@@ -118,7 +118,7 @@ describe('GET /api/usage/summary (integration, real app wiring)', () => {
         // or this "reads from cache" test starts exercising the rebuild path
         // instead (schemaVersion mismatch treats the cache as stale).
         const cachedRollup = {
-            schemaVersion: 3, date: '2020-01-01',
+            schemaVersion: 4, date: '2020-01-01',
             totalCalls: 1, successCount: 1, failureCount: 0,
             totalInputTokens: 5, totalOutputTokens: 2, totalThinkingTokens: 0, totalCostUsd: 0.001,
             totalLatencyMs: 10, avgLatencyMs: 10,

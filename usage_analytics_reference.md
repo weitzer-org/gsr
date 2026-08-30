@@ -70,9 +70,49 @@ with
 `llm_compare` as `"eval"` workload, alongside its own `evaluate` callType —
 **this is a distinct concept from the `eval-harness` *source*** described
 below: the workload split says *what kind of work* a call did (review vs.
-eval, purely `callType`-derived); the source says *which service* made the
-call (`adk/backend` vs. `tools/eval`). Don't conflate them — a query can
-filter by one, the other, or both.
+eval vs. product, purely `callType`-derived); the source says *which
+service* made the call (`adk/backend` vs. `tools/eval`). Don't conflate
+them — a query can filter by one, the other, or both.
+
+### job_tracker's and sound-profile-builder's own native usage
+
+Beyond the GSR GitHub Action reviewing their PRs (which reports usage the
+same way any other consuming project's Action run does — tagged with that
+project's `repository` string, classified as `"review"` workload), both
+`job_tracker` and `sound-profile-builder` also report their own **native,
+product-feature** Gemini usage (job_tracker's resume/JD/candidate scoring;
+sound-profile-builder's audio-analysis agents) into this same dashboard:
+
+- Each project has its own `Reporter`-style component
+  (`internal/usage/reporter.go` in job_tracker,
+  `internal/agents/usage_reporter.go` in sound-profile-builder) that
+  translates its own usage-event shape into GSR's exact ingest JSON, filters
+  out any non-`"gemini"` `provider` (both codebases also carry
+  `"anthropic"`/`"fallback"`/`"mock"`/`"openllm"` providers that GSR's
+  ingest would otherwise silently reject), and POSTs to `POST
+  /api/usage/ingest` through a small bounded worker pool — a non-blocking
+  enqueue from the request-handling path, not a synchronous call and not an
+  unbounded goroutine per call. Reports are best-effort and can be lost on a
+  deploy/restart, an accepted tradeoff for a non-blocking analytics
+  side-channel.
+- Tagged `repository: "weitzer-org/job_tracker"` /
+  `repository: "weitzer-org/sound-profile-builder"` — the real GitHub
+  slugs, **not** either project's Go module path (which differs for
+  sound-profile-builder: `github.com/weitzer-org/sound-builder`).
+- Since neither project's `callType` vocabulary overlaps GSR's own known
+  review/eval callTypes, `workloadOf()` classifies all of it as `"product"`
+  automatically — see the `byWorkload` bullet below.
+- Each project's own runtime needs `GSR_USAGE_INGEST_URL`/
+  `GSR_USAGE_INGEST_KEY` (or equivalent) set as real secrets on **that
+  project's own deployment** for live reporting to activate — GSR-side code
+  changes alone don't turn this on.
+- Historical data from before this reporting existed was backfilled once via
+  a standalone script that lists each project's own bucket, filters to
+  `provider === "gemini"`, translates field names the same way the live
+  reporters do, and batch-POSTs to the same ingest endpoint — keying objects
+  by each record's own historical `timestamp` (see `ingestUsageRecords`'s
+  date-key derivation below), not the date the backfill script happened to
+  run.
 
 ### What's NOT covered
 
@@ -117,6 +157,17 @@ queried, self-healing a missing or stale-`schemaVersion` cache
 automatically. `usage-report.js --write-rollup` still works as a manual
 alternative; just note both paths write the same `usage/rollups/<date>.json`
 key, so whichever ran most recently wins.
+
+`ingestUsageRecords` (the write path behind `POST /api/usage/ingest`) keys
+each object under the date derived from **the record's own `timestamp`
+field**, not the moment the batch happens to be POSTed — a live reporter's
+batch can lag the actual Gemini call by seconds, and a historical backfill
+can lag it by months. Keying by "now" instead would silently file every
+ingested record under today's prefix regardless of when the underlying call
+actually ran (the exact bug class already fixed in `tools/eval`'s own local
+writer). An unparsable `timestamp` falls back to "now" with a logged
+warning, so a malformed record still lands somewhere findable instead of
+being silently dropped.
 
 ## Record schema
 
@@ -205,7 +256,7 @@ directly rather than reinventing the S3 listing/reading logic.
 
 ```jsonc
 {
-  "schemaVersion": 2,                         // bumped whenever this shape changes; a cached rollup at an older version is rebuilt on next read
+  "schemaVersion": 3,                         // bumped whenever this shape OR classification semantics change; a cached rollup at an older version is rebuilt on next read
   "date": "2026-07-29",                       // a day ("2026-07-29"), an ISO week ("2026-W31"), a month ("2026-07"), or a range label ("2026-07-01..2026-07-29") for a summed Rollup
   "totalCalls": 42, "successCount": 40, "failureCount": 2,
   "totalInputTokens": 58000, "totalOutputTokens": 9200, "totalThinkingTokens": 400,
@@ -213,8 +264,8 @@ directly rather than reinventing the S3 listing/reading logic.
   "byCallType": { "discovery": { "calls": 38, "successCount": 37, "failureCount": 1, "inputTokens": 51000, "outputTokens": 8100, "thinkingTokens": 400, "costUsd": 0.79 }, "...": "..." },
   "byModel":    { "gemini-3.1-pro-preview": { "...": "..." } },
   "byErrorKind": { "rate_limit": 2 },
-  "byRepository": { "gsr (hosted)": { "...": "..." }, "weitzer-org/logo-maker": { "...": "..." }, "tools-eval (local)": { "...": "..." } },
-  "byWorkload": { "review": { "...": "..." }, "eval": { "...": "..." } },
+  "byRepository": { "gsr (hosted)": { "...": "..." }, "weitzer-org/logo-maker": { "...": "..." }, "tools-eval (local)": { "...": "..." }, "weitzer-org/job_tracker": { "...": "..." }, "weitzer-org/sound-profile-builder": { "...": "..." } },
+  "byWorkload": { "review": { "...": "..." }, "eval": { "...": "..." }, "product": { "...": "..." } },
   "byModelRepository": { "gemini-3.1-pro-preview|gsr (hosted)": { "...": "..." } },
   "byModelWorkload": { "gemini-3.1-pro-preview|review": { "...": "..." } },
   "byRepositoryWorkload": { "gsr (hosted)|review": { "...": "..." } }
@@ -224,12 +275,31 @@ directly rather than reinventing the S3 listing/reading logic.
 - `byRepository` ("consuming project") defaults a record with no `repository`
   field to `"gsr (hosted)"` — applied only at aggregation time, never written
   into the raw stored record.
-- `byWorkload` is exactly two keys, `"review"` and `"eval"` — `"eval"` covers
-  `callType === "evaluate"` (adk/backend's own Evaluator) and any `callType`
-  starting with `"llm_compare"` (tools/eval's calls); everything else is
-  `"review"`. See "`tools/eval`'s own usage tracking" above for why this is
-  a different concept from the `source=backend|eval-harness` dashboard
+- `byWorkload` has three keys: `"review"`, `"eval"`, and `"product"`.
+  `"eval"` covers `callType === "evaluate"` (adk/backend's own Evaluator) and
+  any `callType` starting with `"llm_compare"` (tools/eval's calls);
+  `"review"` is an explicit allowlist of GSR's own known review/debug
+  callTypes (`legacy`, `discovery`, `remediation`, `deduplicate`,
+  `feedback_classify`, `feedback_adjudicate`, `debug_test_deduplicator`,
+  `debug_single` — see `KNOWN_REVIEW_CALL_TYPES` in `usage.ts`); everything
+  else — including job_tracker's fixed CallType vocabulary and
+  sound-profile-builder's free-text agent-role callTypes — is `"product"`.
+  **Invariant:** `KNOWN_REVIEW_CALL_TYPES` must never overlap with any
+  ingested source's own callType vocabulary — that's what lets a new
+  reporter push usage here without GSR needing to learn its callTypes first.
+  See "`tools/eval`'s own usage tracking" and "job_tracker's and
+  sound-profile-builder's own native usage" above for why this classification
+  is a different concept from the `source=backend|eval-harness` dashboard
   filter.
+- **Cross-project `costUsd` totals blend independently-computed pricing
+  methodologies.** `ingestUsageRecords` stores `costUsd` exactly as sent by
+  the reporting side — it never recomputes it via GSR's own
+  `computeCostUsd`. GSR, job_tracker, and sound-profile-builder each keep
+  their own pricing table and don't bill cached/thinking tokens identically
+  (e.g. GSR treats `thinkingTokens` as pure telemetry, never added to
+  `costUsd` — see below). A `totalCostUsd` that sums across repositories is
+  therefore a best-effort blend, not an apples-to-apples figure — fine for a
+  rough trend line, not for precise cross-project cost accounting.
 - The three `by<A><B>` intersection maps key on `"<a>|<b>"` (`|` is safe:
   model names, `owner/repo` strings, and the two workload labels never
   contain it), built only from combinations actually observed in the

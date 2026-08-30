@@ -65,7 +65,11 @@ success record to `S3_REVIEW_BUCKET` under `usage/<date>/`. `tools/eval`'s
 own judge calls (`llm-comparator.ts`/`llm-comparator-v2.ts`) are tracked the
 same way by a separate, parallel `tools/eval/usage.ts`, into that service's
 own bucket (`S3_BUCKET`, default `gsr-eval-results`) — `GET /api/usage/
-summary` and the `/usage.html` dashboard read both. See
+summary` and the `/usage.html` dashboard read both. The sibling
+`job_tracker` and `sound-profile-builder` projects also push their own
+native (non-review) Gemini usage into this same dashboard via `POST
+/api/usage/ingest`, classified under a third `"product"` workload bucket
+alongside GSR's own `"review"`/`"eval"` split — see
 `usage_analytics_reference.md` for the schema and query recipes (the
 `usage-report.js` CLI, the dashboard API, or raw `jq`-over-S3) — read that
 before answering any "what's our token spend/error rate" question instead of

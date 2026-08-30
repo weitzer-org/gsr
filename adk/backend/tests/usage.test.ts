@@ -250,6 +250,19 @@ describe('aggregate', () => {
         expect(rollup.byWorkload['review'].calls).toBe(2);
     });
 
+    it('classifies an unrecognized callType (job_tracker/sound-profile-builder\'s own native usage) as "product"', () => {
+        const records: Array<Record<string, unknown>> = [
+            // job_tracker's own fixed CallType vocabulary — not review, not eval.
+            { timestamp: 't', provider: 'gemini', callType: 'score_job', model: 'gemini-3.1-pro-preview', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: 'weitzer-org/job_tracker' },
+            // sound-profile-builder's callType is a free-text agent role, not an enum.
+            { timestamp: 't', provider: 'gemini', callType: 'Tone Historian', model: 'gemini-3.1-pro-preview', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: 'weitzer-org/sound-profile-builder' },
+        ];
+        const rollup = usage.aggregate('2026-07-29', records as any);
+        expect(rollup.byWorkload['product'].calls).toBe(2);
+        expect(rollup.byWorkload['eval']).toBeUndefined();
+        expect(rollup.byWorkload['review']).toBeUndefined();
+    });
+
     it('classifies tools/eval\'s llm_compare* callTypes as eval workload too', () => {
         const records: Array<Record<string, unknown>> = [
             { timestamp: 't', provider: 'gemini', callType: 'llm_compare', model: 'gemini-2.5-pro', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: 'tools-eval (local)' },
@@ -466,6 +479,27 @@ describe('ingestUsageRecords', () => {
         await usage.ingestUsageRecords([record('discovery')], { repository: 'weitzer-org/logo-maker' });
         const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
         expect(data.repository).toBe('weitzer-org/logo-maker');
+    });
+
+    it('keys the stored object under the record\'s OWN timestamp, not today — critical for a historical backfill to land on the right date', async () => {
+        const historical = { ...record('score_job'), timestamp: '2026-01-15T10:00:00.000Z' };
+        await usage.ingestUsageRecords([historical] as any, { repository: 'weitzer-org/job_tracker' });
+        const [, key] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(key).toMatch(/^usage\/2026-01-15\//);
+        expect(key).not.toMatch(new RegExp(`^usage\\/${usage.currentDateString()}\\/`));
+    });
+
+    it('falls back to today\'s date when a record has an unparsable timestamp, logging a warning instead of dropping it', async () => {
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const bad = { ...record('discovery'), timestamp: 'not-a-real-timestamp' };
+
+        const result = await usage.ingestUsageRecords([bad] as any);
+
+        expect(result).toEqual({ accepted: 1, failed: 0 });
+        const [, key] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(key).toMatch(new RegExp(`^usage\\/${usage.currentDateString()}\\/`));
+        expect(warnSpy).toHaveBeenCalled();
+        warnSpy.mockRestore();
     });
 
     it('skips a record whose write fails instead of throwing, and reflects it in failed count', async () => {

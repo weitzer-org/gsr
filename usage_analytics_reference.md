@@ -169,6 +169,25 @@ writer). An unparsable `timestamp` falls back to "now" with a logged
 warning, so a malformed record still lands somewhere findable instead of
 being silently dropped.
 
+**Gotcha for any future historical backfill: `ingestUsageRecords` never
+invalidates a date's cached rollup.** If a past date was already queried
+(and therefore cached — see above) *before* a backfill writes new records
+into that same date, the cached rollup keeps serving its pre-backfill
+values indefinitely; only `date >= today` is ever recomputed live. This bit
+the 2026-08-30 job_tracker/sound-profile-builder backfill: its own
+idempotency check (which queries the target range *before* writing, by
+design — see the backfill section further down) had already cached
+mostly-empty rollups for the entire range moments before the real records
+landed, silently hiding thousands of newly-backfilled calls from the
+dashboard. Fixed for that incident by bumping `CURRENT_SCHEMA_VERSION`
+(forces every cached rollup to rebuild once), but the underlying gap is
+structural — a future backfill into a date range anyone has already loaded
+the dashboard for will hit it again. Either bump `CURRENT_SCHEMA_VERSION`
+again after such a backfill, or (better, if write credentials to the bucket
+are available) run `usage-report.js --from <start> --to <end> --write-rollup`
+against production immediately after the backfill completes, before anyone
+queries that range again.
+
 ## Record schema
 
 ```jsonc

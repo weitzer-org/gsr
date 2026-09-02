@@ -82,13 +82,14 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
         })
       );
 
-      // An invalid (non-numeric) GEMINI_TIMEOUT_MS parses to NaN, and
-      // setTimeout(fn, NaN) fires on (effectively) the next tick — every
-      // dedup call would then "time out" immediately regardless of how
-      // long the request actually takes. Fall back to the existing 300000
-      // default (matches agent.ts's own guard for the same env var).
+      // Node's setTimeout treats NaN, <=0, and anything above the 32-bit
+      // signed int max (2147483647) identically: it clamps to ~1ms and
+      // fires almost immediately (verified empirically — see the PR
+      // description) — so every dedup call would "time out" instantly
+      // under any of those GEMINI_TIMEOUT_MS values. Fall back to the
+      // existing 300000 default (matches agent.ts's own guard).
       const rawTimeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '300000', 10);
-      const timeoutMs = Number.isNaN(rawTimeoutMs) ? 300000 : rawTimeoutMs;
+      const timeoutMs = Number.isNaN(rawTimeoutMs) || rawTimeoutMs <= 0 || rawTimeoutMs > 2147483647 ? 300000 : rawTimeoutMs;
       console.log(`[Deduplicator] Timeout set to ${timeoutMs}ms`);
       
       let timeoutId: NodeJS.Timeout | undefined;

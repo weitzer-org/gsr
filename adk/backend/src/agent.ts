@@ -85,12 +85,14 @@ export class GeminiAgent implements Subagent {
       // call can now cover a whole PR's worth of files in one request, and
       // 180000 was timing out outright on PRs as small as 13-15 files,
       // returning zero findings for the push instead of a partial result.
-      // An invalid (non-numeric) GEMINI_TIMEOUT_MS parses to NaN, and
-      // setTimeout(fn, NaN) fires on (effectively) the next tick — every
-      // discovery/remediation call would then "time out" immediately.
-      // Fall back to the same 300000 default the rest of the app uses.
+      // Node's setTimeout treats NaN, <=0, and anything above the 32-bit
+      // signed int max (2147483647) identically: it clamps to ~1ms and
+      // fires almost immediately (verified empirically — see the PR
+      // description) — so every discovery/remediation call would "time
+      // out" instantly under any of those GEMINI_TIMEOUT_MS values. Fall
+      // back to the same 300000 default the rest of the app uses.
       const rawTimeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '300000', 10);
-      const timeoutMs = Number.isNaN(rawTimeoutMs) ? 300000 : rawTimeoutMs;
+      const timeoutMs = Number.isNaN(rawTimeoutMs) || rawTimeoutMs <= 0 || rawTimeoutMs > 2147483647 ? 300000 : rawTimeoutMs;
 
       // We wrap the API call logic to support retrying dropped files
       let chunksToProcess = [...chunks];

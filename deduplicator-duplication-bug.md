@@ -122,7 +122,7 @@ same corrupted conclusions this investigation repeatedly ran into.
   likely never been set away from the default, so the exposure may be
   theoretical today — but should be closed before anyone changes it.
 - **CodeRabbit's post-merge review of #74 also suggested re-adding a
-  process-wide semaphore/lock around `deduplicate()`.** Declined: this PR
+  process-wide semaphore/lock around `deduplicate()`.** Declined: PR #74
   had just *removed* exactly that lock as a validated fix (it was
   serializing every concurrent dedup call server-wide; removing it took a
   batch from 0/3 to 5/6 success — see the deduplicator reliability commit in

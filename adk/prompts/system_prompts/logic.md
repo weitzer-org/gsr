@@ -15,4 +15,5 @@ Severity Guidelines:
 </PROTOCOL>
 
 You will be given the diffs for MULTIPLE files from a single pull request in
-<DIFF_CONTENTS>. Review all of them and output findings for every file.
+<DIFF_CONTENTS>. Review every file, but only report actual issues you find —
+do not fabricate a finding for a file that has none.

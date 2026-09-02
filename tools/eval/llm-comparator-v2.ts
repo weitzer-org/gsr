@@ -201,11 +201,18 @@ tools are called above.
 }
 
 export async function generateAggregateReportV2(
-  individualReports: string[], 
-  aggregateMetrics: any, 
-  targetALabel: string, 
+  individualReports: string[],
+  aggregateMetrics: any,
+  targetALabel: string,
   targetBLabel: string,
-  llmAggregatedMetrics: any
+  llmAggregatedMetrics: any,
+  // review-quality-design.md §7.3: GSR's OWN internal subagent-vs-basic
+  // comparison (the Evaluator, §3.1), one entry per target per PR where it
+  // was recorded — independent of the targetALabel/targetBLabel comparison
+  // this whole function is otherwise about. Optional/defaults to [] so
+  // existing callers (and the v1 generateAggregateReport, unchanged) don't
+  // need updating.
+  basicVsSubagentReports: string[] = []
 ): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -234,14 +241,22 @@ ${JSON.stringify(aggregateMetrics, null, 2)}
 ${JSON.stringify(llmAggregatedMetrics, null, 2)}
 </LLM_COMPARISON_METRICS>
 
-Your task is to synthesize these individual PR reports and metrics into a single, cohesive Executive Summary. 
-Highlight common strengths, consistent weaknesses, and compare performance between ${targetALabel} and ${targetBLabel}. 
+<SUBAGENT_VS_BASIC_REPORTS>
+${basicVsSubagentReports.length > 0
+  ? basicVsSubagentReports.join('\n\n================================\n\n')
+  : '(none recorded this run)'}
+</SUBAGENT_VS_BASIC_REPORTS>
 
-CRITICAL: You MUST include an explicit, easy-to-read "Metrics Comparison Matrix" (Markdown Table) at the very top of your executive summary before diving into the qualitative discussion. 
+Your task is to synthesize these individual PR reports and metrics into a single, cohesive Executive Summary.
+Highlight common strengths, consistent weaknesses, and compare performance between ${targetALabel} and ${targetBLabel}.
+
+CRITICAL: You MUST include an explicit, easy-to-read "Metrics Comparison Matrix" (Markdown Table) at the very top of your executive summary before diving into the qualitative discussion.
 The table MUST include 5 columns: Metric, ${targetALabel}, ${targetBLabel}, Gemini Code Assist, and CodeRabbit.
 It should summarize Total Findings, Average Actionability, Total False Positives, and Unique Findings using the provided <AGGREGATE_METRICS> and <LLM_COMPARISON_METRICS>. Note: "Total False Positives" includes both diff-validation hallucinations and logic hallucinations identified by the evaluator.
 
 You must also include an explicit 4x4 "Overlap Matrix" below the main metrics. The Overlap Matrix MUST mathematically display the pairwise overlap intersections sourced directly from the "overlapMatrix" section of the <LLM_COMPARISON_METRICS>. The columns and rows of this matrix should be the 4 targets (${targetALabel}, ${targetBLabel}, Gemini Code Assist, CodeRabbit). The intersection values represent how many bugs both targets successfully flagged.
+
+<SUBAGENT_VS_BASIC_REPORTS> is a SEPARATE comparison from the ${targetALabel}/${targetBLabel} one above: for each target, GSR itself internally ran BOTH of its two review modes (a specialized subagent swarm, and a single general-purpose "basic" prompt) on the same PR and compared them — this measures GSR's two review MODES against each other, not this run's deployment targets. If <SUBAGENT_VS_BASIC_REPORTS> is not "(none recorded this run)", you MUST include a dedicated "### Subagent vs. Basic Mode" section synthesizing it, with particular attention to Logic/Correctness-category findings specifically: a prior production audit (job_tracker, a real consumer of GSR) found Logic/Correctness is GSR's structurally weakest review category, so state plainly, based on these reports, whether the subagent swarm's specialized agents actually catch more Logic/Correctness issues than the basic single-prompt mode, or not. If it IS "(none recorded this run)", state that no subagent-vs-basic data was available and omit the rest of that section rather than inventing a comparison.
 
 Format your output in clean Markdown.
 `;

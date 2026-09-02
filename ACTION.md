@@ -59,6 +59,7 @@ so the action's `GITHUB_TOKEN` can post review comments.
 | `feedback-post` | no | `false` | OPTIONAL. Only relevant when `feedback-loop` is `respond`. When `true`, rebuttals GSR would post are actually posted to GitHub — see below. |
 | `feedback-report-url` | no | (unset) | OPTIONAL. URL of a hosted GSR finding-feedback endpoint to also report this run's feedback-loop outcomes to. Only set if the GSR maintainer has given you this value — see "Reporting feedback data" below. |
 | `feedback-report-key` | no | (unset) | OPTIONAL. Shared secret paired with `feedback-report-url`, provided by the GSR maintainer alongside it. Store as a repo secret. |
+| `shadow-mode` | no | (unset) | OPTIONAL. `subagent` or `basic` — runs a second, non-posting review in that mode alongside the posting `mode`, for comparison only. See "Shadow mode" below. Roughly doubles this run's Gemini cost while set. |
 
 ## PR comment feedback loop (opt-in)
 
@@ -170,6 +171,36 @@ into the public image). If you've been given `usage-report-url` and
 `usage-report-key` values, add them as repo secrets and pass them as inputs;
 otherwise leave both unset. Only usage metadata (never diff, PR content, or
 findings) is ever sent, and a failure to report never fails your workflow.
+
+## Shadow mode (opt-in)
+
+GSR ships two review modes — `subagent` (a swarm of specialized agents plus
+deduplication) and `basic` (a single general-purpose pass) — but most
+consumers only ever run one of them on every PR, so there's normally no
+production data on how the mode you *didn't* pick would have done on the
+same PRs. `shadow-mode` closes that gap: set it to `subagent` or `basic`
+(whichever one isn't already your `mode`) and every run additionally
+executes that mode's review too, **non-posting** — its findings never touch
+the PR, they're only written to this run's Job Summary alongside a
+narrative comparison (courtesy of GSR's `Evaluator`) of how the two modes'
+findings differed on this PR.
+
+```yaml
+      - uses: weitzer-org/gsr@main
+        with:
+          gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+          mode: basic
+          shadow-mode: subagent   # collect swarm data without changing what posts
+```
+
+This is off by default and **roughly doubles this run's Gemini cost** while
+set — it runs a genuine second full review pass, just discards where the
+findings would post. Turn it on for a bounded window when you actually want
+to answer "does the mode I'm not running actually find more/better issues
+here," then turn it back off; it isn't meant to run indefinitely on every
+PR. Setting `shadow-mode` to the same value as `mode`, or to anything other
+than `subagent`/`basic`, is a no-op (logged as a warning, review proceeds
+normally). See `review-quality-design.md` §3.1 for the fuller rationale.
 
 ## Notes
 

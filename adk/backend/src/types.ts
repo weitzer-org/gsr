@@ -170,6 +170,13 @@ export interface ReviewResult {
     inputTokens: number;
     outputTokens: number;
     calls: number;
+    // review-quality-design.md §10: wall-clock time (ms) Orchestrator.runReview
+    // took, start to finish — NOT the sum of individual Gemini call latencies
+    // (usage.ts's per-call latencyMs), which understates this whenever calls
+    // run concurrently through PromisePool. Before this, basic-mode's real
+    // latency (155s median, per §10) had to be pulled from Actions history
+    // after the fact instead of being recorded anywhere.
+    durationMs: number;
   }
 }
 

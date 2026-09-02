@@ -86,7 +86,7 @@ describe('POST /api/review', () => {
         this.onProgress('Logic', 'test.js', 'start');
         this.onProgress('Logic', 'test.js', 'complete');
       }
-      return { findings: JSON.parse(JSON.stringify(mockFindings)), metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
+      return { findings: JSON.parse(JSON.stringify(mockFindings)), metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 } };
     });
     
     const evaluateComparisonSpy = jest.spyOn(evaluatorModule.Evaluator.prototype, 'evaluateComparison').mockResolvedValue('Mock evaluation string');
@@ -123,8 +123,12 @@ describe('POST /api/review', () => {
         inputTokens: 0,
         outputTokens: 0,
         calls: 0,
-        subagentMetrics: { inputTokens: 0, outputTokens: 0, calls: 0 },
-        basicMetrics: { inputTokens: 0, outputTokens: 0, calls: 0 }
+        // Wall-clock of the (mocked, near-instant) dual orchestrator run —
+        // real but not deterministically 0, unlike the nested per-orchestrator
+        // durationMs below, which come straight from the mocked return value.
+        durationMs: expect.any(Number),
+        subagentMetrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 },
+        basicMetrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 }
       },
       evaluation: 'Mock evaluation string'
     }));
@@ -210,7 +214,7 @@ describe('POST /api/review', () => {
     const mockChunks = [{ file: 'test.js', content: 'diff' }];
 
     jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
-    const runReviewSpy = jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockResolvedValue({ findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } });
+    const runReviewSpy = jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockResolvedValue({ findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 } });
     jest.spyOn(evaluatorModule.Evaluator.prototype, 'evaluateComparison').mockResolvedValue('Mock evaluation');
 
     const response = await request(app)
@@ -228,7 +232,7 @@ describe('POST /api/review', () => {
     const mockChunks = [{ file: 'test.js', content: 'diff' }];
 
     jest.spyOn(githubModule.GitHubClient.prototype, 'getPRDiff').mockResolvedValue(mockChunks);
-    const runReviewSpy = jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockResolvedValue({ findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } });
+    const runReviewSpy = jest.spyOn(orchestratorModule.Orchestrator.prototype, 'runReview').mockResolvedValue({ findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 } });
     jest.spyOn(evaluatorModule.Evaluator.prototype, 'evaluateComparison').mockResolvedValue('Mock evaluation');
 
     const response = await request(app)

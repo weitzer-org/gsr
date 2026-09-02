@@ -108,3 +108,25 @@ same corrupted conclusions this investigation repeatedly ran into.
   every "flash arm" measurement may have actually been a flash-discovery +
   pro-deduplicator hybrid, which would need to be corrected for before this
   bug's true model-dependence (if any) can be assessed.
+- **Verify `thinkingConfig: { thinkingBudget: 4096 }` (added in PR #74) is
+  safe for whatever model `DEDUPLICATOR_MODEL` actually resolves to.** Flagged
+  by CodeRabbit's post-merge review of #74: this is hardcoded regardless of
+  which model runs, and if an operator ever points `DEDUPLICATOR_MODEL` at a
+  model that doesn't support `thinkingConfig`, the call could fail outright
+  (worse than the original hang it was fixing) instead of degrading
+  gracefully. Left unfixed rather than guessed at — this project's own
+  verification-discipline rule is not to act on an unverified premise about
+  external API behavior, and confirming which Gemini models reject
+  `thinkingConfig` needs a live check against each candidate model, not an
+  assumption. In practice `DEDUPLICATOR_MODEL` has (per the audit item above)
+  likely never been set away from the default, so the exposure may be
+  theoretical today — but should be closed before anyone changes it.
+- **CodeRabbit's post-merge review of #74 also suggested re-adding a
+  process-wide semaphore/lock around `deduplicate()`.** Declined: this PR
+  had just *removed* exactly that lock as a validated fix (it was
+  serializing every concurrent dedup call server-wide; removing it took a
+  batch from 0/3 to 5/6 success — see the deduplicator reliability commit in
+  #74). A bot review has no access to that measurement and re-adding the
+  lock would silently reintroduce the regression it fixed. Recorded here so
+  a future reviewer doesn't re-suggest it without first checking this
+  history.

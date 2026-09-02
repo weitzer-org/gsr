@@ -142,8 +142,11 @@ export class Orchestrator {
   }
 
   public async runReview(chunks: DiffChunk[]): Promise<ReviewResult> {
+    // §10: wall-clock, not summed per-call latency — see ReviewResult's
+    // durationMs doc comment in types.ts.
+    const startTime = Date.now();
     if (!chunks || chunks.length === 0) {
-        return { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
+        return { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: Date.now() - startTime } };
     }
 
     const pool = new PromisePool(this.maxConcurrency);
@@ -297,7 +300,8 @@ export class Orchestrator {
       metrics: {
         inputTokens: totalInputTokens,
         outputTokens: totalOutputTokens,
-        calls: results.length + triageCalls
+        calls: results.length + triageCalls,
+        durationMs: Date.now() - startTime
       }
     };
   }

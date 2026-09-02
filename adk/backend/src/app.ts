@@ -252,13 +252,20 @@ app.post('/api/review', async (req, res) => {
     };
 
     // Run both orchestrators concurrently using Promise.allSettled to ensure independence
+    const dualRunStart = Date.now();
     const results = await Promise.allSettled([
       subagentOrchestrator.runReview(activeChunks),
       basicOrchestrator.runReview(activeChunks)
     ]);
+    // §10: wall-clock of the concurrent dual run — NOT
+    // subagentResult.metrics.durationMs + basicResult.metrics.durationMs,
+    // which would double-count time the two orchestrators spent running at
+    // the same time. Each orchestrator's own durationMs is still preserved
+    // individually below (subagentMetrics/basicMetrics).
+    const dualRunDurationMs = Date.now() - dualRunStart;
 
-    const subagentResult = results[0].status === 'fulfilled' ? results[0].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
-    const basicResult = results[1].status === 'fulfilled' ? results[1].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0 } };
+    const subagentResult = results[0].status === 'fulfilled' ? results[0].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 } };
+    const basicResult = results[1].status === 'fulfilled' ? results[1].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 } };
 
     // Tag findings with source cleanly to avoid mutating the original arrays
     const subagentFindingsWithSource = subagentResult.findings.map(f => ({ ...f, source: ReviewSource.SUBAGENT }));
@@ -278,6 +285,7 @@ app.post('/api/review', async (req, res) => {
        inputTokens: subagentResult.metrics.inputTokens + basicResult.metrics.inputTokens,
        outputTokens: subagentResult.metrics.outputTokens + basicResult.metrics.outputTokens,
        calls: subagentResult.metrics.calls + basicResult.metrics.calls,
+       durationMs: dualRunDurationMs,
        subagentMetrics: subagentResult.metrics,
        basicMetrics: basicResult.metrics
     };

@@ -10,6 +10,9 @@ import { resolveFeedbackLoopMode, resolveFeedbackMinConfidence, resolveFeedbackM
 import { reportFeedback } from './feedbackReporter';
 import { planRepost } from './repostSuppression';
 import { parseLowPriorityPathPatterns } from './lowPriorityPaths';
+import { ReviewResult } from './types';
+import { Evaluator } from './evaluator';
+import { resolveShadowMode, formatShadowReviewSummaryMarkdown, ReviewMode } from './shadowReview';
 
 const MODE_CONFIG: Record<string, { promptsDir: string; useDedup: boolean }> = {
   subagent: { promptsDir: 'system_prompts', useDedup: true },
@@ -47,6 +50,23 @@ function writeJobSummary(records: UsageRecord[]): void {
   fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatUsageSummaryMarkdown(rollup) + '\n');
 }
 
+// writeReviewSummary (review-quality-design.md §10) surfaces the review's
+// own wall-clock duration directly in this run's Job Summary — before this,
+// basic-mode's real latency had to be pulled from Actions history after the
+// fact (§10's 155s median / 169s average / 4s-462s range came from manually
+// isolating 68 `gsr-review.yml` runs' timing, not from any data GSR itself
+// recorded). result.metrics.durationMs is Orchestrator.runReview's own
+// wall-clock, not a sum of individual Gemini call latencies (which
+// understates it under concurrency — see types.ts's doc comment).
+function writeReviewSummary(result: ReviewResult): void {
+  if (!process.env.GITHUB_STEP_SUMMARY) return;
+  const seconds = (result.metrics.durationMs / 1000).toFixed(1);
+  fs.appendFileSync(
+    process.env.GITHUB_STEP_SUMMARY,
+    `**Review duration:** ${seconds}s — ${result.findings.length} finding(s), ${result.metrics.calls} model call(s).\n\n`
+  );
+}
+
 // writeFeedbackJobSummary writes Phase 1's report to the same Job Summary
 // the usage rollup goes to. A `mode: 'off'` result (the input default) is
 // intentionally skipped rather than writing a "disabled" line every run —
@@ -55,6 +75,17 @@ function writeJobSummary(records: UsageRecord[]): void {
 function writeFeedbackJobSummary(result: FeedbackPassResult): void {
   if (result.mode === 'off' || !process.env.GITHUB_STEP_SUMMARY) return;
   fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatFeedbackSummaryMarkdown(result) + '\n');
+}
+
+// writeShadowJobSummary (§3.1) writes the already-formatted shadow-review
+// markdown (built in main() once the shadow orchestrator + Evaluator have
+// both run) to this run's Job Summary. No-op when SHADOW_MODE wasn't set,
+// the shadow orchestrator run failed (see main()'s Promise.all), or
+// GITHUB_STEP_SUMMARY isn't set (e.g. local test runs) — in every one of
+// those cases main() never calls this at all.
+function writeShadowJobSummary(markdown: string): void {
+  if (!process.env.GITHUB_STEP_SUMMARY) return;
+  fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown + '\n');
 }
 
 // maybeReportUsage is the opt-in, off-by-default centralized reporting path
@@ -94,6 +125,14 @@ async function main() {
 
   let feedbackResult: FeedbackPassResult | undefined;
   let prUrl: string | undefined;
+  // §3.1: set once (if at all) inside the try block below, once both the
+  // shadow orchestrator and the Evaluator comparison have completed — read
+  // in `finally` so it's still written even if a later step (e.g.
+  // shouldFailOnSeverity) throws.
+  let shadowSummaryMarkdown: string | undefined;
+  // §10: set once the primary review completes — read in `finally`
+  // alongside shadowSummaryMarkdown above, same reasoning.
+  let reviewResultForSummary: ReviewResult | undefined;
 
   try {
     const githubToken = process.env.GITHUB_TOKEN;
@@ -181,6 +220,38 @@ async function main() {
       console.log(`[GSR Action][${agentName}] ${file} — ${status}`);
     };
 
+    // SHADOW_MODE (review-quality-design.md §3.1, Gap 2 — "the subagent
+    // swarm has no production usage data"): optionally runs a second,
+    // NON-POSTING Orchestrator in the other mode purely to collect
+    // comparison data. job_tracker's own opt-in label gate for the deep
+    // (subagent) review has never once been applied across 19 real PRs
+    // (§1/§3), so without this the swarm — this project's core
+    // differentiator — has zero production signal on whether it actually
+    // beats whichever mode a consumer really ships. Off by default
+    // (resolveShadowMode returns undefined when SHADOW_MODE is unset);
+    // roughly doubles this run's Gemini cost when enabled (§9 open
+    // question 2) — this only builds/ships the capability, it does not
+    // turn it on for any consumer.
+    const shadowMode = resolveShadowMode(mode);
+    let shadowOrchestrator: Orchestrator | undefined;
+    if (shadowMode) {
+      const shadowModeConfig = MODE_CONFIG[shadowMode];
+      // Only "subagent" mode has a selectable agent set (mirrors the
+      // primary mode's own availableIds/selectedAgents resolution above) —
+      // REVIEW_AGENTS is the one shared input, applied to whichever of
+      // {mode, shadowMode} is "subagent". No warning path needed here:
+      // resolveAgentSelectionForMode only ever warns for the *other*
+      // branch (mode !== 'subagent'), which this call never takes.
+      const shadowSelectedAgents = shadowMode === 'subagent'
+        ? resolveAgentSelectionForMode(shadowMode, process.env.REVIEW_AGENTS, Orchestrator.listAgentIds(shadowModeConfig.promptsDir)).selectedAgents
+        : undefined;
+      shadowOrchestrator = new Orchestrator(5, shadowModeConfig.promptsDir, shadowModeConfig.useDedup, shadowSelectedAgents, true, lowPriorityPathPatterns);
+      shadowOrchestrator.onProgress = (agentName, file, status) => {
+        console.log(`[GSR Action][Shadow:${agentName}] ${file} — ${status}`);
+      };
+      console.log(`[GSR Action] Shadow mode enabled: running "${shadowMode}" alongside posting mode "${mode}" for comparison (results are not posted).`);
+    }
+
     // Repost-suppression (review-quality-design.md §2.1, addendum) — fetch
     // what GSR itself already posted on this PR in parallel with the (much
     // slower) Gemini review, so wall-clock isn't affected: this is a plain
@@ -197,14 +268,45 @@ async function main() {
     // behavior) instead — mirrors feedbackLoop.ts's own pre-post
     // concurrency re-check, which wraps this exact same call the same way
     // ("posting will proceed without it").
-    const [result, priorThreads] = await Promise.all([
+    //
+    // The shadow orchestrator's run (when enabled) is bundled into this
+    // same Promise.all too, so it doesn't add serial wall-clock on top of
+    // the posting review — same failure isolation as priorThreads: a
+    // shadow-run failure degrades to "no shadow summary this run," never
+    // to affecting the posting review's outcome.
+    const [result, priorThreads, shadowResult] = await Promise.all([
       orchestrator.runReview(activeChunks),
       ghClient.listReviewThreads(url).catch(err => {
         console.warn('[GSR Action] Failed to fetch prior GSR review threads; repost suppression will be skipped this run:', err);
         return [];
       }),
+      shadowOrchestrator
+        ? shadowOrchestrator.runReview(activeChunks).catch(err => {
+            console.warn('[GSR Action][Shadow] Shadow orchestrator failed; skipping shadow-mode summary this run:', err);
+            return undefined;
+          })
+        : Promise.resolve(undefined),
     ]);
     console.log(`[GSR Action] Review complete: ${result.findings.length} finding(s), ${result.metrics.calls} model call(s).`);
+    // Deferred to `finally` (with usage/feedback/shadow below) rather than
+    // written here inline, purely so the Job Summary's sections come out
+    // in one consistent, predictable order regardless of when in main()
+    // each one is computed — not for correctness (nothing here depends on
+    // later steps).
+    reviewResultForSummary = result;
+
+    // Reuses Evaluator (evaluator.ts) exactly as app.ts's web-UI dual-run
+    // already does (§3.1) — purpose-built for this comparison, just never
+    // wired into the Action path before now. Never throws (its own
+    // try/catch returns an error string), so no extra guard needed here.
+    if (shadowMode && shadowResult) {
+      const subagentResult = mode === 'subagent' ? result : shadowResult;
+      const basicResult = mode === 'basic' ? result : shadowResult;
+      const evaluator = new Evaluator();
+      const evaluationText = await evaluator.evaluateComparison(subagentResult.findings, basicResult.findings);
+      shadowSummaryMarkdown = formatShadowReviewSummaryMarkdown(mode as ReviewMode, result, shadowMode, shadowResult, evaluationText);
+      console.log(`[GSR Action] Shadow review complete: ${shadowResult.findings.length} finding(s), ${shadowResult.metrics.calls} model call(s) (not posted).`);
+    }
 
     const { toPost, collapsedCount, markerOverrides } = planRepost(result.findings, priorThreads, activeChunks);
     const suppressedCount = result.findings.length - toPost.length - collapsedCount;
@@ -223,6 +325,13 @@ async function main() {
       throw new Error(`Found finding(s) at or above severity "${failOnSeverity}" — failing the workflow.`);
     }
   } finally {
+    if (reviewResultForSummary) {
+      try {
+        writeReviewSummary(reviewResultForSummary);
+      } catch (err) {
+        console.warn('[GSR Action] Failed to write review duration summary:', err);
+      }
+    }
     try {
       writeJobSummary(collectedUsage);
     } catch (err) {
@@ -233,6 +342,13 @@ async function main() {
         writeFeedbackJobSummary(feedbackResult);
       } catch (err) {
         console.warn('[GSR Action] Failed to write feedback loop job summary:', err);
+      }
+    }
+    if (shadowSummaryMarkdown) {
+      try {
+        writeShadowJobSummary(shadowSummaryMarkdown);
+      } catch (err) {
+        console.warn('[GSR Action] Failed to write shadow review job summary:', err);
       }
     }
     await maybeReportUsage(collectedUsage).catch(err => console.warn('[GSR Action] Failed to report usage:', err));

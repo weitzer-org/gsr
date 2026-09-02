@@ -192,7 +192,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
       return res;
     } catch (e: any) {
       console.error(`❌ [${label}] Failed: ${e.message}`);
-      return { findings: [], metrics: { calls: 0, inputTokens: 0, outputTokens: 0 }, error: e.message };
+      return { findings: [], metrics: { calls: 0, inputTokens: 0, outputTokens: 0, durationMs: 0 }, error: e.message };
     }
   }
 
@@ -202,7 +202,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
     console.log(`🔍 Evaluating PR: ${prUrl}`);
     console.log(`================================`);
 
-    const notAttempted: CombinedResult = { findings: [], metrics: { calls: 0, inputTokens: 0, outputTokens: 0 }, error: 'not attempted' };
+    const notAttempted: CombinedResult = { findings: [], metrics: { calls: 0, inputTokens: 0, outputTokens: 0, durationMs: 0 }, error: 'not attempted' };
     let targetAResult: CombinedResult = notAttempted;
     let targetBResult: CombinedResult = notAttempted;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -345,13 +345,38 @@ export async function runEvaluation(options: EvalOptions = {}) {
     })
     .filter((r: any) => r !== null);
 
+  // review-quality-design.md §7.3: /api/review's `evaluation` field is
+  // GSR's OWN internal subagent-vs-basic comparison (§3's Evaluator), an
+  // artifact of each target running both review modes internally,
+  // completely independent of which two *targets* (local/production/
+  // branch) this eval run is comparing. It's already folded into
+  // validReports above for targetA only — extracted again here, for BOTH
+  // targets, as its own array so generateAggregateReportV2 can give it a
+  // dedicated section instead of it being buried inline. §1's job_tracker
+  // audit found Logic/Correctness is GSR's weakest review category, so
+  // this is specifically what the standing eval should be able to speak to
+  // on demand — see this array's use at the generateAggregateReportV2 call
+  // site below.
+  const basicVsSubagentReports = runPayload.results
+    .flatMap((r: any) => [
+      r.targetA?.evaluation ? `### ${targetAConfig.label} (${r.prUrl})\n${r.targetA.evaluation}` : null,
+      r.targetB?.evaluation ? `### ${targetBConfig.label} (${r.prUrl})\n${r.targetB.evaluation}` : null,
+    ])
+    .filter((r: any) => r !== null);
+
   const aggregateMetrics: any = {
-    targetA: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 },
-    targetB: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0 },
+    targetA: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0, avgDurationMs: 0 },
+    targetB: { inputTokens: 0, outputTokens: 0, calls: 0, findingsCount: 0, avgDurationMs: 0 },
     gca: { findingsCount: 0 },
     codeRabbit: { findingsCount: 0 }
   };
-  
+  // review-quality-design.md §10/§7.3: per-PR durationMs summed here, then
+  // averaged below by how many PRs actually contributed a real (non-error)
+  // result — dividing by prs.length instead would understate the average
+  // whenever some PRs failed every retry attempt.
+  let targetASuccessCount = 0;
+  let targetBSuccessCount = 0;
+
   for (const r of runPayload.results) {
     // An errored target still carries a truthy `metrics` object (see
     // runSingleTarget's catch: `{ findings: [], metrics: { calls: 0, ... },
@@ -363,19 +388,26 @@ export async function runEvaluation(options: EvalOptions = {}) {
        aggregateMetrics.targetA.outputTokens += r.targetA.metrics.outputTokens || 0;
        aggregateMetrics.targetA.calls += r.targetA.metrics.calls || 0;
        aggregateMetrics.targetA.findingsCount += r.targetA.findings?.length || 0;
+       aggregateMetrics.targetA.avgDurationMs += r.targetA.metrics.durationMs || 0;
+       targetASuccessCount++;
     }
     if (r.targetB?.metrics && !r.targetB.error) {
        aggregateMetrics.targetB.inputTokens += r.targetB.metrics.inputTokens || 0;
        aggregateMetrics.targetB.outputTokens += r.targetB.metrics.outputTokens || 0;
        aggregateMetrics.targetB.calls += r.targetB.metrics.calls || 0;
        aggregateMetrics.targetB.findingsCount += r.targetB.findings?.length || 0;
+       aggregateMetrics.targetB.avgDurationMs += r.targetB.metrics.durationMs || 0;
+       targetBSuccessCount++;
     }
     if (useNewMetrics) {
        aggregateMetrics.gca.findingsCount += r.gcaFindingsCount || 0;
        aggregateMetrics.codeRabbit.findingsCount += r.codeRabbitFindingsCount || 0;
     }
   }
-  
+  // Turn the running sums above into actual averages now that the loop is done.
+  if (targetASuccessCount > 0) aggregateMetrics.targetA.avgDurationMs /= targetASuccessCount;
+  if (targetBSuccessCount > 0) aggregateMetrics.targetB.avgDurationMs /= targetBSuccessCount;
+
   if (useNewMetrics) {
     const emptyTarget = { actionability: 0, falsePositives: 0, uniqueFindings: 0 };
     const llmAggregatedMetrics: any = {
@@ -433,7 +465,7 @@ export async function runEvaluation(options: EvalOptions = {}) {
   if (validReports.length > 0 && process.env.GEMINI_API_KEY) {
     try {
       if (useNewMetrics) {
-         const reportOutput = await generateAggregateReportV2(validReports, aggregateMetrics, targetAConfig.label, targetBConfig.label, runPayload.llm_aggregated_metrics);
+         const reportOutput = await generateAggregateReportV2(validReports, aggregateMetrics, targetAConfig.label, targetBConfig.label, runPayload.llm_aggregated_metrics, basicVsSubagentReports);
          runPayload.aggregate_report = `> **Execution Environment:** ${runPayload.execution_environment}\n\n${reportOutput}`;
       } else {
          const reportOutput = await generateAggregateReport(validReports, aggregateMetrics, targetAConfig.label, targetBConfig.label);

@@ -151,6 +151,21 @@ inputs:
       effect unless feedback-report-url is also set.
     required: false
     default: ''
+  shadow-mode:
+    description: >
+      OPTIONAL, unset (off) by default. One of "subagent" or "basic" — runs
+      a second, NON-POSTING review in that mode alongside whichever mode is
+      actually posting, purely to collect comparison data (see
+      review-quality-design.md §3.1). Results (findings + an Evaluator
+      comparison of subagent vs. basic) are written only to this run's Job
+      Summary; nothing extra is posted to the PR. Has no effect if set to
+      the same value as `mode`, or to any value other than "subagent"/
+      "basic" (warns and skips). Roughly DOUBLES this run's Gemini cost
+      while set, since it runs a full second review pass — leave unset
+      unless you specifically want production data comparing GSR's two
+      review modes against each other.
+    required: false
+    default: ''
 
 runs:
   using: 'docker'
@@ -172,3 +187,4 @@ runs:
     FEEDBACK_POST: ${{ inputs.feedback-post }}
     FEEDBACK_REPORT_URL: ${{ inputs.feedback-report-url }}
     FEEDBACK_SHARED_SECRET: ${{ inputs.feedback-report-key }}
+    SHADOW_MODE: ${{ inputs.shadow-mode }}

@@ -4,6 +4,12 @@ export interface ReviewMetrics {
   inputTokens: number;
   outputTokens: number;
   calls: number;
+  // review-quality-design.md §10: wall-clock ms the /api/review call's dual
+  // orchestrator run took (see adk/backend/src/types.ts's ReviewResult —
+  // the backend's `metrics` shape this mirrors). 0 for a result that never
+  // received a real `metrics` payload (see the two literal fallbacks
+  // below).
+  durationMs: number;
 }
 
 export interface ReviewFinding {
@@ -43,7 +49,7 @@ export async function runReview(baseUrl: string, prUrl: string, pat: string): Pr
   let buffer = '';
 
   let finalFindings: ReviewFinding[] = [];
-  let finalMetrics: ReviewMetrics = { inputTokens: 0, outputTokens: 0, calls: 0 };
+  let finalMetrics: ReviewMetrics = { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 };
   let finalEvaluation: string | undefined = undefined;
   let receivedDone = false;
 
@@ -76,7 +82,7 @@ export async function runReview(baseUrl: string, prUrl: string, pat: string): Pr
            fileName: f.fileName || f.file || '',
            lineNumber: f.lineNumber || f.line || 1
         }));
-        finalMetrics = parsed.metrics || { inputTokens: 0, outputTokens: 0, calls: 0 };
+        finalMetrics = parsed.metrics || { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 };
         finalEvaluation = parsed.evaluation;
         receivedDone = true;
       } else if (parsed.type === 'error') {

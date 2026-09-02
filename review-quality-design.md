@@ -495,7 +495,7 @@ memory of this one) knows what's already landed.
 | 2 | Gap 4 Tier 1: decouple `useTriage` (aggregation) from `useDedup` (§5.1) | Phase 1 (to verify against `must_resolve_cross_file`) | ✅ (PR #66, merged) |
 | 3 | Gap 3: `LOW_PRIORITY_PATH_PATTERNS` + severity dampening in `filterFindings` (§4.1) | Phase 1 (to verify against `must_not_flag_high`) | ✅ — **implemented as defense-in-depth despite the fixture not currently reproducing the gap (human decision after re-verification found it green — see Phase 3 note below).** |
 | 4 | Gap 1: content-hash finding identity + Action-side repost suppression/collapse (§2.1, **hash formula corrected — see §2.1 addendum**) + multi-push simulation test (§7.2) | none (independent of 2-3, but easiest after they're merged to avoid rebase noise) | ✅ — **addendum steps 1-5 (stable `findingId` + `gsr:v2` marker), PR #68, merged.** Repost-suppression follow-up (this PR): new `repostSuppression.ts` module (`planRepost`) decides, per finding, whether to post/suppress/collapse using the v2 `findingId` plus a new per-file diff-content-hash marker field (`h=`) and a repost counter (`n=`) — both documented explicitly in `repostSuppression.ts`'s module doc, since the design doc itself left "what does 'unchanged' mean" open. `action-entrypoint.ts` fetches prior GSR threads via the existing `listReviewThreads` (reused, not reimplemented) in parallel with the Gemini review. Summary count reflects everything outstanding regardless of suppression (§9 open question 1 resolved: "N stays accurate"). §7.2's multi-push simulation lives in `adk/backend/tests/repostSuppression.e2e.test.ts`. 490/490 backend tests pass, clean `tsc` build. |
-| 5 | Gap 2: `SHADOW_MODE` (§3.1) + `durationMs` latency instrumentation (§10) + standing basic-vs-subagent eval reporting (§7.3) | Phases 2-4 merged (shadow-run data is most useful once the fixes it'd be comparing are in place) | ⬜ |
+| 5 | Gap 2: `SHADOW_MODE` (§3.1) + `durationMs` latency instrumentation (§10) + standing basic-vs-subagent eval reporting (§7.3) | Phases 2-4 merged (shadow-run data is most useful once the fixes it'd be comparing are in place) | ✅ |
 | 6 (conditional) | Gap 4 Tier 2: on-demand full-file fetch for out-of-diff symbol claims (§5.1 Tier 2) | Only open this if Phase 1's `must_resolve_cross_file` fixture still fails after Phase 2 — Tier 1 may already be sufficient | **Gate resolved, Tier 2 not needed for now** — see Phase 2 note below |
 | 7 | Gap 5 (new, §12): same-run cross-agent self-consistency check (basic vs. swarm, or swarm-agent vs. swarm-agent, contradicting each other on one PR without acknowledgment) | none, but higher cost than it looks — basic and swarm currently run as separate CI jobs with no shared state; see §12 | ⬜ — not yet designed in detail, only diagnosed |
 | 8 | Feedback-loop investigation (§12): determine why `job_tracker`'s feedback loop has posted zero rebuttals across every observed run despite regularly adjudicating rejections | Needs either Cloudflare R2 read access to `gsr-review-feedback` or an authenticated `GET /api/findings/feedback` session — **not available from a plain local dev checkout**, blocked until whoever runs this phase has one of those | ⬜ — blocked on access, not on design |
@@ -792,6 +792,104 @@ dominant convention — appears 38 and 17 times respectively already, not
 something introduced by this phase). 510/510 backend tests pass, clean
 `tsc` build. All CI checks (both self-review jobs, CodeRabbit, and the three
 test suites) green on the final commit.
+
+**Phase 5 note (2026-09-02):** started after confirming Phases 2-4 (PRs #66,
+#68/#69, #71) were all merged into `main` — branched off post-merge `main`
+directly, no rebase noise. Implemented all three pieces of scope; nothing
+deferred.
+
+- **`durationMs` (§10):** `ReviewResult['metrics']` (`types.ts`) gained a
+  `durationMs: number` field — `Orchestrator.runReview`'s own wall-clock
+  (`orchestrator.ts`), not a sum of individual Gemini call latencies
+  (`usage.ts`'s per-call `latencyMs`, which understates wall time whenever
+  calls run concurrently through `PromisePool`). Threaded through:
+  `app.ts`'s web-UI dual-run response now reports each orchestrator's own
+  `durationMs` (`subagentMetrics`/`basicMetrics`) plus a top-level
+  `durationMs` measured directly around the `Promise.allSettled` call
+  (deliberately *not* the sum of the two nested values, which would
+  double-count concurrent time). `action-entrypoint.ts` logs it and writes
+  a one-line `**Review duration:** Xs` entry to `$GITHUB_STEP_SUMMARY`
+  (`writeReviewSummary`) — this is the concrete fix for §10's own
+  complaint: the 155s/169s/4s-462s basic-mode numbers had to be manually
+  pulled from 68 `gsr-review.yml` Actions-history runs; a future
+  measurement like that is now a Job Summary read instead. `tools/eval`'s
+  `ReviewMetrics`/`CombinedResult` (`api-client.ts`) mirror the same field;
+  `evaluate.ts`'s `aggregateMetrics` now also accumulates a per-target
+  `avgDurationMs` across a sample-PR run (averaged over PRs that actually
+  succeeded, not `prs.length`, matching the existing token/call
+  aggregation's error-exclusion logic).
+- **`SHADOW_MODE` (§3.1):** new `shadowReview.ts` module — pure/testable
+  `resolveShadowMode` (validates the `SHADOW_MODE` env var / `shadow-mode`
+  Action input: unset is off with no warning, an unrecognized value or one
+  matching the already-posting `mode` warns and no-ops) and
+  `formatShadowReviewSummaryMarkdown` (renders the comparison table +
+  Evaluator text), split out the same way `feedbackConfig.ts` is from
+  `feedbackLoop.ts` so both are unit-testable without importing
+  `action-entrypoint.ts` (whose top-level `main().catch(...)` runs on
+  import). `action-entrypoint.ts` wires the actual side-effecting run: when
+  `shadowMode` resolves, a second, non-posting `Orchestrator` (in the other
+  mode, same `lowPriorityPathPatterns`, `REVIEW_AGENTS`-driven agent
+  selection reused for whichever of {mode, shadowMode} is `subagent`) runs
+  inside the *same* `Promise.all` as the primary `orchestrator.runReview` +
+  `listReviewThreads` call (so it adds no serial wall-clock), guarded with
+  the same `.catch(...) => undefined` failure-isolation pattern already
+  used for `priorThreads` — a shadow-run failure degrades to "no shadow
+  summary this run," never to affecting the posting review. On success,
+  reuses `Evaluator` (`evaluator.ts`) exactly as `app.ts`'s web-UI dual-run
+  already does — built for this comparison, just never wired into the
+  Action path before. The formatted summary is written to
+  `$GITHUB_STEP_SUMMARY` from `finally` (mirrors `feedbackResult`'s
+  top-of-function `let` pattern) so it survives even if a later step (e.g.
+  `shouldFailOnSeverity`) throws. New `shadow-mode` Action input
+  (`action.yml`, documented in `ACTION.md` with its own "Shadow mode"
+  section) — unset/off by default. **Not turned on for `job_tracker` or any
+  other consumer as part of this work** (§9 open question 2: it roughly
+  doubles Gemini cost while enabled — that's a budget call for whoever owns
+  the consuming repo, not this session's to make). `shadowReview.test.ts`
+  covers `resolveShadowMode`'s and `formatShadowReviewSummaryMarkdown`'s
+  logic directly; the `main()`-level wiring itself isn't separately
+  integration-tested, matching this repo's existing convention (repost
+  suppression's own `action-entrypoint.ts` wiring isn't directly tested
+  either — `repostSuppression.e2e.test.ts` exercises `planRepost` +
+  `GitHubClient` directly instead).
+- **Standing basic-vs-subagent eval reporting (§7.3):** confirmed, not
+  assumed — `.github/workflows/deploy.yml`'s only `tools/eval`-related job
+  (`test-eval`) runs `npm test` (the Jest unit suite), and a full repo grep
+  for `cron`/`schedule` found nothing wiring `evaluate.ts`'s
+  `runEvaluation()` (the actual comparative harness, `compGroup`-driven)
+  into any CI/cron trigger. **Finding, not built, per this phase's own
+  scope note:** the standing comparison capability `/api/review` +
+  `compGroup` already provides (§3.1) is real but dormant — nobody
+  currently runs it on a schedule, so `job_tracker`'s "does the swarm beat
+  basic on Logic/Correctness" question only gets answered when someone
+  manually invokes `tools/eval`. Left for whoever owns `tools/eval`'s
+  operational cadence to decide whether a scheduled trigger is worth
+  adding (a GitHub Actions `schedule:` on `deploy.yml` or a separate
+  workflow would be the natural mechanism) — out of scope to build
+  speculatively here. Separately, **did** ship the "surface the Evaluator
+  comparison text more prominently" half of §7.3:
+  `generateAggregateReportV2` (`llm-comparator-v2.ts`) gained a
+  `basicVsSubagentReports` parameter (defaults to `[]`, so the unchanged
+  v1 `generateAggregateReport` and any other caller need no updates) fed
+  by a new `<SUBAGENT_VS_BASIC_REPORTS>` prompt block with an explicit
+  instruction to synthesize a dedicated "Subagent vs. Basic Mode" section
+  calling out Logic/Correctness specifically, since §1's `job_tracker`
+  audit found that's GSR's structurally weakest category. `evaluate.ts`
+  now extracts this text for **both** `targetA` and `targetB` (previously
+  only `targetA`'s `evaluation` field was captured anywhere, in the
+  combined-text blob that already fed `generateAggregateReportV2`'s
+  `individualReports` — `targetB`'s was silently available on every run
+  and never used). `llm-comparator-v2.ts` had no prior test coverage at
+  all; new `llm-comparator-v2.test.ts` (5 tests, mirrors
+  `llm-comparator.test.ts`'s existing `jest.mock('@google/genai')` +
+  `jest.mock('../storage')` pattern) covers the new prompt construction —
+  the placeholder text when no reports are given, the dedicated-section
+  instruction and embedded report text when they are, and that the
+  pre-existing Metrics/Overlap Matrix instructions are unchanged.
+- 572/572 backend tests pass (562 baseline + `shadowReview.test.ts`'s 11 +
+  `api.test.ts`/`orchestrator.ts` assertion updates), 40/40 `tools/eval`
+  tests pass (35 baseline + `llm-comparator-v2.test.ts`'s 5), clean `tsc`
+  build in both packages.
 
 ## 12. External validation — `job_tracker` dogfooding report (2026-08-24)
 

@@ -50,3 +50,72 @@ describe('getFileJson', () => {
         await expect(storage.getFileJson('bucket', 'key')).rejects.toThrow(/access denied/i);
     });
 });
+
+describe('listFiles', () => {
+    beforeEach(() => {
+        mockSend.mockReset();
+    });
+
+    // Regression test for a real production bug (2026-08-30): listFiles made
+    // a single ListObjectsV2 call with no pagination loop, so any prefix
+    // matching more than S3/R2's 1000-key-per-response cap silently dropped
+    // everything past the first page — usage.ts's listUsageRecords (the only
+    // caller that omits maxResults) undercounted every high-volume day with
+    // no error at all.
+    it('follows ContinuationToken across multiple pages when maxResults is omitted', async () => {
+        mockSend
+            .mockResolvedValueOnce({
+                Contents: [{ Key: 'usage/2026-08-29/a.json' }, { Key: 'usage/2026-08-29/b.json' }],
+                IsTruncated: true,
+                NextContinuationToken: 'token-1',
+            })
+            .mockResolvedValueOnce({
+                Contents: [{ Key: 'usage/2026-08-29/c.json' }],
+                IsTruncated: false,
+            });
+
+        const files = await storage.listFiles('bucket', 'usage/2026-08-29/');
+
+        expect(files.map(f => f.name)).toEqual(['usage/2026-08-29/a.json', 'usage/2026-08-29/b.json', 'usage/2026-08-29/c.json']);
+        expect(mockSend).toHaveBeenCalledTimes(2);
+        // Second call must actually pass the continuation token forward.
+        const secondCallInput = mockSend.mock.calls[1][0] as any;
+        expect(secondCallInput.ContinuationToken).toBe('token-1');
+    });
+
+    it('stops after one page when the result is not truncated', async () => {
+        mockSend.mockResolvedValueOnce({ Contents: [{ Key: 'usage/2026-08-29/a.json' }], IsTruncated: false });
+
+        const files = await storage.listFiles('bucket', 'usage/2026-08-29/');
+
+        expect(files).toHaveLength(1);
+        expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT paginate past the requested page when maxResults is explicitly set', async () => {
+        // Recent-history UI views (feedback.ts, app.ts's eval-run/review-run
+        // listings) intentionally want a bounded page, not "everything" —
+        // a truncated result here must not trigger a second call.
+        mockSend.mockResolvedValueOnce({
+            Contents: [{ Key: 'review-run_1.json' }],
+            IsTruncated: true,
+            NextContinuationToken: 'token-1',
+        });
+
+        const files = await storage.listFiles('bucket', 'review-run_', { maxResults: 100 });
+
+        expect(files).toHaveLength(1);
+        expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it('filters out a Contents entry exactly equal to the prefix itself', async () => {
+        mockSend.mockResolvedValueOnce({
+            Contents: [{ Key: 'usage/2026-08-29/' }, { Key: 'usage/2026-08-29/a.json' }],
+            IsTruncated: false,
+        });
+
+        const files = await storage.listFiles('bucket', 'usage/2026-08-29/');
+
+        expect(files.map(f => f.name)).toEqual(['usage/2026-08-29/a.json']);
+    });
+});

@@ -177,12 +177,13 @@ export async function runEvaluation(options: EvalOptions = {}) {
   // both targets succeed or the attempt budget is exhausted, so "the
   // complete set" and "the analyzed set" are the same thing.
   // A non-numeric EVAL_MAX_PR_RETRIES parses to NaN, and `attempt <= NaN` is
-  // always false — the retry loop below would then never execute even its
+  // always false; zero or a negative value has the same effect via
+  // `attempt <= 0` — the retry loop below would then never execute even its
   // first iteration, leaving every PR's result at the `notAttempted`
   // placeholder and silently producing a zero-result run with no thrown
   // error. Fall back to the same default of 3 the rest of this file assumes.
   const rawMaxAttempts = parseInt(process.env.EVAL_MAX_PR_RETRIES || '3', 10);
-  const maxAttempts = Number.isNaN(rawMaxAttempts) ? 3 : rawMaxAttempts;
+  const maxAttempts = Number.isNaN(rawMaxAttempts) || rawMaxAttempts <= 0 ? 3 : rawMaxAttempts;
 
   async function runSingleTarget(url: string, label: string, prUrl: string): Promise<CombinedResult> {
     try {
@@ -205,14 +206,25 @@ export async function runEvaluation(options: EvalOptions = {}) {
     let targetAResult: CombinedResult = notAttempted;
     let targetBResult: CombinedResult = notAttempted;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      console.log(`[${targetAConfig.label} & ${targetBConfig.label}] Sending review requests simultaneously (attempt ${attempt}/${maxAttempts})...`);
-      [targetAResult, targetBResult] = await Promise.all([
-        runSingleTarget(targetAConfig.url, targetAConfig.label, prUrl),
-        runSingleTarget(targetBConfig.url, targetBConfig.label, prUrl),
+      // Only re-run whichever target still has an error — re-running an
+      // already-succeeded target on every retry wastes a real, billed
+      // Gemini call and, worse, can silently overwrite a good result with a
+      // different (possibly worse) one on the retry, reintroducing exactly
+      // the kind of retry-driven noise this loop exists to eliminate (see
+      // the comment above maxAttempts).
+      const needsA = !!targetAResult.error;
+      const needsB = !!targetBResult.error;
+      if (!needsA && !needsB) break;
+      console.log(`[${targetAConfig.label} & ${targetBConfig.label}] Sending review request(s) (attempt ${attempt}/${maxAttempts})...`);
+      const [nextA, nextB] = await Promise.all([
+        needsA ? runSingleTarget(targetAConfig.url, targetAConfig.label, prUrl) : Promise.resolve(targetAResult),
+        needsB ? runSingleTarget(targetBConfig.url, targetBConfig.label, prUrl) : Promise.resolve(targetBResult),
       ]);
+      targetAResult = nextA;
+      targetBResult = nextB;
       if (!targetAResult.error && !targetBResult.error) break;
       if (attempt < maxAttempts) {
-        console.warn(`⚠️ [${prUrl}] Attempt ${attempt} had a failure, retrying...`);
+        console.warn(`⚠️ [${prUrl}] Attempt ${attempt} had a failure, retrying the failed target(s)...`);
       }
     }
 

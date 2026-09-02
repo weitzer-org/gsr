@@ -183,7 +183,9 @@ tools are called above.
 
     const plausible =
       metrics.targetA.uniqueFindings <= targetAFindings.length &&
-      metrics.targetB.uniqueFindings <= targetBFindings.length;
+      metrics.targetB.uniqueFindings <= targetBFindings.length &&
+      metrics.gca.uniqueFindings <= gcaFindings.length &&
+      metrics.codeRabbit.uniqueFindings <= codeRabbitFindings.length;
     if (!plausible) {
       console.warn(
         `⚠️ [V2] Judge scores for ${prUrl} are internally implausible ` +

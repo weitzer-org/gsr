@@ -85,8 +85,13 @@ export class GeminiAgent implements Subagent {
       // call can now cover a whole PR's worth of files in one request, and
       // 180000 was timing out outright on PRs as small as 13-15 files,
       // returning zero findings for the push instead of a partial result.
-      const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '300000', 10);
-      
+      // An invalid (non-numeric) GEMINI_TIMEOUT_MS parses to NaN, and
+      // setTimeout(fn, NaN) fires on (effectively) the next tick — every
+      // discovery/remediation call would then "time out" immediately.
+      // Fall back to the same 300000 default the rest of the app uses.
+      const rawTimeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '300000', 10);
+      const timeoutMs = Number.isNaN(rawTimeoutMs) ? 300000 : rawTimeoutMs;
+
       // We wrap the API call logic to support retrying dropped files
       let chunksToProcess = [...chunks];
       const maxRetries = 2;
@@ -137,6 +142,7 @@ export class GeminiAgent implements Subagent {
            requestArgs.config.systemInstruction = promptPayload.systemInstruction;
         }
 
+        const discoveryRequestStart = Date.now();
         const genAiRequest = trackGeminiCall(
           { callType: 'discovery', model: requestArgs.model },
           () => this.ai.models.generateContent(requestArgs)
@@ -147,7 +153,7 @@ export class GeminiAgent implements Subagent {
         });
 
         const response = await Promise.race([genAiRequest, timeoutPromise]).finally(() => clearTimeout(timeoutId));
-        
+
         if (response.usageMetadata) {
             promptTokens += response.usageMetadata.promptTokenCount || 0;
             candidatesTokens += response.usageMetadata.candidatesTokenCount || 0;
@@ -164,7 +170,7 @@ export class GeminiAgent implements Subagent {
               // turned into a silent `{ findings: [] }`, indistinguishable
               // from "found nothing". Record it as its own visible failure
               // mode before letting that same graceful-degradation path run.
-              await recordParseFailure({ callType: 'discovery', model: requestArgs.model }, response, 0);
+              await recordParseFailure({ callType: 'discovery', model: requestArgs.model }, response, Date.now() - discoveryRequestStart);
               throw parseErr;
             }
             if (result.issues) {
@@ -198,6 +204,7 @@ export class GeminiAgent implements Subagent {
       // Not cached because it uses a different short-lived prompt focused tightly on synthesizing solutions
       const remediationPayload = this.buildRemediationPrompt(chunks, discoveryIssues);
       const remediationModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+      const remediationRequestStart = Date.now();
       const remediationRequest = trackGeminiCall(
         { callType: 'remediation', model: remediationModel },
         () => this.ai.models.generateContent({
@@ -240,7 +247,7 @@ export class GeminiAgent implements Subagent {
           try {
             findings = JSON.parse(remediationResponse.text);
           } catch (parseErr) {
-            await recordParseFailure({ callType: 'remediation', model: remediationModel }, remediationResponse, 0);
+            await recordParseFailure({ callType: 'remediation', model: remediationModel }, remediationResponse, Date.now() - remediationRequestStart);
             throw parseErr;
           }
           console.log(`[${this.name}] Successfully generated ${findings.length} final actionable findings.`);
@@ -287,6 +294,7 @@ ${chunk.content}
       console.log(`[${this.name}] Starting Baseline Gemini API call for ${chunk.file}...`);
       
       const legacyModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+      const legacyRequestStart = Date.now();
       const response = await trackGeminiCall(
         { callType: 'legacy', model: legacyModel },
         () => this.ai.models.generateContent({
@@ -319,7 +327,7 @@ ${chunk.content}
           try {
             findings = JSON.parse(response.text);
           } catch (parseErr) {
-            await recordParseFailure({ callType: 'legacy', model: legacyModel }, response, 0);
+            await recordParseFailure({ callType: 'legacy', model: legacyModel }, response, Date.now() - legacyRequestStart);
             throw parseErr;
           }
           return {

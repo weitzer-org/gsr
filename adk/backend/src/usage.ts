@@ -292,7 +292,16 @@ export interface UsageBucket {
 // already-queried date range will hit the same gap — see
 // usage_analytics_reference.md's backfill section for the mitigation
 // (query the target range for the first time only after the writes land).
-export const CURRENT_SCHEMA_VERSION = 4;
+//
+// Bumped to 5 after fixing listFiles's missing pagination (storage.ts,
+// 2026-09-02): any date whose rollup got cached at schemaVersion 4 between
+// that bug existing and the pagination fix actually deploying was frozen at
+// its under-counted value forever — the fix alone doesn't retroactively
+// touch an already-cached rollup, only a version bump forces the rebuild
+// that lets it benefit. Confirmed in production: 2026-08-09's cached rollup
+// still showed exactly 1000 job_tracker calls (S3's per-response cap) days
+// after the pagination fix deployed, against 1124 real records.
+export const CURRENT_SCHEMA_VERSION = 5;
 
 // byModelRepository/byModelWorkload/byRepositoryWorkload key their maps on
 // `${a}|${b}` — safe because model names, "owner/repo" repository strings,

@@ -41,14 +41,36 @@ export async function uploadJson(bucket: string, key: string, data: unknown, met
 // `includeMetadata` costs one HeadObject call per file — only set it where
 // custom metadata (e.g. originalUrl) actually needs to be displayed in a
 // list view, since S3 ListObjectsV2 (unlike GCS) doesn't return it inline.
+//
+// When `maxResults` is omitted, the caller wants EVERY object under
+// `prefix`, not just whatever fits in one page — S3/R2's ListObjectsV2 caps
+// a single response at 1000 keys regardless of whether MaxKeys is set, so
+// this loops via ContinuationToken until IsTruncated is false. Silently
+// stopping after the first page here previously dropped every object past
+// the 1000th with no error or warning: usage.ts's listUsageRecords (the
+// only caller that omits maxResults, since it needs a date's complete set
+// of records to aggregate a correct rollup) was undercounting any date
+// with 1000+ calls — confirmed in production on 2026-08-30 for two
+// high-volume days after a historical backfill pushed several dates over
+// that threshold. Callers that pass an explicit `maxResults` (recent-
+// history UI views capped at e.g. 100) keep today's single-capped-call
+// behavior unchanged — they want a bounded page, not "everything".
 export async function listFiles(bucket: string, prefix: string, options?: { maxResults?: number; includeMetadata?: boolean }): Promise<StoredFile[]> {
-  const result = await getClient().send(new ListObjectsV2Command({
-    Bucket: bucket,
-    Prefix: prefix,
-    MaxKeys: options?.maxResults,
-  }));
+  const paginate = options?.maxResults === undefined;
+  const contents: { Key?: string; LastModified?: Date; Size?: number }[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const result = await getClient().send(new ListObjectsV2Command({
+      Bucket: bucket,
+      Prefix: prefix,
+      MaxKeys: options?.maxResults,
+      ContinuationToken: continuationToken,
+    }));
+    contents.push(...(result.Contents || []));
+    continuationToken = paginate && result.IsTruncated ? result.NextContinuationToken : undefined;
+  } while (continuationToken);
 
-  const files = (result.Contents || [])
+  const files = contents
     .filter(obj => obj.Key && obj.Key !== prefix)
     .map(obj => ({
       name: obj.Key!,

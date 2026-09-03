@@ -55,6 +55,7 @@ const PRICE_TABLE: Record<string, { input: number; output: number }> = {
   'gemini-3.5-flash': { input: 1.5, output: 9.0 },
   'gemini-3.6-flash': { input: 1.5, output: 7.5 },
   'gemini-3.7-flash': { input: 0.75, output: 3.75 }, // introductory rate through 2026-12-31; doubles to 1.50/7.50 after
+  'gemini-3.8-flash': { input: 0.75, output: 3.75 }, // introductory rate through 2026-12-31; doubles to 1.50/7.50 after
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // used by debug-single.ts and tools/eval's llm-comparator*.ts; <=200k-token-prompt tier — verify against current pricing if usage grows large
 };
 

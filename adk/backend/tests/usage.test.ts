@@ -36,6 +36,15 @@ describe('computeCostUsd', () => {
         expect(withCache).toBeCloseTo(withoutCache, 5);
     });
 
+    it('prices gemini-3.8-flash at its introductory rate', () => {
+        // Guards against the model silently falling through to the
+        // unknown-model 0 branch, which would under-report spend rather
+        // than error. Bump to 1.50/7.50 when the introductory rate expires
+        // on 2026-12-31.
+        const cost = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000);
+        expect(cost).toBeCloseTo(0.75 + 3.75, 5);
+    });
+
     it('returns 0 for an unknown model rather than throwing', () => {
         expect(usage.computeCostUsd('some-future-model', 1000, 1000)).toBe(0);
     });

@@ -50,10 +50,94 @@ describe('computeCostUsd', () => {
     });
 
     it('does not bill thinking tokens on top of the fifth arg (avoids double-counting candidatesTokenCount)', () => {
-        // computeCostUsd only takes 4 args now — a stray 5th argument must
-        // be silently ignored, not folded into the output rate.
+        // The 5th parameter is now an options object ({ imageCount }), but a
+        // stray token count passed there must still be ignored rather than
+        // folded into the output rate.
         const cost = (usage.computeCostUsd as any)('gemini-3.1-pro-preview', 0, 0, 0, 1_000_000);
         expect(cost).toBe(0);
+    });
+
+    describe('image generation models', () => {
+        // The Gemini image models are token-priced: resolution is carried in
+        // candidatesTokenCount, so these assert the published per-image
+        // prices fall out of the ordinary token math at the documented token
+        // counts for each resolution.
+        it.each([
+            ['gemini-3.1-flash-image', 747, 0.045],
+            ['gemini-3.1-flash-image', 1120, 0.067],
+            ['gemini-3.1-flash-image', 1680, 0.101],
+            ['gemini-3.1-flash-image', 2520, 0.151],
+            ['gemini-3.1-flash-lite-image', 1120, 0.0336],
+            ['gemini-3-pro-image', 1120, 0.134],
+            ['gemini-3-pro-image', 2000, 0.24],
+        ])('prices %s at %i output tokens as ~$%f per image', (model, outputTokens, expected) => {
+            expect(usage.computeCostUsd(model as string, 0, outputTokens as number)).toBeCloseTo(expected as number, 3);
+        });
+
+        it.each([
+            ['imagen-4.0-fast-generate-001', 0.02],
+            ['imagen-4.0-generate-001', 0.04],
+            ['imagen-4.0-ultra-generate-001', 0.06],
+        ])('bills %s per image regardless of token counts', (model, perImage) => {
+            expect(usage.computeCostUsd(model as string, 0, 0, 0, { imageCount: 3 })).toBeCloseTo((perImage as number) * 3, 6);
+        });
+
+        it('defaults a per-image model to one image when the count is missing', () => {
+            expect(usage.computeCostUsd('imagen-4.0-generate-001', 0, 0)).toBeCloseTo(0.04, 6);
+        });
+
+        it('honours an explicit zero-image count', () => {
+            expect(usage.computeCostUsd('imagen-4.0-generate-001', 0, 0, 0, { imageCount: 0 })).toBe(0);
+        });
+
+        it('falls back to one image rather than NaN for a garbage count', () => {
+            expect(usage.computeCostUsd('imagen-4.0-generate-001', 0, 0, 0, { imageCount: NaN })).toBeCloseTo(0.04, 6);
+            expect(usage.computeCostUsd('imagen-4.0-generate-001', 0, 0, 0, { imageCount: -5 })).toBeCloseTo(0.04, 6);
+        });
+
+        it('ignores imageCount for token-priced models', () => {
+            const withImages = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 0, 0, { imageCount: 10 });
+            expect(withImages).toBeCloseTo(usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 0), 8);
+        });
+
+        it('does not charge Imagen for its prompt tokens, which are bundled into the per-image price', () => {
+            const withPrompt = usage.computeCostUsd('imagen-4.0-generate-001', 480, 0, 0, { imageCount: 1 });
+            expect(withPrompt).toBeCloseTo(0.04, 6);
+        });
+    });
+});
+
+describe('countGeneratedImages', () => {
+    it('counts inline image parts on a generateContent response', () => {
+        expect(usage.countGeneratedImages({
+            candidates: [{ content: { parts: [
+                { inlineData: { mimeType: 'image/png' } },
+                { inlineData: { mimeType: 'image/jpeg' } },
+            ] } }],
+        })).toBe(2);
+    });
+
+    it('counts an Imagen generateImages response', () => {
+        expect(usage.countGeneratedImages({ generatedImages: [{}, {}, {}] })).toBe(3);
+    });
+
+    it('reports 0 for an empty generatedImages array rather than undefined', () => {
+        // undefined here would mean "no count available", which
+        // computeCostUsd defaults to one image — billing $0.04 for a
+        // generation that produced nothing.
+        expect(usage.countGeneratedImages({ generatedImages: [] })).toBe(0);
+        expect(usage.computeCostUsd('imagen-4.0-generate-001', 0, 0, 0, { imageCount: 0 })).toBe(0);
+    });
+
+    it('returns undefined for an ordinary text response so the field stays absent', () => {
+        expect(usage.countGeneratedImages({ candidates: [{ finishReason: 'STOP' }] })).toBeUndefined();
+        expect(usage.countGeneratedImages({})).toBeUndefined();
+    });
+
+    it('ignores non-image inline parts', () => {
+        expect(usage.countGeneratedImages({
+            candidates: [{ content: { parts: [{ inlineData: { mimeType: 'application/pdf' } }, {}] } }],
+        })).toBeUndefined();
     });
 });
 
@@ -136,6 +220,25 @@ describe('trackGeminiCall', () => {
         expect(data.success).toBe(true);
         expect(data.inputTokens).toBe(50);
         expect(data.outputTokens).toBe(10);
+    });
+
+    it('records imageCount and per-image cost for an Imagen call', async () => {
+        // Imagen reports no usageMetadata at all — the image count is the
+        // only billable signal, so it must survive onto the record.
+        const response = { generatedImages: [{}, {}] };
+        await usage.trackGeminiCall({ callType: 'logo', model: 'imagen-4.0-generate-001' }, () => Promise.resolve(response));
+
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.imageCount).toBe(2);
+        expect(data.costUsd).toBeCloseTo(0.08, 6);
+    });
+
+    it('leaves imageCount absent on an ordinary text call', async () => {
+        const response = { text: 'ok', usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 10 } };
+        await usage.trackGeminiCall({ callType: 'legacy', model: 'gemini-3.8-flash' }, () => Promise.resolve(response));
+
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.imageCount).toBeUndefined();
     });
 
     it('records a failed call with a classified errorKind and rethrows unchanged', async () => {

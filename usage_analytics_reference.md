@@ -219,6 +219,7 @@ get the range wrong.
   "outputTokens": 210,
   "cachedTokens": 0,                          // present only when > 0
   "thinkingTokens": 0,                        // present only when > 0 — usageMetadata.thoughtsTokenCount
+  "imageCount": 2,                            // present only on image-generation calls — see "Image generation costs"
   "latencyMs": 2431,
   "costUsd": 0.0034,
   "finishReason": undefined,                  // not currently populated by trackGeminiCall
@@ -351,3 +352,19 @@ directly rather than reinventing the S3 listing/reading logic.
   file's `outputTokens` — may already reflect them for the models in
   `PRICE_TABLE`. Adding `thinkingTokens` again would risk double-billing.
   Re-verify against current per-model docs before changing this.
+- **Image generation costs** are billed two different ways, and
+  `PRICE_TABLE` entries reflect which: the Gemini image models
+  (`gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`,
+  `gemini-3-pro-image`) are billed per *output token* like any text model —
+  resolution is carried in `candidatesTokenCount` (1120 tokens for a 1K
+  image, 2520 for 4K, and so on), so the ordinary token math prices every
+  resolution with no special case. Imagen (`imagen-4.0-*-001`) is the
+  exception: it bills a flat amount per image, reports no token counts at
+  all, and so carries a `perImage` rate that `computeCostUsd` multiplies by
+  `imageCount`. A per-image model whose record has no `imageCount` is billed
+  as one image rather than zero — under-reporting spend is the worse failure,
+  same principle as the unknown-model branch. Note the Gemini image models
+  publish *separate* text and image output rates (e.g. 3 Pro Image: $12/1M
+  text vs $120/1M image); `PRICE_TABLE` stores the image rate, so a response
+  mixing prose and images would over-bill its text tokens until
+  `usageMetadata`'s per-modality breakdown is plumbed through.

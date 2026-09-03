@@ -169,24 +169,42 @@ writer). An unparsable `timestamp` falls back to "now" with a logged
 warning, so a malformed record still lands somewhere findable instead of
 being silently dropped.
 
-**Gotcha for any future historical backfill: `ingestUsageRecords` never
-invalidates a date's cached rollup.** If a past date was already queried
-(and therefore cached — see above) *before* a backfill writes new records
-into that same date, the cached rollup keeps serving its pre-backfill
-values indefinitely; only `date >= today` is ever recomputed live. This bit
-the 2026-08-30 job_tracker/sound-profile-builder backfill: its own
-idempotency check (which queries the target range *before* writing, by
-design — see the backfill section further down) had already cached
-mostly-empty rollups for the entire range moments before the real records
-landed, silently hiding thousands of newly-backfilled calls from the
-dashboard. Fixed for that incident by bumping `CURRENT_SCHEMA_VERSION`
-(forces every cached rollup to rebuild once), but the underlying gap is
-structural — a future backfill into a date range anyone has already loaded
-the dashboard for will hit it again. Either bump `CURRENT_SCHEMA_VERSION`
-again after such a backfill, or (better, if write credentials to the bucket
-are available) run `usage-report.js --from <start> --to <end> --write-rollup`
-against production immediately after the backfill completes, before anyone
-queries that range again.
+**Gotcha, proven twice now: nothing about writing new data, or fixing a bug
+in how it's read, retroactively touches an already-cached rollup — only a
+`CURRENT_SCHEMA_VERSION` bump forces a rebuild.**
+
+1. `ingestUsageRecords` never invalidates a date's cached rollup. If a past
+   date was already queried (and therefore cached — see above) *before* a
+   backfill writes new records into that same date, the cached rollup keeps
+   serving its pre-backfill values indefinitely; only `date >= today` is
+   ever recomputed live. This bit the 2026-08-30 job_tracker/
+   sound-profile-builder backfill: its own idempotency check (which queries
+   the target range *before* writing, by design — see the backfill section
+   further down) had already cached mostly-empty rollups for the entire
+   range moments before the real records landed, silently hiding thousands
+   of newly-backfilled calls from the dashboard.
+2. The same is true of a *read-path* bug fix, not just new writes. Fixing
+   `listFiles`'s missing pagination (it silently dropped everything past
+   S3's 1000-key-per-response cap) didn't help any date whose rollup had
+   already been cached — at the current schema version — while the bug was
+   still live. Confirmed in production: 2026-08-09's cached rollup kept
+   showing exactly 1000 job_tracker calls (the cap) for days *after* the
+   pagination fix deployed, against 1124 real records, because nothing
+   forced that specific cache entry to rebuild.
+
+Both were fixed by bumping `CURRENT_SCHEMA_VERSION` (forces every cached
+rollup to rebuild once against current code), but the underlying gap is
+structural and will recur: **any deploy that changes what a rollup for an
+already-cached past date *should* contain — a backfill, a classification
+change, a read-path correctness fix — needs its own `CURRENT_SCHEMA_VERSION`
+bump**, even if the Rollup type's shape didn't change at all. Bumping the
+schema version is cheap (every past-day rollup just rebuilds once on next
+read); forgetting it is what silently freezes wrong numbers in place.
+Alternative, if write credentials to the bucket are available: run
+`usage-report.js --from <start> --to <end> --write-rollup` against
+production immediately after the fix/backfill deploys, before anyone
+queries that range again — narrower and avoids a version bump, but easy to
+get the range wrong.
 
 ## Record schema
 
@@ -275,7 +293,7 @@ directly rather than reinventing the S3 listing/reading logic.
 
 ```jsonc
 {
-  "schemaVersion": 3,                         // bumped whenever this shape OR classification semantics change; a cached rollup at an older version is rebuilt on next read
+  "schemaVersion": 5,                         // bumped whenever this shape/classification changes, OR a past date's underlying records changed after caching (see the backfill gotcha above) — a cached rollup at an older version is rebuilt on next read
   "date": "2026-07-29",                       // a day ("2026-07-29"), an ISO week ("2026-W31"), a month ("2026-07"), or a range label ("2026-07-01..2026-07-29") for a summed Rollup
   "totalCalls": 42, "successCount": 40, "failureCount": 2,
   "totalInputTokens": 58000, "totalOutputTokens": 9200, "totalThinkingTokens": 400,

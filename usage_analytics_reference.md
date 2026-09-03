@@ -228,6 +228,29 @@ get the range wrong.
 }
 ```
 
+## Known pricing gaps
+
+Live caveats on `PRICE_TABLE` (`adk/backend/src/usage.ts`), tracked as items
+39-44 in [TODO.md](TODO.md):
+
+- **The image-model and `gemini-3.8-flash` rates are unverified against a
+  primary source.** They were added from secondary sources only —
+  `ai.google.dev` and the pricing aggregators are blocked by the agent egress
+  proxy — and should be checked against Google's official pricing page.
+- **Two introductory rates expire on 2026-12-31.** `gemini-3.7-flash` and
+  `gemini-3.8-flash` both double to $1.50/$7.50 on 2027-01-01, and nothing
+  flags the rollover.
+- **Mixed text+image responses over-bill their text tokens**, because one
+  `output` rate is applied to all of `candidatesTokenCount` and the image
+  models' entries store the image rate. Moot until something here generates
+  images.
+- **`gemini-3.1-flash-image`'s input rate is disputed** — $0.25/1M in the API
+  docs versus $0.50/1M in AI Studio, unexplained by Google. The API figure is
+  what the table uses, since that is the path this code bills on.
+- **Thinking tokens are billed inconsistently across the reporting
+  projects** — see the cross-project caveat under "Rollup schema" below, and
+  TODO item 42.
+
 ## Reading it via the dashboard
 
 **Preferred for day/week/month/range questions:** `GET /api/usage/summary`

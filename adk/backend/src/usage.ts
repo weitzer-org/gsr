@@ -61,14 +61,25 @@ interface ModelPrice {
   input?: number;    // USD per 1M input tokens
   output?: number;   // USD per 1M output tokens
   perImage?: number; // USD per generated image, for flat per-image billing
+  // Rates that supersede the ones above from `from` (ISO 8601) onward, for a
+  // model on a promotional rate with a published end date. Without this an
+  // introductory row keeps billing the old rate after it lapses — silently
+  // halving reported spend, the same under-report the unknown-model branch
+  // is written to avoid. Only the fields present here are replaced.
+  supersededBy?: { from: string; input?: number; output?: number; perImage?: number };
 }
+
+// All rates are the STANDARD (non-batch) tier, since that is what this repo's
+// calls are billed at. Batch is a flat 50% discount on both legs, so mixing a
+// batch input rate with a standard output rate — or vice versa — prices
+// neither tier correctly.
 
 const PRICE_TABLE: Record<string, ModelPrice> = {
   'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
   'gemini-3.5-flash': { input: 1.5, output: 9.0 },
   'gemini-3.6-flash': { input: 1.5, output: 7.5 },
-  'gemini-3.7-flash': { input: 0.75, output: 3.75 }, // introductory rate through 2026-12-31; doubles to 1.50/7.50 after
-  'gemini-3.8-flash': { input: 0.75, output: 3.75 }, // introductory rate through 2026-12-31; doubles to 1.50/7.50 after
+  'gemini-3.7-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
+  'gemini-3.8-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // used by debug-single.ts and tools/eval's llm-comparator*.ts; <=200k-token-prompt tier — verify against current pricing if usage grows large
 
   // --- Image generation ---
@@ -91,8 +102,8 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   // token breakdown, which the GenerateContentLikeResponse shape above does
   // not currently carry — worth adding if this repo starts making image
   // calls that also return prose.
-  'gemini-3.1-flash-image': { input: 0.25, output: 60.0 }, // input rate is the API-documented $0.25/1M; AI Studio publishes $0.50/1M for the same model and Google has not explained the discrepancy — revisit if image spend grows
-  'gemini-3.1-flash-lite-image': { input: 0.25, output: 30.0 },
+  'gemini-3.1-flash-image': { input: 0.5, output: 60.0 },
+  'gemini-3.1-flash-lite-image': { input: 0.25, output: 30.0 }, // half of Flash Image on both legs, not a batch-discounted copy of it
   'gemini-3-pro-image': { input: 2.0, output: 120.0 },
 
   // Imagen 4 bills a flat rate per image with no token accounting; the
@@ -115,20 +126,37 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
 //
 // `opts.imageCount` is only consulted for models priced per image (Imagen);
 // it is ignored for every token-priced model, so passing it is always safe.
+// `opts.at` selects which rate applies to a model whose price changes on a
+// date, and defaults to now — pass the record's own timestamp when repricing
+// a historical call.
 export function computeCostUsd(
   model: string,
   inputTokens: number,
   outputTokens: number,
   cachedTokens = 0,
-  opts?: { imageCount?: number }
+  opts?: { imageCount?: number; at?: Date }
 ): number {
-  const price = PRICE_TABLE[model];
-  if (!price) return 0;
+  const table = PRICE_TABLE[model];
+  if (!table) return 0;
+  const price = effectivePrice(table, opts?.at ?? new Date());
   const perM = 1_000_000;
   const billedInput = Math.max(0, inputTokens - cachedTokens);
   const tokenCost = (billedInput * (price.input ?? 0)) / perM + (outputTokens * (price.output ?? 0)) / perM;
   if (price.perImage === undefined) return tokenCost;
   return tokenCost + normalizeImageCount(opts?.imageCount) * price.perImage;
+}
+
+// effectivePrice resolves a scheduled rate change against the moment the call
+// happened — `new Date()` for a live call, an explicit `at` when repricing a
+// historical record. An unparsable `from` keeps the current rates rather than
+// throwing: a typo'd date must not silently zero out a model's cost.
+function effectivePrice(price: ModelPrice, at: Date): ModelPrice {
+  const next = price.supersededBy;
+  if (!next) return price;
+  const from = Date.parse(next.from);
+  if (Number.isNaN(from) || at.getTime() < from) return price;
+  const { from: _from, ...rates } = next;
+  return { ...price, ...rates };
 }
 
 // A per-image model that returned successfully produced at least one image,
@@ -251,7 +279,9 @@ export function countGeneratedImages(response: GenerateContentLikeResponse): num
   let count = 0;
   for (const candidate of response.candidates ?? []) {
     for (const part of candidate.content?.parts ?? []) {
-      if (part.inlineData?.mimeType?.startsWith('image/')) count++;
+      // Lower-cased first: RFC 2045 makes media types case-insensitive, and
+      // an "Image/PNG" would otherwise go uncounted and so unbilled.
+      if (part.inlineData?.mimeType?.toLowerCase().startsWith('image/')) count++;
     }
   }
   return count || undefined;

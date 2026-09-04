@@ -237,16 +237,21 @@ Live caveats on `PRICE_TABLE` (`adk/backend/src/usage.ts`), tracked as items
   primary source.** They were added from secondary sources only —
   `ai.google.dev` and the pricing aggregators are blocked by the agent egress
   proxy — and should be checked against Google's official pricing page.
-- **Two introductory rates expire on 2026-12-31.** `gemini-3.7-flash` and
-  `gemini-3.8-flash` both double to $1.50/$7.50 on 2027-01-01, and nothing
-  flags the rollover.
+- **Rates that change on a date are handled in the table, not by a comment.**
+  `gemini-3.7-flash` and `gemini-3.8-flash` are on an introductory rate that
+  doubles to $1.50/$7.50 on 2027-01-01; both carry a `supersededBy` entry that
+  `computeCostUsd` resolves against the call's own date (`opts.at`, defaulting
+  to now). Give any future promotional rate the same treatment — a bare
+  "expires on" comment silently halves reported spend the day it lapses.
 - **Mixed text+image responses over-bill their text tokens**, because one
   `output` rate is applied to all of `candidatesTokenCount` and the image
   models' entries store the image rate. Moot until something here generates
   images.
-- **`gemini-3.1-flash-image`'s input rate is disputed** — $0.25/1M in the API
-  docs versus $0.50/1M in AI Studio, unexplained by Google. The API figure is
-  what the table uses, since that is the path this code bills on.
+- **Every rate is the standard (non-batch) tier.** Batch is a flat 50%
+  discount on both legs, so the two tiers are easy to mix by accident: the
+  $0.25/1M input figure that circulates for `gemini-3.1-flash-image` is its
+  batch rate, and pairing it with the standard $60/1M image output prices
+  neither tier correctly. Standard is what this repo's calls are billed at.
 - **Thinking tokens are billed inconsistently across the reporting
   projects** — see the cross-project caveat under "Rollup schema" below, and
   TODO item 42.

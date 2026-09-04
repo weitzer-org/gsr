@@ -39,10 +39,42 @@ describe('computeCostUsd', () => {
     it('prices gemini-3.8-flash at its introductory rate', () => {
         // Guards against the model silently falling through to the
         // unknown-model 0 branch, which would under-report spend rather
-        // than error. Bump to 1.50/7.50 when the introductory rate expires
-        // on 2026-12-31.
-        const cost = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000);
+        // than error. Pinned to a date inside the introductory window so the
+        // assertion keeps testing what it says once the rate lapses.
+        const cost = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000, 0, { at: new Date('2026-09-04T00:00:00Z') });
         expect(cost).toBeCloseTo(0.75 + 3.75, 5);
+    });
+
+    describe('scheduled rate changes', () => {
+        // 3.7 and 3.8 Flash are both on an introductory rate that doubles on
+        // 2027-01-01. Without a date-aware lookup every call after that
+        // instant would keep billing the old rate, halving reported spend
+        // with nothing to signal it.
+        it.each(['gemini-3.7-flash', 'gemini-3.8-flash'])('bills %s at the introductory rate up to the last instant before it lapses', (model) => {
+            const cost = usage.computeCostUsd(model, 1_000_000, 1_000_000, 0, { at: new Date('2026-12-31T23:59:59.999Z') });
+            expect(cost).toBeCloseTo(0.75 + 3.75, 5);
+        });
+
+        it.each(['gemini-3.7-flash', 'gemini-3.8-flash'])('bills %s at the standard rate from the moment it takes effect', (model) => {
+            const cost = usage.computeCostUsd(model, 1_000_000, 1_000_000, 0, { at: new Date('2027-01-01T00:00:00Z') });
+            expect(cost).toBeCloseTo(1.5 + 7.5, 5);
+        });
+
+        it('keeps applying the standard rate well after the change', () => {
+            const cost = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 0, 0, { at: new Date('2028-06-01T00:00:00Z') });
+            expect(cost).toBeCloseTo(1.5, 5);
+        });
+
+        it('leaves a model with no scheduled change unaffected by the call date', () => {
+            const then = usage.computeCostUsd('gemini-3.1-pro-preview', 1_000_000, 0, 0, { at: new Date('2027-06-01T00:00:00Z') });
+            expect(then).toBeCloseTo(usage.computeCostUsd('gemini-3.1-pro-preview', 1_000_000, 0), 8);
+        });
+
+        it('defaults to the rate in effect now when no date is given', () => {
+            const now = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000);
+            const explicit = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000, 0, { at: new Date() });
+            expect(now).toBeCloseTo(explicit, 8);
+        });
     });
 
     it('returns 0 for an unknown model rather than throwing', () => {
@@ -63,7 +95,7 @@ describe('computeCostUsd', () => {
         // prices fall out of the ordinary token math at the documented token
         // counts for each resolution.
         it.each([
-            ['gemini-3.1-flash-image', 747, 0.045],
+            ['gemini-3.1-flash-image', 747, 0.045],  // standard tier throughout; batch is a flat 50% off both legs
             ['gemini-3.1-flash-image', 1120, 0.067],
             ['gemini-3.1-flash-image', 1680, 0.101],
             ['gemini-3.1-flash-image', 2520, 0.151],
@@ -100,6 +132,15 @@ describe('computeCostUsd', () => {
             expect(withImages).toBeCloseTo(usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 0), 8);
         });
 
+        it('prices the image models from one billing tier, not a mix of two', () => {
+            // Standard tier on both legs. Pairing Flash Image's batch input
+            // ($0.25) with its standard image output ($60) would price
+            // neither tier correctly.
+            expect(usage.computeCostUsd('gemini-3.1-flash-image', 1_000_000, 0)).toBeCloseTo(0.5, 6);
+            expect(usage.computeCostUsd('gemini-3.1-flash-lite-image', 1_000_000, 0)).toBeCloseTo(0.25, 6);
+            expect(usage.computeCostUsd('gemini-3-pro-image', 1_000_000, 0)).toBeCloseTo(2.0, 6);
+        });
+
         it('does not charge Imagen for its prompt tokens, which are bundled into the per-image price', () => {
             const withPrompt = usage.computeCostUsd('imagen-4.0-generate-001', 480, 0, 0, { imageCount: 1 });
             expect(withPrompt).toBeCloseTo(0.04, 6);
@@ -132,6 +173,14 @@ describe('countGeneratedImages', () => {
     it('returns undefined for an ordinary text response so the field stays absent', () => {
         expect(usage.countGeneratedImages({ candidates: [{ finishReason: 'STOP' }] })).toBeUndefined();
         expect(usage.countGeneratedImages({})).toBeUndefined();
+    });
+
+    it('counts image parts whatever the case of the MIME type', () => {
+        // RFC 2045 makes media types case-insensitive; an uncounted image is
+        // an unbilled one.
+        expect(usage.countGeneratedImages({
+            candidates: [{ content: { parts: [{ inlineData: { mimeType: 'Image/PNG' } }, { inlineData: { mimeType: 'IMAGE/jpeg' } }] } }],
+        })).toBe(2);
     });
 
     it('ignores non-image inline parts', () => {

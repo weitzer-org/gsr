@@ -639,6 +639,16 @@ describe('ingestUsageRecords', () => {
         mockUploadJson.mockResolvedValue(undefined);
     });
 
+    afterEach(() => {
+        // Many tests here spy on console.error to silence the expected
+        // rejection logging, restoring it on the last line. A failed
+        // assertion throws before that line runs, which would leave
+        // console.error mocked for every later test in the file and hide a
+        // real error behind the first failure. jest has no restoreMocks in
+        // its config, so restore unconditionally here instead.
+        jest.restoreAllMocks();
+    });
+
     const record = (callType: string) => ({
         timestamp: 't', provider: 'gemini' as const, callType, model: 'x',
         inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true,

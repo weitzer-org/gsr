@@ -243,10 +243,13 @@ Live caveats on `PRICE_TABLE` (`adk/backend/src/usage.ts`), tracked as items
   `computeCostUsd` resolves against the call's own date (`opts.at`, defaulting
   to now). Give any future promotional rate the same treatment — a bare
   "expires on" comment silently halves reported spend the day it lapses.
-- **Mixed text+image responses over-bill their text tokens**, because one
-  `output` rate is applied to all of `candidatesTokenCount` and the image
-  models' entries store the image rate. Moot until something here generates
-  images.
+- **Mixed text+image responses over-bill their text tokens** — an active
+  limitation, not a hypothetical one, now that the image models are priced.
+  One `output` rate is applied to all of `candidatesTokenCount` and the image
+  models' entries store the image rate, so prose returned alongside an image
+  is billed at the image rate. Splitting the two needs `usageMetadata`'s
+  `candidatesTokensDetails` per-modality breakdown (TODO 41); until then, a
+  mixed-response cost is an upper bound rather than an exact figure.
 - **Every rate is the standard (non-batch) tier.** Batch is a flat 50%
   discount on both legs, so the two tiers are easy to mix by accident: the
   $0.25/1M input figure that circulates for `gemini-3.1-flash-image` is its
@@ -255,6 +258,12 @@ Live caveats on `PRICE_TABLE` (`adk/backend/src/usage.ts`), tracked as items
 - **Thinking tokens are billed inconsistently across the reporting
   projects** — see the cross-project caveat under "Rollup schema" below, and
   TODO item 42.
+- **Cache-read tokens are billed as free everywhere.** `computeCostUsd`
+  subtracts `cachedTokens` from the billed input rather than charging them at
+  a cache rate, for every model in the table. Gemini does charge for cache
+  reads (3.8 Flash: $0.075/1M through 2026-12-31, $0.15/1M after), so any
+  workload using context caching — `agent.ts`'s `USE_CONTEXT_CACHING` path —
+  under-reports. Pre-existing behaviour, tracked as TODO 45.
 
 ## Reading it via the dashboard
 

@@ -46,16 +46,23 @@ describe('computeCostUsd', () => {
     });
 
     describe('scheduled rate changes', () => {
-        // 3.7 and 3.8 Flash are both on an introductory rate that doubles on
-        // 2027-01-01. Without a date-aware lookup every call after that
-        // instant would keep billing the old rate, halving reported spend
-        // with nothing to signal it.
-        it.each(['gemini-3.7-flash', 'gemini-3.8-flash'])('bills %s at the introductory rate up to the last instant before it lapses', (model) => {
+        // 3.6, 3.7 and 3.8 Flash are all on the same introductory rate,
+        // doubling on 2027-01-01. Without a date-aware lookup every call
+        // after that instant would keep billing the old rate, halving
+        // reported spend with nothing to signal it.
+        //
+        // These two cases are also the integrity check on every scheduled
+        // entry in PRICE_TABLE: a typo'd `supersededBy.from` fails to parse,
+        // which pins the model to its current rate and breaks the
+        // post-rollover assertion below. Add any newly scheduled model here.
+        const SCHEDULED = ['gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash'];
+
+        it.each(SCHEDULED)('bills %s at the introductory rate up to the last instant before it lapses', (model) => {
             const cost = usage.computeCostUsd(model, 1_000_000, 1_000_000, 0, { at: new Date('2026-12-31T23:59:59.999Z') });
             expect(cost).toBeCloseTo(0.75 + 3.75, 5);
         });
 
-        it.each(['gemini-3.7-flash', 'gemini-3.8-flash'])('bills %s at the standard rate from the moment it takes effect', (model) => {
+        it.each(SCHEDULED)('bills %s at the standard rate from the moment it takes effect', (model) => {
             const cost = usage.computeCostUsd(model, 1_000_000, 1_000_000, 0, { at: new Date('2027-01-01T00:00:00Z') });
             expect(cost).toBeCloseTo(1.5 + 7.5, 5);
         });
@@ -68,6 +75,13 @@ describe('computeCostUsd', () => {
         it('leaves a model with no scheduled change unaffected by the call date', () => {
             const then = usage.computeCostUsd('gemini-3.1-pro-preview', 1_000_000, 0, 0, { at: new Date('2027-06-01T00:00:00Z') });
             expect(then).toBeCloseTo(usage.computeCostUsd('gemini-3.1-pro-preview', 1_000_000, 0), 8);
+        });
+
+        it('keeps the current rate when the call date is invalid', () => {
+            // Any comparison against NaN is false, so an unguarded invalid
+            // date reads as "past the change date" and bills the future rate.
+            const cost = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000, 0, { at: new Date('not a date') });
+            expect(cost).toBeCloseTo(0.75 + 3.75, 5);
         });
 
         it('defaults to the rate in effect now when no date is given', () => {
@@ -731,6 +745,27 @@ describe('ingestUsageRecords', () => {
         const result = await usage.ingestUsageRecords([{ ...record('discovery'), cachedTokens: -1 }] as any);
         expect(result).toEqual({ accepted: 0, failed: 1 });
         errorSpy.mockRestore();
+    });
+
+    it('rejects a record whose imageCount is negative, non-finite, or not a number', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const cases = [
+            { ...record('discovery'), imageCount: -1 },
+            { ...record('discovery'), imageCount: NaN },
+            { ...record('discovery'), imageCount: Infinity },
+            { ...record('discovery'), imageCount: '2' },
+        ];
+        for (const bad of cases) {
+            expect(await usage.ingestUsageRecords([bad] as any)).toEqual({ accepted: 0, failed: 1 });
+        }
+        errorSpy.mockRestore();
+    });
+
+    it('accepts a record with a valid imageCount, and one with none at all', async () => {
+        const withCount = await usage.ingestUsageRecords([{ ...record('image'), imageCount: 3 }] as any);
+        expect(withCount).toEqual({ accepted: 1, failed: 0 });
+        const without = await usage.ingestUsageRecords([record('discovery')]);
+        expect(without).toEqual({ accepted: 1, failed: 0 });
     });
 
     it('rejects a record with negative inputTokens, outputTokens, latencyMs, or costUsd', async () => {

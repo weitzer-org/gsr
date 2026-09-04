@@ -77,7 +77,7 @@ interface ModelPrice {
 const PRICE_TABLE: Record<string, ModelPrice> = {
   'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
   'gemini-3.5-flash': { input: 1.5, output: 9.0 },
-  'gemini-3.6-flash': { input: 1.5, output: 7.5 },
+  'gemini-3.6-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } }, // cut to the same introductory rate as 3.7/3.8 when 3.7 shipped; launched at 1.50/7.50 and returns there
   'gemini-3.7-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
   'gemini-3.8-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // used by debug-single.ts and tools/eval's llm-comparator*.ts; <=200k-token-prompt tier — verify against current pricing if usage grows large
@@ -154,7 +154,12 @@ function effectivePrice(price: ModelPrice, at: Date): ModelPrice {
   const next = price.supersededBy;
   if (!next) return price;
   const from = Date.parse(next.from);
-  if (Number.isNaN(from) || at.getTime() < from) return price;
+  const atMs = at.getTime();
+  // Both guards matter, and for the same reason: any comparison against NaN
+  // is false, so an unparsable `from` OR an invalid `at` would read as "we
+  // are past the change date" and silently bill the future rate. Keep the
+  // current rates instead.
+  if (Number.isNaN(from) || !Number.isFinite(atMs) || atMs < from) return price;
   const { from: _from, ...rates } = next;
   return { ...price, ...rates };
 }

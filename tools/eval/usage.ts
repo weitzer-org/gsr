@@ -68,9 +68,14 @@ export interface UsageRecord extends UsageEvent {
   repository: string;
 }
 
-// USD per 1,000,000 tokens. Keep in sync with adk/backend/src/usage.ts's
-// PRICE_TABLE (and, transitively, job_tracker's internal/scoring/
-// pricing.go) — three copies now, all mirroring the same Gemini pricing.
+// USD per 1,000,000 tokens. Mirrors adk/backend/src/usage.ts's PRICE_TABLE
+// (and, transitively, job_tracker's internal/scoring/pricing.go) — but only
+// for the models this service actually calls, which is why it is one row and
+// not a full copy. llm-comparator.ts and llm-comparator-v2.ts both hardcode
+// MODEL_NAME = 'gemini-2.5-pro', so no other model can reach computeCostUsd
+// from here; the backend's chat and image models are deliberately absent
+// rather than missing. Add a row here only when the judge model changes —
+// and keep its rate in step with the backend's copy when it does.
 const PRICE_TABLE: Record<string, { input: number; output: number }> = {
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // <=200k-token-prompt tier — verify against current pricing if usage grows large
 };

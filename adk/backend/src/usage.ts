@@ -817,7 +817,10 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
     typeof r.timestamp === 'string' &&
     r.provider === 'gemini' &&
     (r.thinkingTokens === undefined || (typeof r.thinkingTokens === 'number' && Number.isFinite(r.thinkingTokens) && r.thinkingTokens >= 0)) &&
-    (r.imageCount === undefined || (typeof r.imageCount === 'number' && Number.isFinite(r.imageCount) && r.imageCount >= 0)) &&
+    // An image count is a cardinality: require an integer, not merely a
+    // finite number. Accepting 0.5 here while normalizeImageCount floors it
+    // for pricing would let the stored record and the billed count disagree.
+    (r.imageCount === undefined || (typeof r.imageCount === 'number' && Number.isInteger(r.imageCount) && r.imageCount >= 0)) &&
     (r.repository === undefined || (typeof r.repository === 'string' && !r.repository.includes('|'))) &&
     (r.cachedTokens === undefined || (typeof r.cachedTokens === 'number' && Number.isFinite(r.cachedTokens) && r.cachedTokens >= 0)) &&
     // errorKind flows into byErrorKind[key] unguarded by addToBucket's

@@ -747,13 +747,14 @@ describe('ingestUsageRecords', () => {
         errorSpy.mockRestore();
     });
 
-    it('rejects a record whose imageCount is negative, non-finite, or not a number', async () => {
+    it('rejects a record whose imageCount is negative, fractional, non-finite, or not a number', async () => {
         const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
         const cases = [
             { ...record('discovery'), imageCount: -1 },
             { ...record('discovery'), imageCount: NaN },
             { ...record('discovery'), imageCount: Infinity },
             { ...record('discovery'), imageCount: '2' },
+            { ...record('discovery'), imageCount: 0.5 },
         ];
         for (const bad of cases) {
             expect(await usage.ingestUsageRecords([bad] as any)).toEqual({ accepted: 0, failed: 1 });

@@ -36,15 +36,171 @@ describe('computeCostUsd', () => {
         expect(withCache).toBeCloseTo(withoutCache, 5);
     });
 
+    it('prices gemini-3.8-flash at its introductory rate', () => {
+        // Guards against the model silently falling through to the
+        // unknown-model 0 branch, which would under-report spend rather
+        // than error. Pinned to a date inside the introductory window so the
+        // assertion keeps testing what it says once the rate lapses.
+        const cost = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000, 0, { at: new Date('2026-09-04T00:00:00Z') });
+        expect(cost).toBeCloseTo(0.75 + 3.75, 5);
+    });
+
+    describe('scheduled rate changes', () => {
+        // 3.6, 3.7 and 3.8 Flash are all on the same introductory rate,
+        // doubling on 2027-01-01. Without a date-aware lookup every call
+        // after that instant would keep billing the old rate, halving
+        // reported spend with nothing to signal it.
+        //
+        // These two cases are also the integrity check on every scheduled
+        // entry in PRICE_TABLE: a typo'd `supersededBy.from` fails to parse,
+        // which pins the model to its current rate and breaks the
+        // post-rollover assertion below. Add any newly scheduled model here.
+        const SCHEDULED = ['gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash'];
+
+        it.each(SCHEDULED)('bills %s at the introductory rate up to the last instant before it lapses', (model) => {
+            const cost = usage.computeCostUsd(model, 1_000_000, 1_000_000, 0, { at: new Date('2026-12-31T23:59:59.999Z') });
+            expect(cost).toBeCloseTo(0.75 + 3.75, 5);
+        });
+
+        it.each(SCHEDULED)('bills %s at the standard rate from the moment it takes effect', (model) => {
+            const cost = usage.computeCostUsd(model, 1_000_000, 1_000_000, 0, { at: new Date('2027-01-01T00:00:00Z') });
+            expect(cost).toBeCloseTo(1.5 + 7.5, 5);
+        });
+
+        it('keeps applying the standard rate well after the change', () => {
+            const cost = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 0, 0, { at: new Date('2028-06-01T00:00:00Z') });
+            expect(cost).toBeCloseTo(1.5, 5);
+        });
+
+        it('leaves a model with no scheduled change unaffected by the call date', () => {
+            const then = usage.computeCostUsd('gemini-3.1-pro-preview', 1_000_000, 0, 0, { at: new Date('2027-06-01T00:00:00Z') });
+            expect(then).toBeCloseTo(usage.computeCostUsd('gemini-3.1-pro-preview', 1_000_000, 0), 8);
+        });
+
+        it('keeps the current rate when the call date is invalid', () => {
+            // Any comparison against NaN is false, so an unguarded invalid
+            // date reads as "past the change date" and bills the future rate.
+            const cost = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000, 0, { at: new Date('not a date') });
+            expect(cost).toBeCloseTo(0.75 + 3.75, 5);
+        });
+
+        it('defaults to the rate in effect now when no date is given', () => {
+            const now = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000);
+            const explicit = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000, 0, { at: new Date() });
+            expect(now).toBeCloseTo(explicit, 8);
+        });
+    });
+
     it('returns 0 for an unknown model rather than throwing', () => {
         expect(usage.computeCostUsd('some-future-model', 1000, 1000)).toBe(0);
     });
 
     it('does not bill thinking tokens on top of the fifth arg (avoids double-counting candidatesTokenCount)', () => {
-        // computeCostUsd only takes 4 args now — a stray 5th argument must
-        // be silently ignored, not folded into the output rate.
+        // The 5th parameter is now an options object ({ imageCount }), but a
+        // stray token count passed there must still be ignored rather than
+        // folded into the output rate.
         const cost = (usage.computeCostUsd as any)('gemini-3.1-pro-preview', 0, 0, 0, 1_000_000);
         expect(cost).toBe(0);
+    });
+
+    describe('image generation models', () => {
+        // The Gemini image models are token-priced: resolution is carried in
+        // candidatesTokenCount, so these assert the published per-image
+        // prices fall out of the ordinary token math at the documented token
+        // counts for each resolution.
+        it.each([
+            ['gemini-3.1-flash-image', 747, 0.045],  // standard tier throughout; batch is a flat 50% off both legs
+            ['gemini-3.1-flash-image', 1120, 0.067],
+            ['gemini-3.1-flash-image', 1680, 0.101],
+            ['gemini-3.1-flash-image', 2520, 0.151],
+            ['gemini-3.1-flash-lite-image', 1120, 0.0336],
+            ['gemini-3-pro-image', 1120, 0.134],
+            ['gemini-3-pro-image', 2000, 0.24],
+        ])('prices %s at %i output tokens as ~$%f per image', (model, outputTokens, expected) => {
+            expect(usage.computeCostUsd(model as string, 0, outputTokens as number)).toBeCloseTo(expected as number, 3);
+        });
+
+        it.each([
+            ['imagen-4.0-fast-generate-001', 0.02],
+            ['imagen-4.0-generate-001', 0.04],
+            ['imagen-4.0-ultra-generate-001', 0.06],
+        ])('bills %s per image regardless of token counts', (model, perImage) => {
+            expect(usage.computeCostUsd(model as string, 0, 0, 0, { imageCount: 3 })).toBeCloseTo((perImage as number) * 3, 6);
+        });
+
+        it('defaults a per-image model to one image when the count is missing', () => {
+            expect(usage.computeCostUsd('imagen-4.0-generate-001', 0, 0)).toBeCloseTo(0.04, 6);
+        });
+
+        it('honours an explicit zero-image count', () => {
+            expect(usage.computeCostUsd('imagen-4.0-generate-001', 0, 0, 0, { imageCount: 0 })).toBe(0);
+        });
+
+        it('falls back to one image rather than NaN for a garbage count', () => {
+            expect(usage.computeCostUsd('imagen-4.0-generate-001', 0, 0, 0, { imageCount: NaN })).toBeCloseTo(0.04, 6);
+            expect(usage.computeCostUsd('imagen-4.0-generate-001', 0, 0, 0, { imageCount: -5 })).toBeCloseTo(0.04, 6);
+        });
+
+        it('ignores imageCount for token-priced models', () => {
+            const withImages = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 0, 0, { imageCount: 10 });
+            expect(withImages).toBeCloseTo(usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 0), 8);
+        });
+
+        it('prices the image models from one billing tier, not a mix of two', () => {
+            // Standard tier on both legs. Pairing Flash Image's batch input
+            // ($0.25) with its standard image output ($60) would price
+            // neither tier correctly.
+            expect(usage.computeCostUsd('gemini-3.1-flash-image', 1_000_000, 0)).toBeCloseTo(0.5, 6);
+            expect(usage.computeCostUsd('gemini-3.1-flash-lite-image', 1_000_000, 0)).toBeCloseTo(0.25, 6);
+            expect(usage.computeCostUsd('gemini-3-pro-image', 1_000_000, 0)).toBeCloseTo(2.0, 6);
+        });
+
+        it('does not charge Imagen for its prompt tokens, which are bundled into the per-image price', () => {
+            const withPrompt = usage.computeCostUsd('imagen-4.0-generate-001', 480, 0, 0, { imageCount: 1 });
+            expect(withPrompt).toBeCloseTo(0.04, 6);
+        });
+    });
+});
+
+describe('countGeneratedImages', () => {
+    it('counts inline image parts on a generateContent response', () => {
+        expect(usage.countGeneratedImages({
+            candidates: [{ content: { parts: [
+                { inlineData: { mimeType: 'image/png' } },
+                { inlineData: { mimeType: 'image/jpeg' } },
+            ] } }],
+        })).toBe(2);
+    });
+
+    it('counts an Imagen generateImages response', () => {
+        expect(usage.countGeneratedImages({ generatedImages: [{}, {}, {}] })).toBe(3);
+    });
+
+    it('reports 0 for an empty generatedImages array rather than undefined', () => {
+        // undefined here would mean "no count available", which
+        // computeCostUsd defaults to one image — billing $0.04 for a
+        // generation that produced nothing.
+        expect(usage.countGeneratedImages({ generatedImages: [] })).toBe(0);
+        expect(usage.computeCostUsd('imagen-4.0-generate-001', 0, 0, 0, { imageCount: 0 })).toBe(0);
+    });
+
+    it('returns undefined for an ordinary text response so the field stays absent', () => {
+        expect(usage.countGeneratedImages({ candidates: [{ finishReason: 'STOP' }] })).toBeUndefined();
+        expect(usage.countGeneratedImages({})).toBeUndefined();
+    });
+
+    it('counts image parts whatever the case of the MIME type', () => {
+        // RFC 2045 makes media types case-insensitive; an uncounted image is
+        // an unbilled one.
+        expect(usage.countGeneratedImages({
+            candidates: [{ content: { parts: [{ inlineData: { mimeType: 'Image/PNG' } }, { inlineData: { mimeType: 'IMAGE/jpeg' } }] } }],
+        })).toBe(2);
+    });
+
+    it('ignores non-image inline parts', () => {
+        expect(usage.countGeneratedImages({
+            candidates: [{ content: { parts: [{ inlineData: { mimeType: 'application/pdf' } }, {}] } }],
+        })).toBeUndefined();
     });
 });
 
@@ -127,6 +283,30 @@ describe('trackGeminiCall', () => {
         expect(data.success).toBe(true);
         expect(data.inputTokens).toBe(50);
         expect(data.outputTokens).toBe(10);
+    });
+
+    it('records imageCount and per-image cost for an Imagen call', async () => {
+        // Imagen reports no usageMetadata at all — the image count is the
+        // only billable signal, so it must survive onto the record.
+        const response = { generatedImages: [{}, {}] };
+        await usage.trackGeminiCall({ callType: 'logo', model: 'imagen-4.0-generate-001' }, () => Promise.resolve(response));
+
+        // Assert the call happened before destructuring: mock.calls[0] on an
+        // uncalled mock is undefined, and destructuring it throws an opaque
+        // TypeError that hides the actual failure.
+        expect(mockUploadJson).toHaveBeenCalled();
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.imageCount).toBe(2);
+        expect(data.costUsd).toBeCloseTo(0.08, 6);
+    });
+
+    it('leaves imageCount absent on an ordinary text call', async () => {
+        const response = { text: 'ok', usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 10 } };
+        await usage.trackGeminiCall({ callType: 'legacy', model: 'gemini-3.8-flash' }, () => Promise.resolve(response));
+
+        expect(mockUploadJson).toHaveBeenCalled();
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.imageCount).toBeUndefined();
     });
 
     it('records a failed call with a classified errorKind and rethrows unchanged', async () => {
@@ -464,6 +644,16 @@ describe('ingestUsageRecords', () => {
         mockUploadJson.mockResolvedValue(undefined);
     });
 
+    afterEach(() => {
+        // Many tests here spy on console.error to silence the expected
+        // rejection logging, restoring it on the last line. A failed
+        // assertion throws before that line runs, which would leave
+        // console.error mocked for every later test in the file and hide a
+        // real error behind the first failure. jest has no restoreMocks in
+        // its config, so restore unconditionally here instead.
+        jest.restoreAllMocks();
+    });
+
     const record = (callType: string) => ({
         timestamp: 't', provider: 'gemini' as const, callType, model: 'x',
         inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true,
@@ -570,6 +760,22 @@ describe('ingestUsageRecords', () => {
         const result = await usage.ingestUsageRecords([{ ...record('discovery'), cachedTokens: -1 }] as any);
         expect(result).toEqual({ accepted: 0, failed: 1 });
         errorSpy.mockRestore();
+    });
+
+    // One case per test rather than a loop inside one it(): a loop stops at
+    // the first failure and its output doesn't name the offending input.
+    // The describe's afterEach restores the console.error spy.
+    it.each([-1, NaN, Infinity, '2', 0.5])('rejects a record whose imageCount is %p', async (badCount) => {
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const bad = { ...record('discovery'), imageCount: badCount };
+        expect(await usage.ingestUsageRecords([bad] as any)).toEqual({ accepted: 0, failed: 1 });
+    });
+
+    it('accepts a record with a valid imageCount, and one with none at all', async () => {
+        const withCount = await usage.ingestUsageRecords([{ ...record('image'), imageCount: 3 }] as any);
+        expect(withCount).toEqual({ accepted: 1, failed: 0 });
+        const without = await usage.ingestUsageRecords([record('discovery')]);
+        expect(without).toEqual({ accepted: 1, failed: 0 });
     });
 
     it('rejects a record with negative inputTokens, outputTokens, latencyMs, or costUsd', async () => {

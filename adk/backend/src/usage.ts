@@ -31,6 +31,7 @@ export interface UsageEvent {
   outputTokens: number;
   cachedTokens?: number;
   thinkingTokens?: number; // present only when > 0 — Gemini's usageMetadata.thoughtsTokenCount
+  imageCount?: number; // present only for image-generation calls; see countGeneratedImages
   latencyMs: number;
   costUsd: number;
   finishReason?: string;
@@ -50,12 +51,67 @@ export interface UsageRecord extends UsageEvent {
 // job_tracker project (internal/scoring/pricing.go) — keep them in sync when
 // prices change. An unknown model returns 0 cost, a signal to add it here,
 // not "this call was free."
-const PRICE_TABLE: Record<string, { input: number; output: number }> = {
+// Most models are billed purely per token. Imagen is not: it bills a flat
+// amount per generated image and reports no token counts at all, so a
+// {input, output} pair cannot express it — hence the optional `perImage`
+// leg, applied on top of (not instead of) any token rates the model also
+// charges. Every field is optional so a model can be token-priced,
+// image-priced, or both.
+interface ModelPrice {
+  input?: number;    // USD per 1M input tokens
+  output?: number;   // USD per 1M output tokens
+  perImage?: number; // USD per generated image, for flat per-image billing
+  // Rates that supersede the ones above from `from` (ISO 8601) onward, for a
+  // model on a promotional rate with a published end date. Without this an
+  // introductory row keeps billing the old rate after it lapses — silently
+  // halving reported spend, the same under-report the unknown-model branch
+  // is written to avoid. Only the fields present here are replaced.
+  supersededBy?: { from: string; input?: number; output?: number; perImage?: number };
+}
+
+// All rates are the STANDARD (non-batch) tier, since that is what this repo's
+// calls are billed at. Batch is a flat 50% discount on both legs, so mixing a
+// batch input rate with a standard output rate — or vice versa — prices
+// neither tier correctly.
+
+const PRICE_TABLE: Record<string, ModelPrice> = {
   'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
   'gemini-3.5-flash': { input: 1.5, output: 9.0 },
-  'gemini-3.6-flash': { input: 1.5, output: 7.5 },
-  'gemini-3.7-flash': { input: 0.75, output: 3.75 }, // introductory rate through 2026-12-31; doubles to 1.50/7.50 after
+  'gemini-3.6-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } }, // cut to the same introductory rate as 3.7/3.8 when 3.7 shipped; launched at 1.50/7.50 and returns there
+  'gemini-3.7-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
+  'gemini-3.8-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // used by debug-single.ts and tools/eval's llm-comparator*.ts; <=200k-token-prompt tier — verify against current pricing if usage grows large
+
+  // --- Image generation ---
+  //
+  // The Gemini image models are billed per *token*, not per image: a
+  // generated image costs a fixed number of output tokens that scales with
+  // its resolution, so the ordinary token math below already prices every
+  // resolution correctly and needs no perImage leg. Cross-checking the
+  // published per-image prices against these rates:
+  //   3.1 Flash Image  @ $60/1M:  747 tok = $0.045 (512px), 1120 = $0.067 (1K),
+  //                               1680 = $0.101 (2K), 2520 = $0.151 (4K)
+  //   3.1 Flash Lite   @ $30/1M: 1120 tok = $0.0336 (1K)
+  //   3 Pro Image      @ $120/1M: 1120 tok = $0.134 (1K/2K), 2000 = $0.24 (4K)
+  //
+  // CAVEAT: `output` here is the *image* output rate, and computeCostUsd
+  // applies it to candidatesTokenCount as a whole. A response mixing text
+  // and image output would over-bill its text tokens (3 Pro Image charges
+  // $12/1M for text vs $120/1M for images; 3.1 Flash Lite Image $1.50/1M vs
+  // $30/1M). Pricing the two separately needs usageMetadata's per-modality
+  // token breakdown, which the GenerateContentLikeResponse shape above does
+  // not currently carry — worth adding if this repo starts making image
+  // calls that also return prose.
+  'gemini-3.1-flash-image': { input: 0.5, output: 60.0 },
+  'gemini-3.1-flash-lite-image': { input: 0.25, output: 30.0 }, // half of Flash Image on both legs, not a batch-discounted copy of it
+  'gemini-3-pro-image': { input: 2.0, output: 120.0 },
+
+  // Imagen 4 bills a flat rate per image with no token accounting; the
+  // prompt (capped at 480 tokens) is included in that price, so there is
+  // deliberately no `input` rate here to avoid double-billing it.
+  'imagen-4.0-fast-generate-001': { perImage: 0.02 },
+  'imagen-4.0-generate-001': { perImage: 0.04 },
+  'imagen-4.0-ultra-generate-001': { perImage: 0.06 },
 };
 
 // thinkingTokens is NOT added to outputTokens here — Gemini's own pricing
@@ -67,12 +123,56 @@ const PRICE_TABLE: Record<string, { input: number; output: number }> = {
 // on top risks double-billing; it's tracked in UsageRecord/UsageBucket
 // purely as an observability metric, not folded into cost. Re-verify against
 // current per-model docs before changing this.
-export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
-  const price = PRICE_TABLE[model];
-  if (!price) return 0;
+//
+// `opts.imageCount` is only consulted for models priced per image (Imagen);
+// it is ignored for every token-priced model, so passing it is always safe.
+// `opts.at` selects which rate applies to a model whose price changes on a
+// date, and defaults to now — pass the record's own timestamp when repricing
+// a historical call.
+export function computeCostUsd(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  cachedTokens = 0,
+  opts?: { imageCount?: number; at?: Date }
+): number {
+  const table = PRICE_TABLE[model];
+  if (!table) return 0;
+  const price = effectivePrice(table, opts?.at ?? new Date());
   const perM = 1_000_000;
   const billedInput = Math.max(0, inputTokens - cachedTokens);
-  return (billedInput * price.input) / perM + (outputTokens * price.output) / perM;
+  const tokenCost = (billedInput * (price.input ?? 0)) / perM + (outputTokens * (price.output ?? 0)) / perM;
+  if (price.perImage === undefined) return tokenCost;
+  return tokenCost + normalizeImageCount(opts?.imageCount) * price.perImage;
+}
+
+// effectivePrice resolves a scheduled rate change against the moment the call
+// happened — `new Date()` for a live call, an explicit `at` when repricing a
+// historical record. An unparsable `from` keeps the current rates rather than
+// throwing: a typo'd date must not silently zero out a model's cost.
+function effectivePrice(price: ModelPrice, at: Date): ModelPrice {
+  const next = price.supersededBy;
+  if (!next) return price;
+  const from = Date.parse(next.from);
+  const atMs = at.getTime();
+  // Both guards matter, and for the same reason: any comparison against NaN
+  // is false, so an unparsable `from` OR an invalid `at` would read as "we
+  // are past the change date" and silently bill the future rate. Keep the
+  // current rates instead.
+  if (Number.isNaN(from) || !Number.isFinite(atMs) || atMs < from) return price;
+  const { from: _from, ...rates } = next;
+  return { ...price, ...rates };
+}
+
+// A per-image model that returned successfully produced at least one image,
+// so a *missing* count falls back to 1 rather than 0 — same principle as the
+// unknown-model branch above, where silently reporting $0 is the worse
+// failure. An explicit 0 is honoured (a call that generated nothing), while
+// a garbage value falls back to 1 instead of poisoning the cost with NaN.
+function normalizeImageCount(imageCount: number | undefined): number {
+  if (imageCount === undefined) return 1;
+  if (typeof imageCount !== 'number' || !Number.isFinite(imageCount) || imageCount < 0) return 1;
+  return Math.floor(imageCount);
 }
 
 // classifyError gives a coarse, stable label for a failed call so usage
@@ -157,8 +257,40 @@ type GenerateContentLikeResponse = {
     cachedContentTokenCount?: number;
     thoughtsTokenCount?: number;
   };
-  candidates?: Array<{ finishReason?: string }>;
+  candidates?: Array<{
+    finishReason?: string;
+    content?: { parts?: Array<{ inlineData?: { mimeType?: string } }> };
+  }>;
+  // Imagen's `ai.models.generateImages(...)` response, which carries no
+  // usageMetadata at all — the image count is the only billable signal it
+  // reports, so it is the sole input to that model's cost.
+  generatedImages?: unknown[];
 };
+
+// countGeneratedImages returns how many images a response produced, or
+// undefined for an ordinary text response, so the field stays absent on the
+// records where it would be meaningless (matching how thinkingTokens is only
+// present when > 0). Handles both shapes this repo could plausibly call: the
+// Imagen `generateImages` response, and inline image parts on a normal
+// generateContent response.
+export function countGeneratedImages(response: GenerateContentLikeResponse): number | undefined {
+  // An explicit generatedImages array is a positive signal that this was an
+  // image call, so an *empty* one reports 0 rather than undefined — letting
+  // it read as "no count available" would fall through to computeCostUsd's
+  // default-of-one and bill a full image for a generation that produced none.
+  if (Array.isArray(response.generatedImages)) {
+    return response.generatedImages.length;
+  }
+  let count = 0;
+  for (const candidate of response.candidates ?? []) {
+    for (const part of candidate.content?.parts ?? []) {
+      // Lower-cased first: RFC 2045 makes media types case-insensitive, and
+      // an "Image/PNG" would otherwise go uncounted and so unbilled.
+      if (part.inlineData?.mimeType?.toLowerCase().startsWith('image/')) count++;
+    }
+  }
+  return count || undefined;
+}
 
 // trackGeminiCall wraps a single `ai.models.generateContent(...)` call (or
 // anything returning a `{ usageMetadata, ... }`-shaped response) so latency,
@@ -183,6 +315,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
     const outputTokens = u?.candidatesTokenCount ?? 0;
     const cachedTokens = u?.cachedContentTokenCount ?? 0;
     const thinkingTokens = u?.thoughtsTokenCount ?? 0;
+    const imageCount = countGeneratedImages(response);
     await recordUsage({
       callType: ctx.callType,
       refId: ctx.refId,
@@ -191,8 +324,9 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       outputTokens,
       cachedTokens,
       thinkingTokens,
+      imageCount,
       latencyMs,
-      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens),
+      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens, { imageCount }),
       finishReason: response.candidates?.[0]?.finishReason,
       success: true,
     });
@@ -683,6 +817,10 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
     typeof r.timestamp === 'string' &&
     r.provider === 'gemini' &&
     (r.thinkingTokens === undefined || (typeof r.thinkingTokens === 'number' && Number.isFinite(r.thinkingTokens) && r.thinkingTokens >= 0)) &&
+    // An image count is a cardinality: require an integer, not merely a
+    // finite number. Accepting 0.5 here while normalizeImageCount floors it
+    // for pricing would let the stored record and the billed count disagree.
+    (r.imageCount === undefined || (typeof r.imageCount === 'number' && Number.isInteger(r.imageCount) && r.imageCount >= 0)) &&
     (r.repository === undefined || (typeof r.repository === 'string' && !r.repository.includes('|'))) &&
     (r.cachedTokens === undefined || (typeof r.cachedTokens === 'number' && Number.isFinite(r.cachedTokens) && r.cachedTokens >= 0)) &&
     // errorKind flows into byErrorKind[key] unguarded by addToBucket's

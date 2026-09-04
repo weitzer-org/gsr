@@ -219,6 +219,7 @@ get the range wrong.
   "outputTokens": 210,
   "cachedTokens": 0,                          // present only when > 0
   "thinkingTokens": 0,                        // present only when > 0 — usageMetadata.thoughtsTokenCount
+  "imageCount": 2,                            // present only on image-generation calls — see "Image generation costs"
   "latencyMs": 2431,
   "costUsd": 0.0034,
   "finishReason": undefined,                  // not currently populated by trackGeminiCall
@@ -226,6 +227,43 @@ get the range wrong.
   "errorKind": "rate_limit"                   // present only when success is false
 }
 ```
+
+## Known pricing gaps
+
+Live caveats on `PRICE_TABLE` (`adk/backend/src/usage.ts`), tracked as items
+39-44 in [TODO.md](TODO.md):
+
+- **The image-model and `gemini-3.8-flash` rates are unverified against a
+  primary source.** They were added from secondary sources only —
+  `ai.google.dev` and the pricing aggregators are blocked by the agent egress
+  proxy — and should be checked against Google's official pricing page.
+- **Rates that change on a date are handled in the table, not by a comment.**
+  `gemini-3.7-flash` and `gemini-3.8-flash` are on an introductory rate that
+  doubles to $1.50/$7.50 on 2027-01-01; both carry a `supersededBy` entry that
+  `computeCostUsd` resolves against the call's own date (`opts.at`, defaulting
+  to now). Give any future promotional rate the same treatment — a bare
+  "expires on" comment silently halves reported spend the day it lapses.
+- **Mixed text+image responses over-bill their text tokens** — an active
+  limitation, not a hypothetical one, now that the image models are priced.
+  One `output` rate is applied to all of `candidatesTokenCount` and the image
+  models' entries store the image rate, so prose returned alongside an image
+  is billed at the image rate. Splitting the two needs `usageMetadata`'s
+  `candidatesTokensDetails` per-modality breakdown (TODO 41); until then, a
+  mixed-response cost is an upper bound rather than an exact figure.
+- **Every rate is the standard (non-batch) tier.** Batch is a flat 50%
+  discount on both legs, so the two tiers are easy to mix by accident: the
+  $0.25/1M input figure that circulates for `gemini-3.1-flash-image` is its
+  batch rate, and pairing it with the standard $60/1M image output prices
+  neither tier correctly. Standard is what this repo's calls are billed at.
+- **Thinking tokens are billed inconsistently across the reporting
+  projects** — see the cross-project caveat under "Rollup schema" below, and
+  TODO item 42.
+- **Cache-read tokens are billed as free everywhere.** `computeCostUsd`
+  subtracts `cachedTokens` from the billed input rather than charging them at
+  a cache rate, for every model in the table. Gemini does charge for cache
+  reads (3.8 Flash: $0.075/1M through 2026-12-31, $0.15/1M after), so any
+  workload using context caching — `agent.ts`'s `USE_CONTEXT_CACHING` path —
+  under-reports. Pre-existing behaviour, tracked as TODO 45.
 
 ## Reading it via the dashboard
 
@@ -351,3 +389,19 @@ directly rather than reinventing the S3 listing/reading logic.
   file's `outputTokens` — may already reflect them for the models in
   `PRICE_TABLE`. Adding `thinkingTokens` again would risk double-billing.
   Re-verify against current per-model docs before changing this.
+- **Image generation costs** are billed two different ways, and
+  `PRICE_TABLE` entries reflect which: the Gemini image models
+  (`gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`,
+  `gemini-3-pro-image`) are billed per *output token* like any text model —
+  resolution is carried in `candidatesTokenCount` (1120 tokens for a 1K
+  image, 2520 for 4K, and so on), so the ordinary token math prices every
+  resolution with no special case. Imagen (`imagen-4.0-*-001`) is the
+  exception: it bills a flat amount per image, reports no token counts at
+  all, and so carries a `perImage` rate that `computeCostUsd` multiplies by
+  `imageCount`. A per-image model whose record has no `imageCount` is billed
+  as one image rather than zero — under-reporting spend is the worse failure,
+  same principle as the unknown-model branch. Note the Gemini image models
+  publish *separate* text and image output rates (e.g. 3 Pro Image: $12/1M
+  text vs $120/1M image); `PRICE_TABLE` stores the image rate, so a response
+  mixing prose and images would over-bill its text tokens until
+  `usageMetadata`'s per-modality breakdown is plumbed through.

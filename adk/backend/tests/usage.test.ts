@@ -291,6 +291,10 @@ describe('trackGeminiCall', () => {
         const response = { generatedImages: [{}, {}] };
         await usage.trackGeminiCall({ callType: 'logo', model: 'imagen-4.0-generate-001' }, () => Promise.resolve(response));
 
+        // Assert the call happened before destructuring: mock.calls[0] on an
+        // uncalled mock is undefined, and destructuring it throws an opaque
+        // TypeError that hides the actual failure.
+        expect(mockUploadJson).toHaveBeenCalled();
         const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
         expect(data.imageCount).toBe(2);
         expect(data.costUsd).toBeCloseTo(0.08, 6);
@@ -300,6 +304,7 @@ describe('trackGeminiCall', () => {
         const response = { text: 'ok', usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 10 } };
         await usage.trackGeminiCall({ callType: 'legacy', model: 'gemini-3.8-flash' }, () => Promise.resolve(response));
 
+        expect(mockUploadJson).toHaveBeenCalled();
         const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
         expect(data.imageCount).toBeUndefined();
     });
@@ -757,19 +762,13 @@ describe('ingestUsageRecords', () => {
         errorSpy.mockRestore();
     });
 
-    it('rejects a record whose imageCount is negative, fractional, non-finite, or not a number', async () => {
-        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-        const cases = [
-            { ...record('discovery'), imageCount: -1 },
-            { ...record('discovery'), imageCount: NaN },
-            { ...record('discovery'), imageCount: Infinity },
-            { ...record('discovery'), imageCount: '2' },
-            { ...record('discovery'), imageCount: 0.5 },
-        ];
-        for (const bad of cases) {
-            expect(await usage.ingestUsageRecords([bad] as any)).toEqual({ accepted: 0, failed: 1 });
-        }
-        errorSpy.mockRestore();
+    // One case per test rather than a loop inside one it(): a loop stops at
+    // the first failure and its output doesn't name the offending input.
+    // The describe's afterEach restores the console.error spy.
+    it.each([-1, NaN, Infinity, '2', 0.5])('rejects a record whose imageCount is %p', async (badCount) => {
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const bad = { ...record('discovery'), imageCount: badCount };
+        expect(await usage.ingestUsageRecords([bad] as any)).toEqual({ accepted: 0, failed: 1 });
     });
 
     it('accepts a record with a valid imageCount, and one with none at all', async () => {

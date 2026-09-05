@@ -74,7 +74,7 @@ function resolveDates({ date, from, to }) {
 // with a stale schemaVersion as untrustworthy and rebuilds it, which is what
 // keeps a --write-rollup run here from silently reintroducing an old-shape
 // rollup if this copy ever falls behind usage.ts's.
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const UNTAGGED_REPOSITORY_LABEL = 'gsr (hosted)';
 
 // Mirrors adk/backend/src/usage.ts's KNOWN_REVIEW_CALL_TYPES allowlist —

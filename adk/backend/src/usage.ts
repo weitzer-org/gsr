@@ -435,7 +435,17 @@ export interface UsageBucket {
 // that lets it benefit. Confirmed in production: 2026-08-09's cached rollup
 // still showed exactly 1000 job_tracker calls (S3's per-response cap) days
 // after the pagination fix deployed, against 1124 real records.
-export const CURRENT_SCHEMA_VERSION = 5;
+//
+// Bumped to 6 after the weitzer-org/cat-chat usage backfill (2026-09-05) —
+// the same gap the v4 note describes, hit again exactly as that note
+// predicted. That repo never had its USAGE_REPORT_KEY secret set, so 176
+// Action runs reported nothing; the reconstructed records land on
+// 2026-09-03..09-05, all dates whose rollups had already been cached under
+// v5 before the records existed. v5 does not help here: it rebuilt those
+// rollups when it deployed, which was *before* the backfill, so it simply
+// re-cached the same pre-backfill values. Only a further bump forces the
+// rebuild that picks the records up.
+export const CURRENT_SCHEMA_VERSION = 6;
 
 // byModelRepository/byModelWorkload/byRepositoryWorkload key their maps on
 // `${a}|${b}` — safe because model names, "owner/repo" repository strings,

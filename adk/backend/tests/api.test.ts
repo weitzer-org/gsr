@@ -1,8 +1,5 @@
 import request from 'supertest';
 import { jest } from '@jest/globals';
-import { GitHubClient } from '../src/github';
-import { Orchestrator } from '../src/orchestrator';
-import { Evaluator } from '../src/evaluator';
 
 const uploadJsonMock = jest.fn<any>();
 
@@ -13,21 +10,33 @@ jest.unstable_mockModule('../src/storage.js', () => ({
   getFileJson: jest.fn()
 }));
 
+// Import the app once for the whole file. Re-importing it after
+// jest.resetModules() in every beforeEach re-evaluated the entire module graph
+// (~100ms per test) and nothing here needs a fresh instance: the routes read
+// process.env per request, the spies below are undone by restoreAllMocks, and
+// clearAllMocks wipes call history on the storage mocks, which the factory
+// above now builds once per file instead of once per test (restoreAllMocks
+// alone leaves plain jest.fn() history intact in Jest 30).
+let app: any;
+const originalGeminiApiKey = process.env.GEMINI_API_KEY;
+
+beforeAll(async () => {
+  const mod = await import('../src/app.js');
+  app = mod.app;
+});
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  jest.restoreAllMocks();
+  process.env.GEMINI_API_KEY = 'fake-key';
+});
+
+afterAll(() => {
+  if (originalGeminiApiKey === undefined) delete process.env.GEMINI_API_KEY;
+  else process.env.GEMINI_API_KEY = originalGeminiApiKey;
+});
+
 describe('GET /api/status', () => {
-  const originalEnv = process.env;
-  let app: any;
-
-  beforeEach(async () => {
-    jest.resetModules();
-    process.env = { ...originalEnv };
-    const mod = await import('../src/app.js');
-    app = mod.app;
-  });
-
-  afterAll(() => {
-    process.env = originalEnv;
-  });
-
   it('should return status with geminiConnected true when API key is set', async () => {
     process.env.GEMINI_API_KEY = 'fake-key';
     const response = await request(app).get('/api/status');
@@ -44,16 +53,6 @@ describe('GET /api/status', () => {
 });
 
 describe('POST /api/review', () => {
-  let app: any;
-
-  beforeEach(async () => {
-    jest.resetModules();
-    jest.restoreAllMocks();
-    process.env.GEMINI_API_KEY = 'fake-key';
-    const mod = await import('../src/app.js');
-    app = mod.app;
-  });
-
   it('should return 400 if url is missing', async () => {
     const response = await request(app)
       .post('/api/review')
@@ -245,16 +244,6 @@ describe('POST /api/review', () => {
 });
 
 describe('GET /api/agents', () => {
-  let app: any;
-
-  beforeEach(async () => {
-    jest.resetModules();
-    jest.restoreAllMocks();
-    process.env.GEMINI_API_KEY = 'fake-key';
-    const mod = await import('../src/app.js');
-    app = mod.app;
-  });
-
   it('should return the available agent ids and display names', async () => {
     const response = await request(app).get('/api/agents');
 

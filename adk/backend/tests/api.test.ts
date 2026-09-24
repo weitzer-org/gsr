@@ -13,7 +13,10 @@ jest.unstable_mockModule('../src/storage.js', () => ({
 // Import the app once for the whole file. Re-importing it after
 // jest.resetModules() in every beforeEach re-evaluated the entire module graph
 // (~100ms per test) and nothing here needs a fresh instance: the routes read
-// process.env per request and the spies below are undone by restoreAllMocks.
+// process.env per request, the spies below are undone by restoreAllMocks, and
+// clearAllMocks wipes call history on the storage mocks, which the factory
+// above now builds once per file instead of once per test (restoreAllMocks
+// alone leaves plain jest.fn() history intact in Jest 30).
 let app: any;
 const originalGeminiApiKey = process.env.GEMINI_API_KEY;
 
@@ -23,6 +26,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  jest.clearAllMocks();
   jest.restoreAllMocks();
   process.env.GEMINI_API_KEY = 'fake-key';
 });

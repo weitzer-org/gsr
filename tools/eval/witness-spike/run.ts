@@ -58,6 +58,11 @@ function ensureWorktree(dir: string, sha: string) {
   }
 }
 
+/** Stops untrusted text from closing one of the bundle's own tags early. */
+export function tagSafe(text: string): string {
+  return text.replace(/<\/(FINDING|DIFF|FILE_UNDER_TEST|NEARBY_TEST|DIR_LISTING)\b/gi, '<\\/$1');
+}
+
 function readOr(p: string, fallback = ''): string {
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : fallback;
 }
@@ -79,11 +84,11 @@ function prepare() {
     const finding = JSON.stringify({ file: e.file, line: e.line, severity: 'HIGH', summary: e.summary, description: e.summary }, null, 2);
 
     const bundle = [
-      `<FINDING>\n${finding}\n</FINDING>`,
-      `<DIFF>\n${diff}\n</DIFF>`,
-      `<FILE_UNDER_TEST path="${e.file}">\n${fileUnderTest}\n</FILE_UNDER_TEST>`,
-      `<NEARBY_TEST path="${nearby ? path.join(dir, nearby) : ''}">\n${nearby ? readOr(path.join(head, dir, nearby)) : ''}\n</NEARBY_TEST>`,
-      `<DIR_LISTING>\n${listing}\n</DIR_LISTING>`,
+      `<FINDING>\n${tagSafe(finding)}\n</FINDING>`,
+      `<DIFF>\n${tagSafe(diff)}\n</DIFF>`,
+      `<FILE_UNDER_TEST path="${e.file}">\n${tagSafe(fileUnderTest)}\n</FILE_UNDER_TEST>`,
+      `<NEARBY_TEST path="${nearby ? path.join(dir, nearby) : ''}">\n${nearby ? tagSafe(readOr(path.join(head, dir, nearby))) : ''}\n</NEARBY_TEST>`,
+      `<DIR_LISTING>\n${tagSafe(listing)}\n</DIR_LISTING>`,
     ].join('\n\n');
     fs.writeFileSync(path.join(WORK_DIR, 'author-inputs', `${e.id}.txt`), bundle);
     console.log(`prepared ${e.id} (bundle ${bundle.length} chars)`);

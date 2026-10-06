@@ -7,6 +7,7 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import type { SandboxRunResult } from '../../../adk/backend/src/witness/types';
 import { JEST_WITNESS_TEST_NAME } from '../../../adk/backend/src/witness/types';
+import { TailBuffer } from './sandbox';
 
 const OUTPUT_TAIL_CHARS = 4096;
 
@@ -62,13 +63,16 @@ export function runJestWitnessNative(
   ];
   return new Promise((resolve) => {
     const child = spawn(jestBin, args, { cwd: workspace, stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH ?? '', HOME: workspace } });
-    let stdout = '';
+    const stdout = new TailBuffer();
     let timedOut = false;
-    child.stdout.on('data', (d) => { stdout = (stdout + d.toString()).slice(-2_000_000); });
+    child.stdout.on('data', (d: Buffer) => stdout.push(d));
+    // Drain stderr so a chatty child cannot block on a full pipe; Jest's --json
+    // result goes to stdout, so stderr is discarded.
+    child.stderr.on('data', () => {});
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ result: parseJestJson(stdout, { timedOut, exitCode: code }), wallMs: Date.now() - started });
+      resolve({ result: parseJestJson(stdout.toString(), { timedOut, exitCode: code }), wallMs: Date.now() - started });
     });
     child.on('error', (err) => {
       clearTimeout(timer);

@@ -22,6 +22,9 @@ export function validateWitness(claim: Claim, witness: NonNullable<WitnessAuthor
     expected = `${dir}/${path.posix.basename(claim.file, path.posix.extname(claim.file))}${JEST_WITNESS_SUFFIX}.js`;
     if (!new RegExp(`test\\(\\s*['"]${JEST_WITNESS_TEST_NAME}['"]`).test(witness.source)) return `no test('${JEST_WITNESS_TEST_NAME}', ...)`;
   } else {
+    // TypeScript Jest witnesses are valid per author.md but need a ts-jest
+    // transform that the spike's native runner does not have; rejecting them
+    // here yields no_witness (hypothesis), never a false proof. Phase 1 adds it.
     return `unsupported witness language/framework: ${witness.language}/${witness.framework}`;
   }
   if (witness.path !== expected) return `path ${JSON.stringify(witness.path)} is not the allowed ${JSON.stringify(expected)}`;

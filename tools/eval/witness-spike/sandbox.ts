@@ -35,6 +35,30 @@ export interface SandboxConfig {
 }
 
 const OUTPUT_TAIL_CHARS = 4096;
+const CAPTURE_MAX_BYTES = 2_000_000;
+
+/**
+ * Keeps roughly the last `max` bytes of a stream as a queue of Buffers, so a
+ * witness that prints without bound costs O(output) rather than re-slicing a
+ * multi-megabyte string on every chunk. Decoding happens once, at the end.
+ */
+export class TailBuffer {
+  private chunks: Buffer[] = [];
+  private len = 0;
+  constructor(private readonly max = CAPTURE_MAX_BYTES) {}
+  push(d: Buffer | string): void {
+    const b = typeof d === 'string' ? Buffer.from(d) : d;
+    this.chunks.push(b);
+    this.len += b.length;
+    while (this.chunks.length > 1 && this.len - this.chunks[0].length >= this.max) {
+      this.len -= this.chunks.shift()!.length;
+    }
+  }
+  toString(): string {
+    const s = Buffer.concat(this.chunks).toString('utf8');
+    return s.length > this.max ? s.slice(-this.max) : s;
+  }
+}
 
 /**
  * Copies `src` to a fresh world-writable temp dir, excluding .git and every
@@ -50,7 +74,11 @@ export function copyWorkspaceWithoutGit(src: string): string {
     recursive: true,
     filter: (p) => path.basename(p) !== '.git' && !fs.lstatSync(p).isSymbolicLink(),
   });
-  // The container runs as uid 65534, so the copy must be writable by it.
+  // The container runs as uid 65534, so the copy must be writable by it, which
+  // makes it world-writable on the host while the run lasts (mkdtemp alone
+  // would be 0700). Accepted for the spike, which runs on a developer machine
+  // or a single-job ephemeral runner; Phase 1 must not run this on a shared
+  // multi-user host (use per-run user namespaces or chown to the sandbox uid).
   // lstat, not stat: never follow a link out of the copy.
   const chmodAll = (p: string) => {
     const st = fs.lstatSync(p);
@@ -188,13 +216,11 @@ export function runGoWitness(
 
   return new Promise((resolve) => {
     const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
+    const stdout = new TailBuffer();
+    const stderr = new TailBuffer();
     let timedOut = false;
-    // Cap what we hold in memory; the tail is all we keep anyway.
-    const cap = (s: string, add: string) => (s + add).slice(-2_000_000);
-    child.stdout.on('data', (d) => { stdout = cap(stdout, d.toString()); });
-    child.stderr.on('data', (d) => { stderr = cap(stderr, d.toString()); });
+    child.stdout.on('data', (d: Buffer) => stdout.push(d));
+    child.stderr.on('data', (d: Buffer) => stderr.push(d));
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -203,7 +229,8 @@ export function runGoWitness(
 
     child.on('close', (code) => {
       clearTimeout(timer);
-      const result = parseGoTestJson(stdout + (stderr ? `\n${stderr}` : ''), testName, { timedOut, exitCode: code });
+      const err = stderr.toString();
+      const result = parseGoTestJson(stdout.toString() + (err ? `\n${err}` : ''), testName, { timedOut, exitCode: code });
       resolve({ result, wallMs: Date.now() - started });
     });
     child.on('error', (err) => {

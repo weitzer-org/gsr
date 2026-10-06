@@ -1,0 +1,40 @@
+# TEMPORARY probe — never merge. Runs the witness sandbox probe on a real
+# GitHub-hosted runner so Phase 0 can verify docker --network none etc. there.
+# Triggers only for PRs into the throwaway base branch, so GSR's own
+# self-review workflow (which targets main) does not run.
+name: Witness sandbox probe
+on:
+  pull_request:
+    branches: [witness-probe-base]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Default checkout (persist-credentials: true, the actions/checkout default)
+        uses: actions/checkout@v4
+        with:
+          path: ws-default
+      - name: Checkout with persist-credentials false
+        uses: actions/checkout@v4
+        with:
+          path: ws-nocreds
+          persist-credentials: false
+      - name: Runner facts
+        run: |
+          uname -srm; nproc; free -m | sed -n 2p
+          docker --version; go version
+          docker info --format 'storage={{.Driver}} runtimes={{range $k,$v := .Runtimes}}{{$k}} {{end}}'
+      - name: Probe against the DEFAULT checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          cd ws-default/tools/eval/witness-probe
+          PROBE_WORKSPACE="$GITHUB_WORKSPACE/ws-default" ./run-probe.sh
+      - name: Probe against the persist-credentials=false checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          cd ws-default/tools/eval/witness-probe
+          PROBE_WORKSPACE="$GITHUB_WORKSPACE/ws-nocreds" ./run-probe.sh | sed -n '/=== B/,/=== C/p'

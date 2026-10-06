@@ -176,7 +176,8 @@ export function initEvals() {
 
         if (data.aggregate_report) {
             const rawHtml = marked.parse(data.aggregate_report);
-            aggReportEl.innerHTML = window.DOMPurify ? window.DOMPurify.sanitize(rawHtml) : rawHtml;
+            // Fail closed: if the DOMPurify CDN script didn't load, show escaped text rather than raw markup.
+            aggReportEl.innerHTML = window.DOMPurify ? window.DOMPurify.sanitize(rawHtml) : escapeHTML(data.aggregate_report).replace(/\n/g, '<br/>');
         } else {
             aggReportEl.innerHTML = '<em>No aggregate summary generated for this run.</em>';
         }
@@ -199,7 +200,7 @@ export function initEvals() {
                     <div class="pr-content">
                         <div class="pr-llm-comparison markdown-body">
                             <h4>Targeted LLM Comparison Report</h4>
-                            ${window.DOMPurify ? window.DOMPurify.sanitize(marked.parse(r.llm_comparison_report || 'No specific comparison report generated.')) : marked.parse(r.llm_comparison_report || 'No specific comparison report generated.')}
+                            ${window.DOMPurify ? window.DOMPurify.sanitize(marked.parse(r.llm_comparison_report || 'No specific comparison report generated.')) : escapeHTML(r.llm_comparison_report || 'No specific comparison report generated.').replace(/\n/g, '<br/>')}
                         </div>
                         <div class="pr-split-pane">
                             <div class="pane local-pane">

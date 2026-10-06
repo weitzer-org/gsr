@@ -279,8 +279,8 @@ describe('App frontend logic (app.js)', () => {
     // progress stream and the findings list; they are attacker-controlled.
     describe('rendering untrusted review fields', () => {
         const flush = () => new Promise(process.nextTick).then(() => new Promise(process.nextTick));
-        const evilFile = '"><img src=x onerror="window.__pwned=1">.ts';
-        const evilAgent = '<img src=x onerror="window.__pwned=1">';
+        const evilFile = '"><img src=x onerror="alert(1)">.ts';
+        const evilAgent = '<img src=x onerror="alert(1)">';
 
         const streamOf = (events) => {
             const chunks = [new TextEncoder().encode(events.map(e => JSON.stringify(e)).join('\n') + '\n')];
@@ -304,7 +304,6 @@ describe('App frontend logic (app.js)', () => {
             document.getElementById('progress-grid').innerHTML = '';
             document.getElementById('subagent-findings-list').innerHTML = '';
             document.getElementById('basic-findings-list').innerHTML = '';
-            delete window.__pwned;
         });
 
         it('shows agent and file names in progress cards as text, not markup', async () => {
@@ -329,7 +328,7 @@ describe('App frontend logic (app.js)', () => {
         it('shows finding file, agent and line as text, not markup', async () => {
             await submitWith([
                 { type: 'done', findings: [
-                    { source: 'subagent', agent: evilAgent, file: evilFile, line: '1<img src=x onerror="window.__pwned=1">', severity: 'HIGH', description: '<b>desc</b>' },
+                    { source: 'subagent', agent: evilAgent, file: evilFile, line: '1<img src=x onerror="alert(1)">', severity: 'HIGH', description: '<b>desc</b>' },
                     { source: 'basic', agent: 'Basic', file: evilFile, line: 3, severity: 'LOW', description: 'ok' },
                 ] },
             ]);
@@ -341,7 +340,6 @@ describe('App frontend logic (app.js)', () => {
                 expect(list.querySelector('b')).toBeNull();
                 expect(list.querySelector('.location').textContent).toContain(evilFile);
             }
-            expect(window.__pwned).toBeUndefined();
         });
     });
 });

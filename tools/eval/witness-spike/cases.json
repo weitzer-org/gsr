@@ -1,0 +1,10 @@
+{
+  "description": "Phase 0 spike inputs: the job_tracker PR commits behind each must_catch entry in ../fixtures/job_tracker_regressions.json. baseSha is the PR's base commit (from the GitHub PR API); headSha is the PR head. The Go directive override is a spike-only workaround: job_tracker's go.mod asks for go 1.26.1 and the local toolchain is 1.24.7 (toolchain download is blocked here), applied identically to head and base.",
+  "repo": "weitzer-org/job_tracker",
+  "goDirectiveOverride": "1.24",
+  "prs": {
+    "1": { "headSha": "cf1437e704a8b8931767fdb629f31711e68d680a", "baseSha": "90f01618fef6e19093c09ad45892c72561710ee9" },
+    "4": { "headSha": "e5a254baecaa8f87cedc7b95b1cb0721dcebac39", "baseSha": "588f050ffc8a86ea2edb681b2c2563b137d51ab8" },
+    "15": { "headSha": "62050b9971551f890b17103a2ec61e2e92856bb7", "baseSha": "bb894700fb9785fc61bae4df44a8b571ba7c7d26" }
+  }
+}

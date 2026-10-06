@@ -1,0 +1,188 @@
+// Phase 0 spike: runs one Go witness test inside the hardened container and
+// reduces the result to a SandboxRunResult. Phase 1 moves the production
+// version into adk/backend/src/witness/; this copy exists so the spike can
+// measure yield and timings without committing to that API.
+//
+// Isolation (probed by tools/eval/witness-probe/run-probe.sh):
+//   --network none, --read-only root, non-root, no capabilities, pid/memory/cpu
+//   limits, no host environment inherited, workspace COPIED without .git (a
+//   mounted checkout leaks the token that actions/checkout leaves in .git).
+// Docker arguments are an array, never a shell string.
+
+import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import type { SandboxRunResult } from '../../../adk/backend/src/witness/types';
+
+export interface SandboxConfig {
+  /** Image containing a Go toolchain at /usr/local/go. */
+  image: string;
+  /** Host directory holding a pre-populated Go module cache (mounted read-only). */
+  goModCacheDir: string;
+  /** Host directory for the Go build cache (mounted read-write; warm = fast). */
+  goBuildCacheDir: string;
+  timeoutMs: number;
+  memory: string;
+  cpus: string;
+}
+
+const OUTPUT_TAIL_CHARS = 4096;
+
+/** Copies `src` to a fresh world-writable temp dir, excluding .git. */
+export function copyWorkspaceWithoutGit(src: string): string {
+  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-witness-ws-'));
+  fs.cpSync(src, dest, {
+    recursive: true,
+    filter: (p) => path.basename(p) !== '.git',
+  });
+  // The container runs as uid 65534, so the copy must be writable by it.
+  const chmodAll = (p: string) => {
+    fs.chmodSync(p, fs.statSync(p).isDirectory() ? 0o777 : 0o666);
+    if (fs.statSync(p).isDirectory()) {
+      for (const e of fs.readdirSync(p)) chmodAll(path.join(p, e));
+    }
+  };
+  chmodAll(dest);
+  return dest;
+}
+
+export function dockerArgs(cfg: SandboxConfig, name: string, workspace: string, goTestArgs: string[]): string[] {
+  return [
+    'run', '--rm', '--name', name,
+    '--network', 'none',
+    '--read-only',
+    // exec is required: `go test` compiles the test binary into GOTMPDIR.
+    '--tmpfs', '/tmp:rw,exec,size=1g',
+    '--user', '65534:65534',
+    '--cap-drop', 'ALL',
+    '--security-opt', 'no-new-privileges',
+    '--pids-limit', '512',
+    '--memory', cfg.memory,
+    '--cpus', cfg.cpus,
+    '-v', `${workspace}:/work:rw`,
+    '-v', `${cfg.goModCacheDir}:/gomod:ro`,
+    '-v', `${cfg.goBuildCacheDir}:/gocache:rw`,
+    '-e', 'HOME=/tmp',
+    '-e', 'GOCACHE=/gocache',
+    '-e', 'GOPATH=/tmp/gopath',
+    '-e', 'GOMODCACHE=/gomod',
+    '-e', 'GOTOOLCHAIN=local',
+    '-e', 'GOFLAGS=-mod=mod',
+    '-e', 'GOPROXY=off',
+    '-e', 'GOSUMDB=off',
+    '-e', 'CGO_ENABLED=0',
+    '-e', 'PATH=/usr/local/go/bin',
+    '-w', '/work',
+    cfg.image,
+    'go', 'test', '-json', '-buildvcs=false', '-count=1', ...goTestArgs,
+  ];
+}
+
+interface GoTestEvent {
+  Action?: string;
+  Test?: string;
+  Output?: string;
+  ImportPath?: string;
+}
+
+/** Reduces `go test -json` output to the SandboxRunResult flags. Exported for tests. */
+export function parseGoTestJson(
+  stdout: string,
+  testName: string,
+  opts: { timedOut: boolean; exitCode: number | null },
+): SandboxRunResult {
+  let witnessAction: 'pass' | 'fail' | 'skip' | undefined;
+  let testRuns = 0;
+  let buildFailed = false;
+  let frameworkTimeout = false;
+  const out: string[] = [];
+
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue;
+    let ev: GoTestEvent;
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      out.push(line); // non-JSON line (e.g. raw build error text)
+      if (/\[(build|setup) failed\]/.test(line)) buildFailed = true;
+      continue;
+    }
+    if (ev.Output) {
+      out.push(ev.Output);
+      if (/\[(build|setup) failed\]/.test(ev.Output)) buildFailed = true;
+      if (/panic: test timed out/.test(ev.Output)) frameworkTimeout = true;
+    }
+    if (ev.Action === 'build-fail') buildFailed = true;
+    if (ev.Test === testName) {
+      if (ev.Action === 'run') testRuns++;
+      if (ev.Action === 'pass' || ev.Action === 'fail' || ev.Action === 'skip') witnessAction = ev.Action;
+    }
+  }
+
+  const timedOut = opts.timedOut || frameworkTimeout;
+  let witnessOutcome: SandboxRunResult['witnessOutcome'] = 'not_run';
+  if (!timedOut && !buildFailed && testRuns === 1) {
+    if (witnessAction === 'pass') witnessOutcome = 'pass';
+    else if (witnessAction === 'fail') witnessOutcome = 'fail';
+  }
+
+  const text = out.join('');
+  return {
+    exitCode: opts.exitCode,
+    timedOut,
+    buildFailed,
+    witnessOutcome,
+    outputTail: text.length > OUTPUT_TAIL_CHARS ? text.slice(-OUTPUT_TAIL_CHARS) : text,
+  };
+}
+
+export interface TimedRun {
+  result: SandboxRunResult;
+  wallMs: number;
+}
+
+/**
+ * Runs the witness already written into `workspace` (a copy, not the checkout)
+ * and kills the container if it exceeds cfg.timeoutMs.
+ */
+export function runGoWitness(
+  cfg: SandboxConfig,
+  workspace: string,
+  packageDir: string,
+  testName: string,
+): Promise<TimedRun> {
+  const name = `gsr-witness-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const pkg = packageDir === '.' || packageDir === '' ? './' : `./${packageDir.replace(/^\.\//, '')}/`;
+  const args = dockerArgs(cfg, name, workspace, ['-run', `^${testName}$`, pkg]);
+  const started = Date.now();
+
+  return new Promise((resolve) => {
+    const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    // Cap what we hold in memory; the tail is all we keep anyway.
+    const cap = (s: string, add: string) => (s + add).slice(-2_000_000);
+    child.stdout.on('data', (d) => { stdout = cap(stdout, d.toString()); });
+    child.stderr.on('data', (d) => { stderr = cap(stderr, d.toString()); });
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      spawn('docker', ['kill', name], { stdio: 'ignore' });
+    }, cfg.timeoutMs);
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const result = parseGoTestJson(stdout + (stderr ? `\n${stderr}` : ''), testName, { timedOut, exitCode: code });
+      resolve({ result, wallMs: Date.now() - started });
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({
+        result: { exitCode: null, timedOut: false, buildFailed: false, witnessOutcome: 'not_run', outputTail: `docker spawn failed: ${err.message}` },
+        wallMs: Date.now() - started,
+      });
+    });
+  });
+}

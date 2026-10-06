@@ -1,10 +1,13 @@
 import { jest } from '@jest/globals';
-import { TextDecoder } from 'util';
+import { TextDecoder, TextEncoder } from 'util';
 
 // jsdom's test environment doesn't expose TextDecoder globally; app.js needs it
 // to read the review-stream response body.
 if (typeof global.TextDecoder === 'undefined') {
     global.TextDecoder = TextDecoder;
+}
+if (typeof global.TextEncoder === 'undefined') {
+    global.TextEncoder = TextEncoder;
 }
 
 const FIXTURE_HTML = `
@@ -269,6 +272,122 @@ describe('App frontend logic (app.js)', () => {
             await new Promise(resolve => setTimeout(resolve, 0));
 
             expect(global.fetch.mock.calls.find(c => c[0] === '/api/review')).toBeUndefined();
+        });
+    });
+
+    // PR diff filenames and LLM-derived fields reach the page through the
+    // progress stream and the findings list; they are attacker-controlled.
+    describe('rendering untrusted review fields', () => {
+        // A macrotask: runs after every pending promise continuation has drained.
+        const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+        const evilFile = '"><img src=x onerror="alert(1)">.ts';
+        const evilAgent = '<img src=x onerror="alert(1)">';
+
+        const streamOf = (events) => {
+            const chunks = [new TextEncoder().encode(events.map(e => JSON.stringify(e)).join('\n') + '\n')];
+            return { getReader: () => ({ read: () => Promise.resolve(chunks.length ? { done: false, value: chunks.shift() } : { done: true, value: undefined }) }) };
+        };
+
+        const submitWith = async (events) => {
+            global.fetch.mockImplementation((url) => {
+                if (url === '/api/review') return Promise.resolve({ ok: true, status: 200, body: streamOf(events) });
+                if (url === '/api/agents') return Promise.resolve({ ok: true, status: 200, json: async () => ({ agents: [] }) });
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+            });
+            initApp();
+            await flush();
+            document.getElementById('review-form').dispatchEvent(new Event('submit', { cancelable: true }));
+            await new Promise(resolve => setTimeout(resolve, 0));
+            await flush();
+        };
+
+        afterEach(() => {
+            global.fetch.mockReset();
+            // Elements some tests add; removed here so a failed assertion cannot leak them.
+            document.querySelectorAll('.main-error-message, #test-tabs, #history-container').forEach(el => el.remove());
+        });
+
+        beforeEach(() => {
+            document.getElementById('progress-grid').innerHTML = '';
+            document.getElementById('subagent-findings-list').innerHTML = '';
+            document.getElementById('basic-findings-list').innerHTML = '';
+        });
+
+        it('shows agent and file names in progress cards as text, not markup', async () => {
+            await submitWith([
+                { type: 'progress', agent: evilAgent, file: evilFile, status: 'start' },
+                { type: 'progress', agent: evilAgent, file: evilFile, status: 'skipped' },
+            ]);
+
+            const grid = document.getElementById('progress-grid');
+            expect(grid.querySelectorAll('.progress-card').length).toBeGreaterThan(0);
+            expect(grid.querySelector('img')).toBeNull();
+            grid.querySelectorAll('.file-name').forEach(el => {
+                expect(el.textContent).toBe(evilFile);
+                expect(el.getAttribute('title')).toBe(evilFile);
+                expect(el.hasAttribute('onerror')).toBe(false);
+            });
+            grid.querySelectorAll('.agent-name').forEach(el => {
+                expect(el.textContent).toBe(`🤖 ${evilAgent} Agent`);
+            });
+        });
+
+        it('shows a server error message in the error banner as text, not markup', async () => {
+            document.body.insertAdjacentHTML('beforeend', '<div class="tabs" id="test-tabs"></div>');
+            global.fetch.mockImplementation((url) => {
+                if (url === '/api/review') return Promise.resolve({ ok: false, status: 500, json: async () => ({ error: `boom ${evilAgent}` }) });
+                if (url === '/api/agents') return Promise.resolve({ ok: true, status: 200, json: async () => ({ agents: [] }) });
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+            });
+            initApp();
+            await flush();
+            document.getElementById('review-form').dispatchEvent(new Event('submit', { cancelable: true }));
+            await flush();
+            await flush();
+
+            const banner = document.querySelector('.main-error-message');
+            expect(banner).not.toBeNull();
+            expect(banner.querySelector('img')).toBeNull();
+            expect(banner.textContent).toContain(evilAgent);
+        });
+
+        it('shows a review history URL as text and keeps it inside the title attribute', async () => {
+            document.body.insertAdjacentHTML('beforeend', '<aside id="history-container" class="hidden"><div id="history-list"></div></aside>');
+            global.fetch.mockImplementation((url) => {
+                if (url === '/api/review/history') {
+                    return Promise.resolve({ ok: true, status: 200, json: async () => ([{ name: 'review-run_x.json', originalUrl: evilFile, updated: '2026-03-22' }]) });
+                }
+                if (url === '/api/agents') return Promise.resolve({ ok: true, status: 200, json: async () => ({ agents: [] }) });
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({ findings: [], metrics: null }) });
+            });
+            initApp();
+            await flush();
+            await flush();
+
+            const list = document.getElementById('history-list');
+            const item = list.querySelector('.history-item-url');
+            expect(item).not.toBeNull();
+            expect(list.querySelector('img')).toBeNull();
+            expect(item.textContent).toBe(evilFile);
+            expect(item.getAttribute('title')).toBe(evilFile);
+            expect(item.hasAttribute('onerror')).toBe(false);
+        });
+
+        it('shows finding file, agent and line as text, not markup', async () => {
+            await submitWith([
+                { type: 'done', findings: [
+                    { source: 'subagent', agent: evilAgent, file: evilFile, line: '1<img src=x onerror="alert(1)">', severity: 'HIGH', description: '<b>desc</b>' },
+                    { source: 'basic', agent: 'Basic', file: evilFile, line: 3, severity: 'LOW', description: 'ok' },
+                ] },
+            ]);
+
+            for (const id of ['subagent-findings-list', 'basic-findings-list']) {
+                const list = document.getElementById(id);
+                expect(list.querySelector('.finding')).not.toBeNull();
+                expect(list.querySelector('img')).toBeNull();
+                expect(list.querySelector('b')).toBeNull();
+                expect(list.querySelector('.location').textContent).toContain(evilFile);
+            }
         });
     });
 });

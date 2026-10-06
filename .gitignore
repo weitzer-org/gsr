@@ -10,6 +10,8 @@ adk/frontend/node_modules/
 coverage/
 test-results/
 *results*
+latest_run.json
+scratch_local_vs_*.json
 
 # Secrets & Keys
 *-key.json

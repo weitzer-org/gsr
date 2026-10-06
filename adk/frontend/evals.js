@@ -1,7 +1,7 @@
 //
 // Handles fetching GCS eval data, kicking off runs, and populating the UI.
 
-import { authFetch, wireLogoutLink } from './utils.js';
+import { authFetch, wireLogoutLink, escapeHTML, renderMarkdownSafely } from './utils.js';
 
 export function initEvals() {
     wireLogoutLink();
@@ -107,7 +107,7 @@ export function initEvals() {
             const data = await res.json();
             renderRunList(data);
         } catch (e) {
-            runList.innerHTML = `<li class="error-msg">Error loading history: ${e.message}</li>`;
+            runList.innerHTML = `<li class="error-msg">Error loading history: ${escapeHTML(e.message)}</li>`;
         }
     }
 
@@ -149,7 +149,7 @@ export function initEvals() {
             
             renderDashboard(data);
         } catch (e) {
-            aggReportEl.innerHTML = `<div class="error-msg">Error: ${e.message}</div>`;
+            aggReportEl.innerHTML = `<div class="error-msg">Error: ${escapeHTML(e.message)}</div>`;
         }
     }
 
@@ -175,8 +175,7 @@ export function initEvals() {
         metricBCalls.textContent = aggM.targetB?.calls || aggM.production?.calls || 0;
 
         if (data.aggregate_report) {
-            const rawHtml = marked.parse(data.aggregate_report);
-            aggReportEl.innerHTML = window.DOMPurify ? window.DOMPurify.sanitize(rawHtml) : rawHtml;
+            aggReportEl.innerHTML = renderMarkdownSafely(data.aggregate_report);
         } else {
             aggReportEl.innerHTML = '<em>No aggregate summary generated for this run.</em>';
         }
@@ -193,21 +192,21 @@ export function initEvals() {
             const detailStr = `
                 <details class="pr-detail">
                     <summary class="pr-summary">
-                        <h3>PR #${idx + 1}: ${r.prUrl.split('/').pop()}</h3>
+                        <h3>PR #${idx + 1}: ${escapeHTML(String(r.prUrl || 'unknown').split('/').pop())}</h3>
                         <span class="pr-arrow">▼</span>
                     </summary>
                     <div class="pr-content">
                         <div class="pr-llm-comparison markdown-body">
                             <h4>Targeted LLM Comparison Report</h4>
-                            ${window.DOMPurify ? window.DOMPurify.sanitize(marked.parse(r.llm_comparison_report || 'No specific comparison report generated.')) : marked.parse(r.llm_comparison_report || 'No specific comparison report generated.')}
+                            ${renderMarkdownSafely(r.llm_comparison_report || 'No specific comparison report generated.')}
                         </div>
                         <div class="pr-split-pane">
                             <div class="pane local-pane">
-                                <h4>${labelALit} Findings (${taFindings.length})</h4>
+                                <h4>${escapeHTML(labelALit)} Findings (${taFindings.length})</h4>
                                 ${buildFindingsHtml(taFindings)}
                             </div>
                             <div class="pane prod-pane">
-                                <h4>${labelBLit} Findings (${tbFindings.length})</h4>
+                                <h4>${escapeHTML(labelBLit)} Findings (${tbFindings.length})</h4>
                                 ${buildFindingsHtml(tbFindings)}
                             </div>
                         </div>
@@ -222,15 +221,15 @@ export function initEvals() {
         if (!findings || findings.length === 0) return '<em>No findings found.</em>';
         let html = '<ul class="finding-list">';
         findings.forEach(f => {
-            const badgeClass = `severity-${f.severity.toLowerCase()}`;
+            const badgeClass = `severity-${escapeHTML(String(f.severity || 'unknown').toLowerCase())}`;
             html += `
                 <li class="finding-item">
                     <div class="finding-header">
-                        <span class="finding-file">${f.file}:${f.line}</span>
-                        <span class="finding-severity ${badgeClass}">${f.severity}</span>
+                        <span class="finding-file">${escapeHTML(f.file)}${f.line ? ':' + escapeHTML(f.line) : ''}</span>
+                        <span class="finding-severity ${badgeClass}">${escapeHTML(f.severity || 'UNKNOWN')}</span>
                     </div>
-                    <div class="finding-title">${f.description.split('.')[0]}.</div>
-                    <p class="finding-desc">${f.description}</p>
+                    <div class="finding-title">${escapeHTML(String(f.description || '').split('.')[0])}.</div>
+                    <p class="finding-desc">${escapeHTML(f.description)}</p>
                 </li>
             `;
         });

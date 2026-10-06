@@ -1,4 +1,5 @@
-import { escapeHTML, parseStreamChunk } from '../utils.js';
+import { jest } from '@jest/globals';
+import { escapeHTML, parseStreamChunk, renderMarkdownSafely } from '../utils.js';
 import { TextDecoder, TextEncoder } from 'util';
 
 // Polyfill for jsdom which might lack these globals
@@ -21,6 +22,47 @@ describe('utils.js', () => {
     it('should return empty string for empty input', () => {
       expect(escapeHTML('')).toBe('');
       expect(escapeHTML(null)).toBe('');
+    });
+
+    it('should coerce non-string values instead of throwing', () => {
+      expect(escapeHTML(42)).toBe('42');
+      expect(escapeHTML(0)).toBe('0');
+      expect(escapeHTML(undefined)).toBe('');
+    });
+  });
+
+  describe('renderMarkdownSafely', () => {
+    const hostile = '<img src=x onerror="alert(1)">';
+    let savedMarked;
+    let savedPurify;
+    beforeEach(() => { savedMarked = global.marked; savedPurify = window.DOMPurify; });
+    afterEach(() => { global.marked = savedMarked; window.DOMPurify = savedPurify; });
+
+    it('parses then sanitizes when both marked and DOMPurify are loaded', () => {
+      global.marked = { parse: jest.fn((t) => `<p>${t}</p>`) };
+      window.DOMPurify = { sanitize: jest.fn((h) => `clean:${h}`) };
+      expect(renderMarkdownSafely('hi')).toBe('clean:<p>hi</p>');
+      expect(global.marked.parse).toHaveBeenCalledWith('hi');
+    });
+
+    it('fails closed (escaped text, no parsing) when DOMPurify did not load', () => {
+      global.marked = { parse: jest.fn() };
+      delete window.DOMPurify;
+      expect(renderMarkdownSafely(`a\n${hostile}`)).toBe('a<br/>&lt;img src=x onerror=&quot;alert(1)&quot;&gt;');
+      expect(global.marked.parse).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when marked did not load, even if DOMPurify did', () => {
+      delete global.marked;
+      window.DOMPurify = { sanitize: jest.fn() };
+      expect(renderMarkdownSafely(hostile)).not.toContain('<img');
+      expect(window.DOMPurify.sanitize).not.toHaveBeenCalled();
+    });
+
+    it('treats null and undefined as empty', () => {
+      delete window.DOMPurify;
+      expect(renderMarkdownSafely(null)).toBe('');
+      expect(renderMarkdownSafely(undefined)).toBe('');
     });
   });
 

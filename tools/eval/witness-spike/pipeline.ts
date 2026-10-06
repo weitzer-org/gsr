@@ -13,6 +13,7 @@ import { runJestWitnessNative } from './jest';
 /** Returns an error string if the witness may not be run, else null. */
 export function validateWitness(claim: Claim, witness: NonNullable<WitnessAuthorOutput['witness']>, headDir: string): string | null {
   const dir = path.posix.dirname(claim.file);
+  if (claim.language !== witness.language) return `claim language ${claim.language} does not match witness language ${witness.language}`;
   let expected: string;
   if (witness.language === 'go' && witness.framework === 'go-test') {
     expected = `${dir}/${GO_WITNESS_FILENAME}`;
@@ -36,13 +37,14 @@ export async function runOnce(
   cfg: SandboxConfig,
   checkout: string,
   claim: Claim,
-  witness: { path: string; source: string },
+  witness: { path: string; source: string; language: string },
   jest?: JestRunner,
 ) {
   const ws = copyWorkspaceWithoutGit(checkout);
   try {
     writeWitnessFile(ws, witness.path, witness.source);
-    if (claim.language === 'go') {
+    // Dispatch on the validated witness, never on model-supplied claim fields alone.
+    if (witness.language === 'go') {
       return await runGoWitness(cfg, ws, path.posix.dirname(claim.file), GO_WITNESS_TEST_NAME);
     }
     if (!jest) throw new Error('Jest witnesses run unsandboxed; pass a JestRunner (testbed only)');
@@ -84,11 +86,22 @@ export async function evaluateWitness(
   const h1 = await runOnce(cfg, headDir, out.claim, out.witness, jest);
   const h2 = await runOnce(cfg, headDir, out.claim, out.witness, jest);
   const baseHasFile = baseDir !== null && fs.existsSync(path.join(baseDir, out.claim.file));
-  const b = baseHasFile ? await runOnce(cfg, baseDir as string, out.claim, out.witness, jest) : null;
+  let b: Awaited<ReturnType<typeof runOnce>> | null = null;
+  let note: string | undefined;
+  if (baseHasFile) {
+    try {
+      b = await runOnce(cfg, baseDir as string, out.claim, out.witness, jest);
+    } catch (err) {
+      // e.g. the witness path already exists on base: no usable base run, which
+      // the verdict table treats as inconclusive attribution, not a crash.
+      note = `base run skipped: ${(err as Error).message}`;
+    }
+  }
   const input: VerdictInput = { kind: 'executed', headRun: h1.result, headRerun: h2.result, baseRun: b ? b.result : null };
   return {
     verdict: decideVerdict(input),
     input,
+    note,
     runs: { head1: h1.result, head2: h2.result, base: b ? b.result : null },
     wallMs: [h1.wallMs, h2.wallMs, ...(b ? [b.wallMs] : [])],
   };

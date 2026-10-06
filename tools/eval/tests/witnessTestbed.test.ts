@@ -49,4 +49,11 @@ describe('witness testbed cases', () => {
     const c = cases.find((x) => x.id === 'go-new-code')!;
     expect(fs.existsSync(path.join(CASES_DIR, c.id, 'base', c.finding.file))).toBe(false);
   });
+
+  it('validateWitness rejects a claim/witness language mismatch (keeps Go witnesses out of the unsandboxed Jest path)', () => {
+    const c = cases.find((x) => x.id === 'go-regression')!;
+    const out = read(c.id, 'witness.json');
+    const mislabelled = { ...out.claim, language: 'javascript' as const };
+    expect(validateWitness(mislabelled, out.witness!, path.join(CASES_DIR, c.id, 'head'))).toMatch(/does not match/);
+  });
 });

@@ -42,6 +42,23 @@ context-aware fake. When tuning the author prompt, count how often an author
 produces `witness.json`-style (refuted) versus `witness.loose.json`-style
 (false proof) witnesses for this case.
 
+## Threat model and known limits
+A witness runs the PR's own code, so its result is only as trustworthy as that
+code. Reproduced against the Phase 0 sandbox: a package whose `TestMain` skips
+`m.Run`, writes forged `run` and `pass` events to `/proc/1/fd/1` (the
+container's stdout, bypassing `test2json`) and exits 0 gets a forged `pass`.
+The parser's checks (events must agree with the exit code, build/setup lines
+must be package-level, non-event JSON is ignored) stop casual or accidental
+forging, not an author who controls the process, because that author controls
+every signal the process emits. Consequences for the design:
+- `proven_*` and `refuted` are evidence about honest-but-wrong code, not a
+  defence against a deliberately hostile PR author.
+- A `refuted` verdict must never be the only reason a finding disappears. Keep
+  it visible (collapsed) so a forged pass can at worst demote a finding.
+- Phase 1 should still move `test2json` and result collection outside the
+  container where it can, and treat a pass on a PR that also touches `TestMain`
+  or the file under test with extra suspicion.
+
 ## Adding a case
 Make `cases/<id>/{case.json,head/,base/,witness.json}`. `case.json` needs
 `id` (same as the directory), `language`, `finding`, `expectedVerdict`,

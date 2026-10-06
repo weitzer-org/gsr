@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "javascript",
+    "file": "src/discount.js",
+    "symbol": "applyDiscount",
+    "input": "applyDiscount(200, 10)",
+    "expected": "180",
+    "actual": "-1800"
+  },
+  "witness": {
+    "path": "src/discount.gsr-witness.test.js",
+    "language": "javascript",
+    "framework": "jest",
+    "source": "const { applyDiscount } = require('./discount');\n\nif (typeof applyDiscount !== 'function') throw new Error('gsr-setup: applyDiscount not exported');\n\ntest('gsr witness', () => {\n  expect(applyDiscount(200, 10)).toBe(180);\n});\n"
+  }
+}

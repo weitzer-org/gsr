@@ -1,0 +1,13 @@
+{
+  "id": "go-timeout",
+  "language": "go",
+  "finding": {
+    "file": "pager/pager.go",
+    "line": 5,
+    "severity": "LOW",
+    "summary": "Page can hang."
+  },
+  "expectedVerdict": "hypothesis",
+  "notes": "The witness loops forever; the runner kills it at timeoutMs and a timeout is never evidence the claim is true.",
+  "timeoutMs": 6000
+}

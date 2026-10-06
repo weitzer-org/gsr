@@ -1,0 +1,12 @@
+{
+  "id": "go-preexisting",
+  "language": "go",
+  "finding": {
+    "file": "mathx/mathx.go",
+    "line": 9,
+    "severity": "HIGH",
+    "summary": "Clamp returns lo instead of hi when v exceeds hi: Clamp(15, 0, 10) returns 0."
+  },
+  "expectedVerdict": "proven_preexisting",
+  "notes": "Bug exists on base and head: the PR did not introduce it."
+}

@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "pager/pager.go",
+    "symbol": "Page",
+    "input": "Page(nil, 1, 2)",
+    "expected": "nil",
+    "actual": "panic"
+  },
+  "witness": {
+    "path": "pager/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package pager\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tt.Skip(\"gsr-setup: no way to build the input from the supplied code\")\n}\n"
+  }
+}

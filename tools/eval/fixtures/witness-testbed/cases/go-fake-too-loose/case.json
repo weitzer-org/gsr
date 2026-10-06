@@ -1,0 +1,19 @@
+{
+  "id": "go-fake-too-loose",
+  "language": "go",
+  "finding": {
+    "file": "store/store.go",
+    "line": 22,
+    "severity": "HIGH",
+    "summary": "Fetch ignores ctx cancellation: with an already-cancelled context it still performs all 3 reads before giving up."
+  },
+  "expectedVerdict": "refuted",
+  "notes": "The finding is FALSE for every real Reader (they honour ctx), mirroring the job_tracker recruiter false proof. witness.json uses the package MemReader (ctx-aware) and is refuted. witness.loose.json invents a Reader that ignores ctx and is wrongly \"proven\" (base and head are identical here, so it reads proven_preexisting; any proven_* is the false proof). The pipeline cannot catch that, only the author prompt can: score a prompt change by which of the two witnesses an author produces.",
+  "alsoCheck": [
+    {
+      "witnessFile": "witness.loose.json",
+      "expectedVerdict": "proven_preexisting",
+      "knownFalseProof": true
+    }
+  ]
+}

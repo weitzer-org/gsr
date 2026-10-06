@@ -1,0 +1,14 @@
+{
+  "claim": {
+    "testable": false,
+    "notTestableKind": "opinion",
+    "notTestableReason": "The finding only says it is unclear whether Judge was meant to get the same outage-tolerant fallback as ScoreJob and that a doc comment is missing, which is a design-intent and documentation concern with no concrete expected-versus-actual behavior.",
+    "language": "go",
+    "file": "internal/scoring/fallback.go",
+    "symbol": "",
+    "input": "",
+    "expected": "",
+    "actual": ""
+  },
+  "witness": null
+}

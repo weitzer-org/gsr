@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "internal/recruiter/store.go",
+    "symbol": "(*Store).Mutate",
+    "input": "Mutate(ctx, \"https://linkedin.com/in/jane\", identityFn) with ctx already cancelled, against a storage fake whose ReadFile returns ErrNotFound and whose WriteFile always returns ErrETagMismatch",
+    "expected": "Mutate stops retrying once ctx is cancelled, so fewer than maxWriteRetries (5) WriteFile attempts are made",
+    "actual": "Mutate ignores ctx.Done() and retries (sleeping each time) until all maxWriteRetries (5) WriteFile attempts are exhausted"
+  },
+  "witness": {
+    "path": "internal/recruiter/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package recruiter\n\nimport (\n\t\"context\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\n// gsrWitnessConflictStorage embeds storage.Client so it satisfies the interface\n// regardless of any methods not used by Store.Mutate. ReadFile reports a missing\n// object (ignoring ctx on purpose) and WriteFile always reports an ETag conflict.\ntype gsrWitnessConflictStorage struct {\n\tstorage.Client\n\twrites int\n}\n\nfunc (f *gsrWitnessConflictStorage) ReadFile(ctx context.Context, bucket, key string) ([]byte, string, error) {\n\treturn nil, \"\", storage.ErrNotFound\n}\n\nfunc (f *gsrWitnessConflictStorage) WriteFile(ctx context.Context, bucket, key string, data []byte, ifMatch string) error {\n\tf.writes++\n\treturn storage.ErrETagMismatch\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tfake := &gsrWitnessConflictStorage{}\n\ts := &Store{Storage: fake, Bucket: \"bucket\"}\n\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\n\t_, _ = s.Mutate(ctx, \"https://linkedin.com/in/jane\", func(c Contact) Contact { return c })\n\n\tif fake.writes >= maxWriteRetries {\n\t\tt.Fatalf(\"Mutate with an already-cancelled context made %d WriteFile attempts, want fewer than %d\", fake.writes, maxWriteRetries)\n\t}\n}\n"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "go-regression",
+  "language": "go",
+  "finding": {
+    "file": "pager/pager.go",
+    "line": 5,
+    "severity": "HIGH",
+    "summary": "Page treats page numbers as 0-based: Page([1,2,3,4,5], 1, 2) returns [3 4] instead of [1 2]."
+  },
+  "expectedVerdict": "proven_regression",
+  "notes": "Bug introduced by the PR: witness passes on base, fails on head."
+}

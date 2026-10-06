@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "internal/ingest/filters.go",
+    "symbol": "containsAnyWord",
+    "input": "containsAnyWord(\"vice-president of product\", []string{\"vice-president\"})",
+    "expected": "true",
+    "actual": "false"
+  },
+  "witness": {
+    "path": "internal/ingest/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := containsAnyWord(\"vice-president of product\", []string{\"vice-president\"})\n\tif got != true {\n\t\tt.Fatalf(\"containsAnyWord(%q, %v) = %v, want %v\", \"vice-president of product\", []string{\"vice-president\"}, got, true)\n\t}\n}\n"
+  }
+}

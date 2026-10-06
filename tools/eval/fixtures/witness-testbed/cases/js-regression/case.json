@@ -1,0 +1,12 @@
+{
+  "id": "js-regression",
+  "language": "javascript",
+  "finding": {
+    "file": "src/discount.js",
+    "line": 3,
+    "severity": "HIGH",
+    "summary": "applyDiscount treats pct as a fraction: applyDiscount(200, 10) returns -1800 instead of 180."
+  },
+  "expectedVerdict": "proven_regression",
+  "notes": "Bug introduced by the PR: passes on base, fails on head."
+}

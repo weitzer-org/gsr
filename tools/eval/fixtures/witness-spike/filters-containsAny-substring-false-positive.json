@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "internal/ingest/filters.go",
+    "symbol": "PassesTitleFilter",
+    "input": "PassesTitleFilter(\"Product Manager, Hotpmtools\")",
+    "expected": "true (\"tpm\" appears only inside the longer word \"hotpmtools\", so the exclusion keyword should not match and the title contains \"product manager\")",
+    "actual": "false (containsAny does a plain strings.Contains for the \"tpm\" needle, so it matches inside \"hotpmtools\" and wrongly excludes the title)"
+  },
+  "witness": {
+    "path": "internal/ingest/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\ttitle := \"Product Manager, Hotpmtools\"\n\tgot := PassesTitleFilter(title)\n\tif got != true {\n\t\tt.Fatalf(\"PassesTitleFilter(%q) = %v, want %v\", title, got, true)\n\t}\n}\n"
+  }
+}

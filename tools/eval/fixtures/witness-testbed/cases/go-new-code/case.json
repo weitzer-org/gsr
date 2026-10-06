@@ -1,0 +1,12 @@
+{
+  "id": "go-new-code",
+  "language": "go",
+  "finding": {
+    "file": "slug/slug.go",
+    "line": 7,
+    "severity": "HIGH",
+    "summary": "Slugify never replaces spaces with hyphens: Slugify(\"Hello World\") returns \"hello world\"."
+  },
+  "expectedVerdict": "proven_regression",
+  "notes": "The file is new in the PR, so there is no base run (base is null): decided on the head failures alone."
+}

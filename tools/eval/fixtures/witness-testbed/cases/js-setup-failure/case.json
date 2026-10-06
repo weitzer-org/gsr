@@ -1,0 +1,12 @@
+{
+  "id": "js-setup-failure",
+  "language": "javascript",
+  "finding": {
+    "file": "src/sum.js",
+    "line": 3,
+    "severity": "LOW",
+    "summary": "sumPositive is wrong."
+  },
+  "expectedVerdict": "hypothesis",
+  "notes": "The witness imports a symbol that is not exported and signals gsr-setup at load time: suite fails to run, never evidence the claim is true."
+}

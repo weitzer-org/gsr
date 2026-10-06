@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "mathx/mathx.go",
+    "symbol": "Clamp",
+    "input": "Clamp(15, 0, 10)",
+    "expected": "10",
+    "actual": "0"
+  },
+  "witness": {
+    "path": "mathx/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package mathx\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tif got := Clamp(15, 0, 10); got != 10 {\n\t\tt.Fatalf(\"Clamp(15, 0, 10) = %d, want 10\", got)\n\t}\n}\n"
+  }
+}

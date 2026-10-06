@@ -1,0 +1,14 @@
+{
+  "claim": {
+    "testable": false,
+    "notTestableKind": "opinion",
+    "notTestableReason": "The finding asks whether 0-based pages were intended and notes a missing doc comment; no concrete expected behavior to assert.",
+    "language": "go",
+    "file": "pager/pager.go",
+    "symbol": "",
+    "input": "",
+    "expected": "",
+    "actual": ""
+  },
+  "witness": null
+}

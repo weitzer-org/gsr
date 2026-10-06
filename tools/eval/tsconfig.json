@@ -9,5 +9,10 @@
     "outDir": "./dist",
     "resolveJsonModule": true
   },
-  "include": ["**/*.ts"]
+  "include": [
+    "**/*.ts"
+  ],
+  "ts-node": {
+    "experimentalResolver": true
+  }
 }

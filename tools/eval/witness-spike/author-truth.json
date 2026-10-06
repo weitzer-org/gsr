@@ -1,0 +1,21 @@
+{
+  "description": "Ground truth for scoring a REAL author's verdicts, fixed before any Gemini run. 'truth' is whether the finding's claim is actually true of the head code: true | false | opinion. 'attribution' (true claims only) is where the bug lives: regression (introduced or new in the PR) or preexisting. This is deliberately NOT the testbed's expectedVerdict: that field describes the reference witness, and several cases (build-failure, timeout, setup-skip, js-setup-failure) ship a deliberately broken one to exercise pipeline plumbing.",
+  "cases": {
+    "go-regression": { "truth": "true", "attribution": "regression", "why": "head uses page*size for a 1-based page; base used (page-1)*size." },
+    "go-new-code": { "truth": "true", "attribution": "regression", "why": "file is new in the PR; Slugify does not replace spaces." },
+    "go-preexisting": { "truth": "true", "attribution": "preexisting", "why": "same bug on base and head." },
+    "go-refuted-false-finding": { "truth": "false", "why": "code rounds half up; the claim is wrong." },
+    "go-fake-too-loose": { "truth": "false", "why": "every real Reader (incl. package MemReader) honours ctx, so a cancelled ctx stops after 1 read." },
+    "go-build-failure": { "truth": "true", "attribution": "regression", "why": "finding says Page is wrong for page 1; head is page*size (base was (page-1)*size). Same code as go-regression; only the reference witness is broken." },
+    "go-timeout": { "truth": "false", "why": "'Page can hang': Page has no loops or blocking calls." },
+    "go-setup-skip": { "truth": "false", "why": "'Page mishandles nil input': Page(nil,..) returns nil via the start>=len guard." },
+    "go-opinion": { "truth": "opinion", "why": "documentation/intent question; the doc comment already says 1-based." },
+    "js-regression": { "truth": "true", "attribution": "regression", "why": "head treats pct as a fraction." },
+    "js-refuted-false-finding": { "truth": "false", "why": "sumPositive filters x>0 before summing." },
+    "js-setup-failure": { "truth": "false", "why": "'sumPositive is wrong' is vague and the code is correct (adds positives, ignores the rest)." },
+    "filters-containsAny-substring-false-positive": { "truth": "true", "attribution": "regression", "why": "containsAny is strings.Contains; 'tpm' matches inside 'hotpmtools'. File is new in the PR (no base)." },
+    "filters-containsAnyWord-boundary-bug": { "truth": "true", "attribution": "regression", "weak": true, "why": "WEAK label. Needles are matched against [a-z0-9] runs, so a needle containing punctuation (e.g. 'vice-president') can never match a single-token set. True for such needles; whether any real vpTitleKeywords has one was not checked. Report this row separately if it decides a conclusion." },
+    "recruiter-store-mutate-missing-ctx-done": { "truth": "false", "why": "Phase 0 reproduced that with a ctx-aware client a cancelled context stops after one read and zero writes; only a ctx-ignoring fake shows the 'bug'." },
+    "scoring-fallback-judge-passthrough": { "truth": "opinion", "why": "asks whether pass-through was intended and wants a doc comment; not a behavioral claim." }
+  }
+}

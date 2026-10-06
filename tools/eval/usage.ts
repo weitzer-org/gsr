@@ -78,6 +78,7 @@ export interface UsageRecord extends UsageEvent {
 // and keep its rate in step with the backend's copy when it does.
 const PRICE_TABLE: Record<string, { input: number; output: number }> = {
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // <=200k-token-prompt tier — verify against current pricing if usage grows large
+  'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 }, // witness-spike/author.ts (production's chat model); same rate as adk/backend/src/usage.ts
 };
 
 // thinkingTokens is NOT added to outputTokens — same reasoning as

@@ -39,8 +39,18 @@ const OUT_DIR = path.join(HERE, '..', 'fixtures', 'witness-author-runs');
 
 /** Output that Jest would run unsandboxed: refuse anything reaching outside the process's own data. */
 export function jestGuard(source: string): string | null {
-  const banned = /child_process|\bworker_threads\b|\bcluster\b|require\(\s*['"`](?:node:)?(?:net|http|https|http2|dgram|dns|tls|vm|fs\/promises)['"`]|from\s+['"`](?:node:)?(?:net|http|https|http2|dgram|dns|tls|vm|child_process)['"`]|process\.(?:env|exit|kill|binding|chdir)|\bfetch\s*\(|\beval\s*\(|new\s+Function\b|\bimport\s*\(|XMLHttpRequest|WebSocket/;
-  // `os` is allowed on purpose: the prompt lets a witness write under fs.mkdtempSync(os.tmpdir()).
+  // Modules a witness has no business loading. `os` is allowed on purpose: the prompt lets a
+  // witness write under fs.mkdtempSync(os.tmpdir()).
+  const mod = '(?:node:)?(?:net|http|https|http2|dgram|dns|tls|vm|fs\\/promises|child_process)';
+  const q = '[\'"`]';
+  const banned = new RegExp([
+    'child_process', '\\bworker_threads\\b', '\\bcluster\\b',
+    `\\brequire\\s*\\(\\s*${q}${mod}${q}`,      // require ('net'), require\n('net')
+    `\\bfrom\\s+${q}${mod}${q}`,                  // import { x } from 'net'
+    `\\bimport\\s+${q}${mod}${q}`,                // import 'net'
+    'process\\.(?:env|exit|kill|binding|chdir)', '\\bfetch\\s*\\(', '\\beval\\s*\\(', 'new\\s+Function\\b',
+    '\\bimport\\s*\\(', 'XMLHttpRequest', 'WebSocket',
+  ].join('|'));
   const m = banned.exec(source);
   return m ? `bench guard rejected witness: ${m[0]}` : null;
 }
@@ -142,7 +152,11 @@ interface Sample {
 
 async function main() {
   const argv = process.argv.slice(2);
-  const arg = (k: string, d?: string) => (argv.includes(k) ? argv[argv.indexOf(k) + 1] : d);
+  // A flag with no value after it (e.g. a trailing `--n`) falls back to the default instead of undefined.
+  const arg = (k: string, d?: string) => {
+    const i = argv.indexOf(k);
+    return i !== -1 && i + 1 < argv.length ? argv[i + 1] : d;
+  };
   const version = arg('--prompt', 'v1') as string;
   const n = Number(arg('--n', '3'));
   const set = arg('--set', 'all');
@@ -162,6 +176,7 @@ async function main() {
     goBuildCacheDir: process.env.GO_BUILD_CACHE || fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-witness-author-gocache-')),
     timeoutMs: 120000, memory: '2g', cpus: '2',
   };
+  const tempCache = !process.env.GO_BUILD_CACHE;
   fs.mkdirSync(baseCfg.goBuildCacheDir, { recursive: true });
   fs.chmodSync(baseCfg.goBuildCacheDir, 0o777);
   // A dead daemon makes every Go run come back `not_run`, which scores as an
@@ -222,6 +237,12 @@ async function main() {
   const outFile = arg('--out') ?? path.join(OUT_DIR, `author-${version}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
   fs.writeFileSync(outFile, JSON.stringify({ prompt: version, model: AUTHOR_MODEL, n, set, findings: findings.map((f) => f.id), summary, samples }, null, 2));
   console.log(`wrote ${outFile}`);
+  // The default cache is per-run and about 300 MB, so remove it. Best effort: a non-root user may not
+  // own the container-written files, in which case say so instead of failing a finished run.
+  if (tempCache) {
+    try { fs.rmSync(baseCfg.goBuildCacheDir, { recursive: true, force: true }); }
+    catch (e) { console.warn(`could not remove ${baseCfg.goBuildCacheDir}: ${(e as Error).message}`); }
+  }
 }
 
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });

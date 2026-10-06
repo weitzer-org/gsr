@@ -12,11 +12,11 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Default checkout (persist-credentials: true, the actions/checkout default)
+      - name: "Default checkout (persist-credentials true, the actions/checkout default)"
         uses: actions/checkout@v4
         with:
           path: ws-default
-      - name: Checkout with persist-credentials false
+      - name: "Checkout with persist-credentials false"
         uses: actions/checkout@v4
         with:
           path: ws-nocreds

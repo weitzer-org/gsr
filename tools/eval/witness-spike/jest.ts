@@ -43,8 +43,11 @@ export function parseJestJson(
 
   let witnessOutcome: SandboxRunResult['witnessOutcome'] = 'not_run';
   if (!opts.timedOut && !buildFailed && witnesses.length === 1) {
-    if (witnesses[0].status === 'passed') witnessOutcome = 'pass';
-    else if (witnesses[0].status === 'failed') witnessOutcome = 'fail';
+    // The JSON is in-band output that the code under test could forge; Jest
+    // exits 0 iff everything passed, so the two must agree (same rule as the Go
+    // parser). A mismatch is inconclusive.
+    if (witnesses[0].status === 'passed' && opts.exitCode === 0) witnessOutcome = 'pass';
+    else if (witnesses[0].status === 'failed' && opts.exitCode !== null && opts.exitCode !== 0) witnessOutcome = 'fail';
   }
   return { exitCode: opts.exitCode, timedOut: opts.timedOut, buildFailed, witnessOutcome, outputTail };
 }

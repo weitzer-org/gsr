@@ -12,24 +12,30 @@ const SKIPPED = json({ numRuntimeErrorTestSuites: 0, testResults: [suite([{ titl
 const EMPTY = json({ numRuntimeErrorTestSuites: 0, testResults: [] });
 const TWO = json({ numRuntimeErrorTestSuites: 0, testResults: [suite([{ title: 'gsr witness', status: 'passed' }, { title: 'gsr witness', status: 'passed' }])] });
 
-const parse = (s: string, o: { timedOut?: boolean; exitCode?: number | null } = {}) => parseJestJson(s, { timedOut: o.timedOut ?? false, exitCode: o.exitCode ?? 0 });
+const parse = (s: string, o: { timedOut?: boolean; exitCode?: number | null } = {}) => parseJestJson(s, { timedOut: o.timedOut ?? false, exitCode: 'exitCode' in o ? (o.exitCode as number | null) : 0 });
 
 describe('parseJestJson', () => {
   it.each([
-    ['a passing witness', PASSED, 'pass', false],
-    ['a failing assertion', FAILED, 'fail', false],
-    ['a suite that failed to run (load-time throw, syntax error, bad import)', SUITE_FAILED_TO_RUN, 'not_run', true],
-    ['a skipped/pending witness', SKIPPED, 'not_run', false],
-    ['no tests collected', EMPTY, 'not_run', false],
-    ['more than one witness test', TWO, 'not_run', false],
-  ])('%s', (_n, input, outcome, buildFailed) => {
-    const r = parse(input as string);
+    ['a passing witness', PASSED, 0, 'pass', false],
+    ['a failing assertion', FAILED, 1, 'fail', false],
+    ['a suite that failed to run (load-time throw, syntax error, bad import)', SUITE_FAILED_TO_RUN, 1, 'not_run', true],
+    ['a skipped/pending witness', SKIPPED, 0, 'not_run', false],
+    ['no tests collected', EMPTY, 1, 'not_run', false],
+    ['more than one witness test', TWO, 0, 'not_run', false],
+  ])('%s', (_n, input, exitCode, outcome, buildFailed) => {
+    const r = parse(input as string, { exitCode: exitCode as number });
     expect(r.witnessOutcome).toBe(outcome);
     expect(r.buildFailed).toBe(buildFailed);
   });
 
   it('a timeout is never a result, even if output parses as a failure', () => {
-    expect(parse(FAILED, { timedOut: true })).toMatchObject({ timedOut: true, witnessOutcome: 'not_run' });
+    expect(parse(FAILED, { timedOut: true, exitCode: 1 })).toMatchObject({ timedOut: true, witnessOutcome: 'not_run' });
+  });
+
+  it('treats an output/exit-code mismatch as inconclusive (forged JSON on stdout)', () => {
+    expect(parse(PASSED, { exitCode: 1 }).witnessOutcome).toBe('not_run');
+    expect(parse(FAILED, { exitCode: 0 }).witnessOutcome).toBe('not_run');
+    expect(parse(PASSED, { exitCode: null }).witnessOutcome).toBe('not_run');
   });
 
   it('tolerates non-JSON output and keeps it as the tail', () => {

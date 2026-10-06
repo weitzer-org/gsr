@@ -77,6 +77,17 @@ export class TailBuffer {
  */
 export function copyWorkspaceWithoutGit(src: string): string {
   const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-witness-ws-'));
+  try {
+    populateWorkspace(src, dest);
+  } catch (err) {
+    // The caller only learns `dest` from a successful return, so it must not leak here.
+    fs.rmSync(dest, { recursive: true, force: true });
+    throw err;
+  }
+  return dest;
+}
+
+function populateWorkspace(src: string, dest: string): void {
   fs.cpSync(src, dest, {
     recursive: true,
     filter: (p) => path.basename(p) !== '.git' && !fs.lstatSync(p).isSymbolicLink(),
@@ -96,7 +107,6 @@ export function copyWorkspaceWithoutGit(src: string): string {
     if (st.isDirectory()) for (const e of fs.readdirSync(p)) chmodAll(path.join(p, e));
   };
   chmodAll(dest);
-  return dest;
 }
 
 /**

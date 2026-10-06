@@ -18,7 +18,7 @@ describe('parseAuthorOutput', () => {
   it('accepts a testable claim with a witness, and tolerates a Markdown fence', () => {
     const raw = JSON.stringify({ claim, witness: goWitness });
     expect(parseAuthorOutput(raw).output?.witness?.path).toBe(goWitness.path);
-    expect(parseAuthorOutput('```json\n' + raw + '\n```').output).toBeDefined();
+    expect(parseAuthorOutput('```json\n' + raw + '\n```').output?.witness?.path).toBe(goWitness.path);
   });
   it('accepts testable:false with a null witness', () => {
     const raw = JSON.stringify({ claim: { testable: false, notTestableKind: 'opinion', notTestableReason: 'x', language: 'go', file: 'a.go', symbol: '', input: '', expected: '', actual: '' }, witness: null });

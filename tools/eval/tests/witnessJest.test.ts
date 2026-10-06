@@ -38,6 +38,13 @@ describe('parseJestJson', () => {
     expect(parse(PASSED, { exitCode: null }).witnessOutcome).toBe('not_run');
   });
 
+  it('does not crash on forged JSON with the wrong shape (non-array testResults, null items)', () => {
+    for (const bad of ['{"testResults":{}}', '{"testResults":[null]}', '{"testResults":[{"assertionResults":{}}]}', '{"testResults":[{"assertionResults":[null]}]}', '{"testResults":"x","numRuntimeErrorTestSuites":"1"}']) {
+      expect(() => parse(bad)).not.toThrow();
+      expect(parse(bad).witnessOutcome).toBe('not_run');
+    }
+  });
+
   it('tolerates non-JSON output and keeps it as the tail', () => {
     const r = parse('jest: command not found');
     expect(r.witnessOutcome).toBe('not_run');

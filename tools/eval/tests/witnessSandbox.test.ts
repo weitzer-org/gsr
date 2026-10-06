@@ -68,8 +68,20 @@ describe('parseGoTestJson', () => {
     expect(parse(FRAMEWORK_TIMEOUT)).toMatchObject({ timedOut: true, witnessOutcome: 'not_run' });
   });
 
-  it('treats a witness that ran twice as not_run (only one test is allowed)', () => {
-    expect(parse(PASS + run('s/pass') + '\n').witnessOutcome).toBe('not_run');
+  it('treats a witness with two terminal events as not_run (only one test is allowed)', () => {
+    expect(parse(PASS + ev({ Action: 'pass', Package: 's/pass', Test: T }) + '\n').witnessOutcome).toBe('not_run');
+  });
+
+  it('still reads the result when the opening run event was truncated away (bounded tail)', () => {
+    const noRun = lines(out('s/pass', '--- PASS: TestGSRWitness (0.00s)\n'), ev({ Action: 'pass', Package: 's/pass', Test: T }), ev({ Action: 'pass', Package: 's/pass' }));
+    expect(parse(noRun).witnessOutcome).toBe('pass');
+  });
+
+  it('survives lines that parse as JSON but are not events (null, numbers, arrays, strings)', () => {
+    for (const junk of ['null', '123', '[]', '"x"', 'true']) {
+      expect(() => parse(`${junk}\n${PASS}`)).not.toThrow();
+      expect(parse(`${junk}\n${PASS}`).witnessOutcome).toBe('pass');
+    }
   });
 
   it('keeps non-JSON lines (e.g. docker errors) in the tail and survives garbage', () => {

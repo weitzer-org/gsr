@@ -205,7 +205,11 @@ export function parseGoTestJson(
     if (!line.trim()) continue;
     let ev: GoTestEvent;
     try {
-      ev = JSON.parse(line);
+      const parsed: unknown = JSON.parse(line);
+      // JSON.parse("null"), "123" or "[]" succeed but are not events; anything the
+      // code under test prints can reach here, so only a plain object is an event.
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an event');
+      ev = parsed as GoTestEvent;
     } catch {
       out.push(line + '\n'); // non-JSON line (e.g. raw build error text); split() dropped its newline
       if (/\[(build|setup) failed\]/.test(line)) buildFailed = true;
@@ -226,8 +230,13 @@ export function parseGoTestJson(
     }
     if (ev.Action === 'build-fail') buildFailed = true;
     if (ev.Test === testName) {
-      if (ev.Action === 'run') testRuns++;
-      if (ev.Action === 'pass' || ev.Action === 'fail' || ev.Action === 'skip') witnessAction = ev.Action;
+      // Count terminal events, not `run`: the output is a bounded tail, so for a
+      // very verbose test the opening `run` event can be evicted while the final
+      // result is always kept. One terminal event means the test ran once.
+      if (ev.Action === 'pass' || ev.Action === 'fail' || ev.Action === 'skip') {
+        witnessAction = ev.Action;
+        testRuns++;
+      }
     }
   }
 

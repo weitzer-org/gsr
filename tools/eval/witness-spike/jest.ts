@@ -27,8 +27,13 @@ export function parseJestJson(
     try { json = JSON.parse(stdout.slice(start, end + 1)); } catch { /* handled below */ }
   }
 
+  // The JSON is in-band output the code under test could forge, so never trust
+  // its shape: non-arrays and non-object items are treated as absent.
+  const suites = (v: unknown): JestSuite[] => (Array.isArray(v) ? v.filter((x): x is JestSuite => x !== null && typeof x === 'object') : []);
+  const testResults = suites(json?.testResults);
+
   const tailSource = json
-    ? (json.testResults ?? []).map((s) => s.message ?? '').join('\n')
+    ? testResults.map((s) => (typeof s.message === 'string' ? s.message : '')).join('\n')
     : stdout;
   const outputTail = tailSource.length > OUTPUT_TAIL_CHARS ? tailSource.slice(-OUTPUT_TAIL_CHARS) : tailSource;
 
@@ -36,10 +41,10 @@ export function parseJestJson(
     return { exitCode: opts.exitCode, timedOut: opts.timedOut, buildFailed: false, witnessOutcome: 'not_run', outputTail };
   }
 
-  const buildFailed = (json.numRuntimeErrorTestSuites ?? 0) > 0;
-  const witnesses = (json.testResults ?? [])
-    .flatMap((s) => s.assertionResults ?? [])
-    .filter((a) => a.title === JEST_WITNESS_TEST_NAME);
+  const buildFailed = typeof json.numRuntimeErrorTestSuites === 'number' && json.numRuntimeErrorTestSuites > 0;
+  const witnesses = testResults
+    .flatMap((s) => (Array.isArray(s.assertionResults) ? s.assertionResults : []))
+    .filter((a) => a !== null && typeof a === 'object' && a.title === JEST_WITNESS_TEST_NAME);
 
   let witnessOutcome: SandboxRunResult['witnessOutcome'] = 'not_run';
   if (!opts.timedOut && !buildFailed && witnesses.length === 1) {

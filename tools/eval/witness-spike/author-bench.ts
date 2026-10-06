@@ -186,7 +186,7 @@ async function main() {
     let headTail: string | undefined;
     if (res.output) {
       const out = res.output;
-      const guard = bindingError(f, out) ?? (out.witness && out.witness.language !== 'go' ? jestGuard(out.witness.source) : null);
+      const guard = bindingError(f, out) ?? (out.claim.testable && out.witness && out.witness.language !== 'go' ? jestGuard(out.witness.source) : null);
       if (guard) {
         verdict = 'hypothesis';
         note = guard;

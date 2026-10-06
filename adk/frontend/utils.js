@@ -1,6 +1,6 @@
 export function escapeHTML(str) {
-    if (!str) return '';
-    return str.replace(/[&<>'"]/g, 
+    if (str === null || str === undefined || str === '') return '';
+    return String(str).replace(/[&<>'"]/g, 
         tag => ({
             '&': '&amp;',
             '<': '&lt;',

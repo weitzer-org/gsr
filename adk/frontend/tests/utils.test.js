@@ -22,6 +22,12 @@ describe('utils.js', () => {
       expect(escapeHTML('')).toBe('');
       expect(escapeHTML(null)).toBe('');
     });
+
+    it('should coerce non-string values instead of throwing', () => {
+      expect(escapeHTML(42)).toBe('42');
+      expect(escapeHTML(0)).toBe('0');
+      expect(escapeHTML(undefined)).toBe('');
+    });
   });
 
   describe('parseStreamChunk', () => {

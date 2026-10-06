@@ -217,7 +217,7 @@ export function initApp() {
           const date = new Date(item.updated).toLocaleString();
 
           div.innerHTML = `
-             <div class="history-item-url" title="${displayUrl}">${displayUrl}</div>
+             <div class="history-item-url" title="${escapeHTML(displayUrl)}">${escapeHTML(displayUrl)}</div>
              <div class="history-item-date">${date}</div>
           `;
 
@@ -366,7 +366,7 @@ export function initApp() {
       } catch (error) {
           console.error(error);
           resultsContainer.classList.remove('hidden');
-          const errorHtml = `<div class="error-message main-error-message"><strong>Error:</strong> ${error.message}</div>`;
+          const errorHtml = `<div class="error-message main-error-message"><strong>Error:</strong> ${escapeHTML(error.message)}</div>`;
           document.querySelector('.tabs').insertAdjacentHTML('beforebegin', errorHtml);
       } finally {
           // Reset UI
@@ -389,8 +389,8 @@ export function initApp() {
           card.id = `task-${safeTaskId}`;
           
           card.innerHTML = `
-              <div class="agent-name">🤖 ${agent} Agent</div>
-              <div class="file-name" title="${file}">${file}</div>
+              <div class="agent-name">🤖 ${escapeHTML(agent)} Agent</div>
+              <div class="file-name" title="${escapeHTML(file)}">${escapeHTML(file)}</div>
               <div class="status-indicator">
                   <span class="skip-icon">⊘</span>
                   <span>Not Applicable</span>
@@ -410,8 +410,8 @@ export function initApp() {
           card.id = `task-${taskId.replace(/[^a-zA-Z0-9]/g, '-')}`;
           
           card.innerHTML = `
-              <div class="agent-name">🤖 ${agent} Agent</div>
-              <div class="file-name" title="${file}">${file}</div>
+              <div class="agent-name">🤖 ${escapeHTML(agent)} Agent</div>
+              <div class="file-name" title="${escapeHTML(file)}">${escapeHTML(file)}</div>
               <div class="status-indicator">
                   <div class="pulse-dot"></div>
                   <span>Analyzing...</span>
@@ -449,10 +449,10 @@ export function initApp() {
       const html = findings.map(f => `
           <div class="finding">
               <div class="finding-header">
-                  <span class="agent-badge">🤖 ${f.agent} Agent</span>
+                  <span class="agent-badge">🤖 ${escapeHTML(f.agent)} Agent</span>
                   <span class="severity-badge severity-${f.severity ? escapeHTML(f.severity.toLowerCase()) : 'unknown'}">${f.severity ? escapeHTML(f.severity) : 'UNKNOWN'}</span>
               </div>
-              <div class="location">📄 ${f.file}${f.line ? ` : L${f.line}` : ''}</div>
+              <div class="location">📄 ${escapeHTML(f.file)}${f.line ? ` : L${escapeHTML(f.line)}` : ''}</div>
               <div class="description">${escapeHTML(f.description)}</div>
           </div>
       `).join('');

@@ -224,7 +224,8 @@ export function runGoWitness(
 
     const timer = setTimeout(() => {
       timedOut = true;
-      spawn('docker', ['kill', name], { stdio: 'ignore' });
+      // An unhandled 'error' (no docker binary/daemon) would crash the process.
+      spawn('docker', ['kill', name], { stdio: 'ignore' }).on('error', () => {});
     }, cfg.timeoutMs);
 
     child.on('close', (code) => {

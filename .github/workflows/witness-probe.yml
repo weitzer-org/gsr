@@ -16,11 +16,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: ws-default
-      - name: "Checkout with persist-credentials false"
-        uses: actions/checkout@v4
-        with:
-          path: ws-nocreds
-          persist-credentials: false
       - name: Runner facts
         run: |
           uname -srm; nproc; free -m | sed -n 2p
@@ -32,9 +27,3 @@ jobs:
         run: |
           cd ws-default/tools/eval/witness-probe
           PROBE_WORKSPACE="$GITHUB_WORKSPACE/ws-default" ./run-probe.sh
-      - name: Probe against the persist-credentials=false checkout
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          cd ws-default/tools/eval/witness-probe
-          PROBE_WORKSPACE="$GITHUB_WORKSPACE/ws-nocreds" ./run-probe.sh | sed -n '/=== B/,/=== C/p'

@@ -112,4 +112,65 @@ describe('Evals frontend logic (evals.js)', () => {
             expect(document.getElementById('aggregate-report')?.innerHTML).toContain('Zero');
         }
     });
+
+    describe('rendering untrusted eval content', () => {
+        const hostile = '<img src=x onerror="alert(1)">';
+        const loadRun = async (run) => {
+            global.marked = { parse: (t) => t };
+            global.fetch.mockResolvedValueOnce({ ok: true, json: async () => [{ name: 'eval-run_x.json', updated: '2026-03-22' }] });
+            global.fetch.mockResolvedValueOnce({ ok: true, json: async () => run });
+            initEvals();
+            await new Promise(process.nextTick);
+            document.querySelector('#run-list li.run-item').click();
+            await new Promise(process.nextTick);
+            await new Promise(process.nextTick);
+        };
+        const baseRun = { aggregate_report: 'ok', aggregate_metrics: { targetA: {}, targetB: {} }, results: [] };
+        let savedPurify;
+
+        beforeEach(() => {
+            savedPurify = window.DOMPurify;
+            document.getElementById('run-list').innerHTML = '';
+            document.getElementById('aggregate-report').innerHTML = '';
+            document.getElementById('pr-accordion').innerHTML = '';
+        });
+        afterEach(() => { window.DOMPurify = savedPurify; });
+
+        it('fails closed (escaped text, no markup) when DOMPurify did not load', async () => {
+            delete window.DOMPurify;
+            await loadRun({ ...baseRun, aggregate_report: `report ${hostile}` });
+            const el = document.getElementById('aggregate-report');
+            expect(el.querySelector('img')).toBeNull();
+            expect(el.textContent).toContain(hostile);
+        });
+
+        it('sanitizes through DOMPurify when it is available', async () => {
+            window.DOMPurify = { sanitize: jest.fn(() => '<p>clean</p>') };
+            await loadRun({ ...baseRun, aggregate_report: `report ${hostile}` });
+            expect(window.DOMPurify.sanitize).toHaveBeenCalled();
+            expect(document.getElementById('aggregate-report').innerHTML).toBe('<p>clean</p>');
+        });
+
+        it('escapes finding fields and survives findings with missing severity or description', async () => {
+            delete window.DOMPurify;
+            await loadRun({
+                ...baseRun,
+                results: [{
+                    prUrl: 'https://github.com/o/r/pull/1',
+                    llm_comparison_report: `report ${hostile}`,
+                    targetA: { findings: [{ file: `"${hostile}.ts`, line: 3, severity: undefined, description: undefined }] },
+                    targetB: { findings: [{ file: 'b.ts', line: 1, severity: 'HIGH', description: `desc ${hostile}. more` }] },
+                }, {
+                    // no prUrl at all: must not blank the whole dashboard
+                    targetA: { findings: [] },
+                    targetB: { findings: [] },
+                }],
+            });
+            const acc = document.getElementById('pr-accordion');
+            expect(acc.querySelectorAll('details.pr-detail').length).toBe(2);
+            expect(acc.querySelectorAll('.finding-item').length).toBe(2);
+            expect(acc.querySelector('img')).toBeNull();
+            expect(acc.textContent).toContain(hostile);
+        });
+    });
 });

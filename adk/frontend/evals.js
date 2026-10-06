@@ -194,7 +194,7 @@ export function initEvals() {
             const detailStr = `
                 <details class="pr-detail">
                     <summary class="pr-summary">
-                        <h3>PR #${idx + 1}: ${escapeHTML(r.prUrl.split('/').pop())}</h3>
+                        <h3>PR #${idx + 1}: ${escapeHTML(String(r.prUrl || 'unknown').split('/').pop())}</h3>
                         <span class="pr-arrow">▼</span>
                     </summary>
                     <div class="pr-content">
@@ -223,14 +223,14 @@ export function initEvals() {
         if (!findings || findings.length === 0) return '<em>No findings found.</em>';
         let html = '<ul class="finding-list">';
         findings.forEach(f => {
-            const badgeClass = `severity-${escapeHTML(f.severity.toLowerCase())}`;
+            const badgeClass = `severity-${escapeHTML(String(f.severity || 'unknown').toLowerCase())}`;
             html += `
                 <li class="finding-item">
                     <div class="finding-header">
                         <span class="finding-file">${escapeHTML(f.file)}:${escapeHTML(f.line)}</span>
                         <span class="finding-severity ${badgeClass}">${escapeHTML(f.severity)}</span>
                     </div>
-                    <div class="finding-title">${escapeHTML(f.description.split('.')[0])}.</div>
+                    <div class="finding-title">${escapeHTML(String(f.description || '').split('.')[0])}.</div>
                     <p class="finding-desc">${escapeHTML(f.description)}</p>
                 </li>
             `;

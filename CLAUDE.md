@@ -246,7 +246,7 @@ review comment.
 consulting a phase table mid-task — a table nobody opens never fires.
 
 Call `Agent` with `subagent_type: "opus-verifier"` (model pinned to Opus in
-`~/.claude/agents/opus-verifier.md`) when **any** of these is true:
+`.claude/agents/opus-verifier.md`) when **any** of these is true:
 
 - A plan, diagnosis, or cost estimate rests on a premise about an external
   system you have **not executed**.
@@ -263,34 +263,59 @@ Call `Agent` with `subagent_type: "opus-verifier"` (model pinned to Opus in
 Use `subagent_type: "fable-reviewer"` for simplification and "is there a
 fundamentally easier way" questions, and whenever the user asks for Fable.
 
-Both agent definitions pin their own model. If you spawn a plain `Agent`
-instead, you **must** pass `model: "opus"` / `model: "fable"` explicitly — a
-bare `Agent` call silently inherits Sonnet, which defeats the entire point.
+All three agent definitions (`opus-verifier`, `fable-reviewer`,
+`haiku-worker`) live in `.claude/agents/` and pin their own model, so they
+load in cloud sessions too. If an agent type is missing (e.g. a session
+started before they were merged) and you spawn a plain `Agent` instead, you
+**must** pass `model: "opus"` / `"fable"` / `"haiku"` explicitly — a bare
+`Agent` call silently inherits Sonnet, which defeats the entire point.
 Hand the subagent full context; it starts cold. Report where it disagreed with
 you, not just its conclusion.
 
 ### Model assignment by kind of work
 
-When a task or plan says "follow the model assignments", use this table. The
-main session runs on whatever `/model` is set to (Sonnet by default) and
-cannot switch itself, so every non-Sonnet row below runs as a subagent with
-`model` passed explicitly. Subagents are only spawned when the user has asked
-for them or has said to follow these assignments.
+Use this table whenever a task or plan assigns work to a model. The main
+session runs on whatever `/model` is set to (Sonnet by default) and cannot
+switch itself, so every non-Sonnet row below runs as a subagent.
+
+**Standing authorization to spawn.** The user has asked, once and durably,
+for this to be automatic: when a plan, task list or design doc assigns a task
+to a non-Sonnet model, spawn the matching agent for that task **without
+asking first**. Guardrails, because Claude quota is a real constraint:
+
+- Only for tasks the plan *explicitly* assigns to that model, or an
+  escalation trigger above that actually fired. Never spawn an agent
+  "just to be safe".
+- One agent per assigned task, with the full context in its prompt (it starts
+  cold). No fan-out, no extra reviewers, no re-running one to double-check.
+- If a task would need more agents or a bigger model than the plan assigns,
+  stop and ask.
+- In the final report, say which agents ran, for which task, and where one
+  disagreed with the main session.
+- This authorizes spawning only. Merging, deploying, and anything outside the
+  task's scope still need the user.
+
+| Agent | `subagent_type` |
+|---|---|
+| Opus | `opus-verifier` |
+| Fable | `fable-reviewer` |
+| Haiku | `haiku-worker` |
 
 | Kind of work | Model | Notes |
 |---|---|---|
 | Implementation: features, bug fixes, tests, refactors, CI wiring | Sonnet | The default builder; runs in the main session |
-| Mechanical, fully specified chores: untracking files, `.gitignore`, formatting, docs for an already-built feature, flipping a workflow input | Haiku | Pass `model: "haiku"`. Hand it exact file paths and the exact change; don't use it for anything needing judgment |
+| Mechanical, fully specified chores: untracking files, `.gitignore`, formatting, docs for an already-built feature, flipping a workflow input | Haiku | `haiku-worker`. Hand it exact file paths and the exact change; don't use it for anything needing judgment |
 | Sandbox, secrets, auth, or code-execution design and its review | Opus | Pair with `/security-review`; this is the "irreversible or expensive" trigger above |
 | Writing or tuning a prompt whose quality decides whether a feature works | Opus | Review the result with Fable |
 | Scoring a run, comparing measurements, writing a gate report | Opus | The "comparing measurements" trigger above |
 | Triaging or rebutting a bot review finding | Opus | The "false positive" trigger above; reproduce the claim first |
-| "Is there a simpler way?" design checks | Fable | Pass `model: "fable"` |
+| "Is there a simpler way?" design checks | Fable | `fable-reviewer` |
 | Routine pre-merge review of a diff | `/quick-review` | No sub-agent; same quota profile as one call |
 
-Cloud sessions don't have the `opus-verifier` or `fable-reviewer` agents (they
-live in a developer's local `~/.claude/agents`), so pass `model` explicitly
-there. Never put a model name in a commit message, PR title or body, or code
+Project agents load live from `.claude/agents/`, except that the first agent
+file added to a new `agents` directory needs a session restart to be picked
+up. A same-named agent in a developer's `~/.claude/agents` loses to the
+project one. Never put a model name in a commit message, PR title or body, or code
 comment.
 
 ## Review-round triage ledger

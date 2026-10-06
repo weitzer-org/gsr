@@ -1,7 +1,7 @@
 //
 // Handles fetching GCS eval data, kicking off runs, and populating the UI.
 
-import { authFetch, wireLogoutLink, escapeHTML } from './utils.js';
+import { authFetch, wireLogoutLink, escapeHTML, renderMarkdownSafely } from './utils.js';
 
 export function initEvals() {
     wireLogoutLink();
@@ -175,9 +175,7 @@ export function initEvals() {
         metricBCalls.textContent = aggM.targetB?.calls || aggM.production?.calls || 0;
 
         if (data.aggregate_report) {
-            const rawHtml = marked.parse(data.aggregate_report);
-            // Fail closed: if the DOMPurify CDN script didn't load, show escaped text rather than raw markup.
-            aggReportEl.innerHTML = window.DOMPurify ? window.DOMPurify.sanitize(rawHtml) : escapeHTML(data.aggregate_report).replace(/\n/g, '<br/>');
+            aggReportEl.innerHTML = renderMarkdownSafely(data.aggregate_report);
         } else {
             aggReportEl.innerHTML = '<em>No aggregate summary generated for this run.</em>';
         }
@@ -200,7 +198,7 @@ export function initEvals() {
                     <div class="pr-content">
                         <div class="pr-llm-comparison markdown-body">
                             <h4>Targeted LLM Comparison Report</h4>
-                            ${window.DOMPurify ? window.DOMPurify.sanitize(marked.parse(r.llm_comparison_report || 'No specific comparison report generated.')) : escapeHTML(r.llm_comparison_report || 'No specific comparison report generated.').replace(/\n/g, '<br/>')}
+                            ${renderMarkdownSafely(r.llm_comparison_report || 'No specific comparison report generated.')}
                         </div>
                         <div class="pr-split-pane">
                             <div class="pane local-pane">
@@ -227,7 +225,7 @@ export function initEvals() {
             html += `
                 <li class="finding-item">
                     <div class="finding-header">
-                        <span class="finding-file">${escapeHTML(f.file)}:${escapeHTML(f.line)}</span>
+                        <span class="finding-file">${escapeHTML(f.file)}${f.line ? ':' + escapeHTML(f.line) : ''}</span>
                         <span class="finding-severity ${badgeClass}">${escapeHTML(f.severity || 'UNKNOWN')}</span>
                     </div>
                     <div class="finding-title">${escapeHTML(String(f.description || '').split('.')[0])}.</div>

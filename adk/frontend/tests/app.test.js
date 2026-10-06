@@ -300,6 +300,10 @@ describe('App frontend logic (app.js)', () => {
             await flush();
         };
 
+        afterEach(() => {
+            global.fetch.mockReset();
+        });
+
         beforeEach(() => {
             document.getElementById('progress-grid').innerHTML = '';
             document.getElementById('subagent-findings-list').innerHTML = '';

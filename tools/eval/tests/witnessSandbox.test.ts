@@ -26,21 +26,31 @@ const FRAMEWORK_TIMEOUT = lines(run('s/t'), out('s/t', 'panic: test timed out af
 const NO_TESTS = lines(ev({ Action: 'start', Package: 's/none' }), out('s/none', 'testing: warning: no tests to run\n', false), ev({ Action: 'pass', Package: 's/none' }));
 
 const parse = (s: string, o: { timedOut?: boolean; exitCode?: number | null } = {}) =>
-  parseGoTestJson(s, T, { timedOut: o.timedOut ?? false, exitCode: o.exitCode ?? 0 });
+  parseGoTestJson(s, T, { timedOut: o.timedOut ?? false, exitCode: 'exitCode' in o ? (o.exitCode as number | null) : 0 });
 
 describe('parseGoTestJson', () => {
   it.each([
-    ['a passing witness', PASS, 'pass', false],
-    ['a failing assertion', FAIL, 'fail', false],
-    ['a panic inside the test', PANIC, 'fail', false],
-    ['a build failure', BUILD, 'not_run', true],
-    ['a t.Skip setup signal', SKIP, 'not_run', false],
-    ['zero matching tests', NO_TESTS, 'not_run', false],
-  ])('%s', (_name, input, outcome, buildFailed) => {
-    const r = parse(input as string);
+    ['a passing witness', PASS, 0, 'pass', false],
+    ['a failing assertion', FAIL, 1, 'fail', false],
+    ['a panic inside the test', PANIC, 1, 'fail', false],
+    ['a build failure', BUILD, 1, 'not_run', true],
+    ['a t.Skip setup signal', SKIP, 0, 'not_run', false],
+    ['zero matching tests', NO_TESTS, 0, 'not_run', false],
+  ])('%s', (_name, input, exitCode, outcome, buildFailed) => {
+    const r = parse(input as string, { exitCode: exitCode as number });
     expect(r.witnessOutcome).toBe(outcome);
     expect(r.buildFailed).toBe(buildFailed);
     expect(r.timedOut).toBe(false);
+  });
+
+  it('treats an event/exit-code mismatch as inconclusive (forged events written to the container stdout)', () => {
+    // Real run failed (exit 1) but a forged pass event came last: must not read as pass/refuted.
+    expect(parse(PASS, { exitCode: 1 }).witnessOutcome).toBe('not_run');
+    // Real run passed (exit 0) but a forged fail event came last.
+    expect(parse(FAIL, { exitCode: 0 }).witnessOutcome).toBe('not_run');
+    // No exit code at all (spawn problem): never a result.
+    expect(parse(PASS, { exitCode: null }).witnessOutcome).toBe('not_run');
+    expect(parse(FAIL, { exitCode: null }).witnessOutcome).toBe('not_run');
   });
 
   it('ignores build/setup-failed text printed by the code under test (Test set), but not the go tool\'s own', () => {

@@ -197,8 +197,13 @@ export function parseGoTestJson(
   const timedOut = opts.timedOut || frameworkTimeout;
   let witnessOutcome: SandboxRunResult['witnessOutcome'] = 'not_run';
   if (!timedOut && !buildFailed && testRuns === 1) {
-    if (witnessAction === 'pass') witnessOutcome = 'pass';
-    else if (witnessAction === 'fail') witnessOutcome = 'fail';
+    // The JSON stream is not fully trustworthy: code under test can open
+    // /proc/1/fd/1 and write forged events straight to the container's stdout
+    // (reproduced in the sandbox). `go test` exits 0 iff the run passed, so the
+    // event and the exit code must agree; a mismatch is inconclusive, never a
+    // forged pass (which would read as `refuted`) or a forged fail.
+    if (witnessAction === 'pass' && opts.exitCode === 0) witnessOutcome = 'pass';
+    else if (witnessAction === 'fail' && opts.exitCode !== null && opts.exitCode !== 0) witnessOutcome = 'fail';
   }
 
   const text = out.join('');

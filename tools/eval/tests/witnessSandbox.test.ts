@@ -1,5 +1,8 @@
 import { describe, it, expect } from '@jest/globals';
-import { parseGoTestJson, dockerArgs, SandboxConfig } from '../witness-spike/sandbox';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { parseGoTestJson, dockerArgs, SandboxConfig, copyWorkspaceWithoutGit, writeWitnessFile } from '../witness-spike/sandbox';
 
 // Event lines below are trimmed from real `go test -json` output (go1.24.7)
 // captured for each outcome; see the Phase 0 report for how they were made.
@@ -86,5 +89,42 @@ describe('dockerArgs', () => {
     const i = args.indexOf('img');
     expect(args.slice(i + 1, i + 5)).toEqual(['go', 'test', '-json', '-buildvcs=false']);
     expect(args).toContain('^TestGSRWitness$');
+  });
+});
+
+describe('workspace copy and witness write (attacker-controlled checkout)', () => {
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-test-'));
+
+  it('drops .git and symlinks, and never touches what a symlink points at', () => {
+    const victim = tmp();
+    fs.writeFileSync(path.join(victim, 'data.txt'), 'x');
+    fs.chmodSync(victim, 0o700);
+    fs.chmodSync(path.join(victim, 'data.txt'), 0o600);
+    const repo = tmp();
+    fs.mkdirSync(path.join(repo, '.git'));
+    fs.writeFileSync(path.join(repo, '.git', 'config'), 'token');
+    fs.mkdirSync(path.join(repo, 'internal'));
+    fs.writeFileSync(path.join(repo, 'internal', 'a.go'), 'package a');
+    fs.symlinkSync(victim, path.join(repo, 'internal', 'ingest'));
+
+    const ws = copyWorkspaceWithoutGit(repo);
+    expect(fs.existsSync(path.join(ws, '.git'))).toBe(false);
+    expect(fs.existsSync(path.join(ws, 'internal', 'ingest'))).toBe(false);
+    expect(fs.existsSync(path.join(ws, 'internal', 'a.go'))).toBe(true);
+    expect(fs.statSync(victim).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(path.join(victim, 'data.txt')).mode & 0o777).toBe(0o600);
+  });
+
+  it('writeWitnessFile refuses a path that resolves outside the workspace and never overwrites', () => {
+    const outside = tmp();
+    const ws = tmp();
+    fs.symlinkSync(outside, path.join(ws, 'link'));
+    expect(() => writeWitnessFile(ws, 'link/zz_gsr_witness_test.go', 'x')).toThrow(/escapes the workspace/);
+    expect(fs.readdirSync(outside)).toEqual([]);
+
+    fs.mkdirSync(path.join(ws, 'pkg'));
+    writeWitnessFile(ws, 'pkg/zz_gsr_witness_test.go', 'first');
+    expect(() => writeWitnessFile(ws, 'pkg/zz_gsr_witness_test.go', 'second')).toThrow();
+    expect(fs.readFileSync(path.join(ws, 'pkg', 'zz_gsr_witness_test.go'), 'utf8')).toBe('first');
   });
 });

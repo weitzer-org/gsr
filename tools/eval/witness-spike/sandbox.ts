@@ -8,6 +8,13 @@
 //   limits, no host environment inherited, workspace COPIED without .git (a
 //   mounted checkout leaks the token that actions/checkout leaves in .git).
 // Docker arguments are an array, never a shell string.
+//
+// Known limit for Phase 1: the Go build cache is mounted read-write so warm
+// runs are fast (~1s vs ~47s cold). Code in the container can write to it, so
+// a cache shared across untrusted PRs could be poisoned. Whether Go re-verifies
+// cached output content on read is unverified here; until it is, use one cache
+// per PR/run (or restore it read-only from a trusted build), never one shared
+// across PRs.
 
 import { spawn } from 'child_process';
 import * as fs from 'fs';
@@ -29,22 +36,44 @@ export interface SandboxConfig {
 
 const OUTPUT_TAIL_CHARS = 4096;
 
-/** Copies `src` to a fresh world-writable temp dir, excluding .git. */
+/**
+ * Copies `src` to a fresh world-writable temp dir, excluding .git and every
+ * symlink. The checkout is attacker-controlled (a PR can commit a symlink to
+ * any host path): copying a symlink and then chmod-ing or writing through it
+ * would change permissions on, or write into, files outside the copy.
+ * Dropping symlinks can only make a witness fail to build (inconclusive),
+ * never turn a result into a false "proven".
+ */
 export function copyWorkspaceWithoutGit(src: string): string {
   const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-witness-ws-'));
   fs.cpSync(src, dest, {
     recursive: true,
-    filter: (p) => path.basename(p) !== '.git',
+    filter: (p) => path.basename(p) !== '.git' && !fs.lstatSync(p).isSymbolicLink(),
   });
   // The container runs as uid 65534, so the copy must be writable by it.
+  // lstat, not stat: never follow a link out of the copy.
   const chmodAll = (p: string) => {
-    fs.chmodSync(p, fs.statSync(p).isDirectory() ? 0o777 : 0o666);
-    if (fs.statSync(p).isDirectory()) {
-      for (const e of fs.readdirSync(p)) chmodAll(path.join(p, e));
-    }
+    const st = fs.lstatSync(p);
+    if (st.isSymbolicLink()) return;
+    fs.chmodSync(p, st.isDirectory() ? 0o777 : 0o666);
+    if (st.isDirectory()) for (const e of fs.readdirSync(p)) chmodAll(path.join(p, e));
   };
   chmodAll(dest);
   return dest;
+}
+
+/**
+ * Writes the witness file into the workspace copy, refusing any target that
+ * resolves outside it (defence in depth on top of dropping symlinks).
+ */
+export function writeWitnessFile(workspace: string, relPath: string, source: string): void {
+  const root = fs.realpathSync(workspace);
+  const target = path.join(root, relPath);
+  const parent = fs.realpathSync(path.dirname(target));
+  if (parent !== root && !parent.startsWith(root + path.sep)) {
+    throw new Error(`witness path escapes the workspace: ${relPath}`);
+  }
+  fs.writeFileSync(path.join(parent, path.basename(target)), source, { flag: 'wx' });
 }
 
 export function dockerArgs(cfg: SandboxConfig, name: string, workspace: string, goTestArgs: string[]): string[] {

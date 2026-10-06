@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { WitnessAuthorOutput } from '../../../adk/backend/src/witness/types';
 import { GO_WITNESS_TEST_NAME } from '../../../adk/backend/src/witness/types';
-import { copyWorkspaceWithoutGit, runGoWitness, SandboxConfig } from './sandbox';
+import { copyWorkspaceWithoutGit, runGoWitness, SandboxConfig, writeWitnessFile } from './sandbox';
 
 async function main() {
   const checkout = process.argv[2];
@@ -38,7 +38,7 @@ async function main() {
     }
     const ws = copyWorkspaceWithoutGit(checkout);
     try {
-      fs.writeFileSync(path.join(ws, out.witness.path), out.witness.source);
+      writeWitnessFile(ws, out.witness.path, out.witness.source);
       const r = await runGoWitness(cfg, ws, path.dirname(out.claim.file), GO_WITNESS_TEST_NAME);
       console.log(`${f.padEnd(52)} ${r.result.witnessOutcome}${r.result.buildFailed ? ' (build failed)' : ''}${r.result.timedOut ? ' (timed out)' : ''} ${r.wallMs}ms`);
       if (r.result.witnessOutcome !== 'pass') console.log('    ' + r.result.outputTail.trim().split('\n').slice(-6).join('\n    '));

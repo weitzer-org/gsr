@@ -27,7 +27,7 @@ import * as path from 'path';
 import type { Claim, SandboxRunResult, VerdictInput, WitnessAuthorOutput, WitnessVerdict } from '../../../adk/backend/src/witness/types';
 import { GO_WITNESS_FILENAME, GO_WITNESS_TEST_NAME } from '../../../adk/backend/src/witness/types';
 import { decideVerdict } from '../../../adk/backend/src/witness/verdict';
-import { copyWorkspaceWithoutGit, runGoWitness, SandboxConfig } from './sandbox';
+import { copyWorkspaceWithoutGit, runGoWitness, SandboxConfig, writeWitnessFile } from './sandbox';
 
 interface FixtureEntry { id: string; prUrl: string; file: string; line: number; summary: string; gap?: string }
 interface Cases { goDirectiveOverride?: string; prs: Record<string, { headSha: string; baseSha: string }> }
@@ -104,7 +104,7 @@ export function validateWitness(claim: Claim, witness: NonNullable<WitnessAuthor
 async function runOnce(cfg: SandboxConfig, checkout: string, claim: Claim, source: string) {
   const ws = copyWorkspaceWithoutGit(checkout);
   try {
-    fs.writeFileSync(path.join(ws, path.dirname(claim.file), GO_WITNESS_FILENAME), source);
+    writeWitnessFile(ws, path.posix.join(path.posix.dirname(claim.file), GO_WITNESS_FILENAME), source);
     return await runGoWitness(cfg, ws, path.dirname(claim.file), GO_WITNESS_TEST_NAME);
   } finally {
     fs.rmSync(ws, { recursive: true, force: true });

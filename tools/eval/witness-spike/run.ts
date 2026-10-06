@@ -79,8 +79,10 @@ function prepare() {
     const dir = path.dirname(e.file);
     const diff = git(['diff', '--no-color', pr.baseSha, pr.headSha, '--', e.file]);
     const fileUnderTest = readOr(path.join(head, e.file));
-    const nearby = fs.readdirSync(path.join(head, dir)).filter((f) => f.endsWith('_test.go')).sort()[0];
-    const listing = fs.readdirSync(path.join(head, dir)).sort().join('\n');
+    // The directory may not exist at head (the PR can delete the file's whole directory).
+    const entries = fs.existsSync(path.join(head, dir)) ? fs.readdirSync(path.join(head, dir)).sort() : [];
+    const nearby = entries.filter((f) => f.endsWith('_test.go'))[0];
+    const listing = entries.join('\n');
     const finding = JSON.stringify({ file: e.file, line: e.line, severity: 'HIGH', summary: e.summary, description: e.summary }, null, 2);
 
     const bundle = [

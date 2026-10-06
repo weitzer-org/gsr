@@ -2,7 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CASES_DIR, listCases } from '../witness-spike/testbed';
-import { validateWitness } from '../witness-spike/pipeline';
+import { validateWitness, evaluateWitness } from '../witness-spike/pipeline';
 import type { WitnessAuthorOutput } from '../../../adk/backend/src/witness/types';
 
 const VERDICTS = ['proven_regression', 'proven_preexisting', 'refuted', 'hypothesis', 'opinion'];
@@ -69,5 +69,17 @@ describe('witness testbed cases', () => {
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  it('evaluateWitness keeps an authoring failure (testable:true, witness:null) distinct from an untestable claim', async () => {
+    const cfg = { image: 'unused', goModCacheDir: '', goBuildCacheDir: '', timeoutMs: 1, memory: '1g', cpus: '1' };
+    const claim = { testable: true, language: 'go' as const, file: 'x.go', symbol: 'f', input: '', expected: '', actual: '' };
+    const failed = await evaluateWitness(cfg, '/nonexistent', null, { claim, witness: null });
+    expect(failed.input.kind).toBe('no_witness');
+    expect(failed.verdict).toBe('hypothesis');
+    expect(failed.note).toMatch(/witness:null/);
+    const untestable = await evaluateWitness(cfg, '/nonexistent', null, { claim: { ...claim, testable: false, notTestableKind: 'opinion', notTestableReason: 'style' }, witness: null });
+    expect(untestable.input.kind).toBe('not_testable');
+    expect(untestable.verdict).toBe('opinion');
   });
 });

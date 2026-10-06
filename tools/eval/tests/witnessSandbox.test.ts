@@ -109,7 +109,10 @@ describe('dockerArgs', () => {
 
   it('applies every isolation flag the probe verified, as discrete adjacent args', () => {
     const pairs: [string, string][] = [['--network', 'none'], ['--user', '65534:65534'], ['--cap-drop', 'ALL'], ['--security-opt', 'no-new-privileges'], ['--pids-limit', '512'], ['--memory', '1g'], ['--cpus', '1']];
-    for (const [flag, value] of pairs) expect(args[args.indexOf(flag) + 1]).toBe(value);
+    for (const [flag, value] of pairs) {
+      expect(args).toContain(flag);
+      expect(args[args.indexOf(flag) + 1]).toBe(value);
+    }
     expect(args).toContain('--read-only');
   });
 
@@ -123,6 +126,24 @@ describe('dockerArgs', () => {
     const i = args.indexOf('img');
     expect(args.slice(i + 1, i + 5)).toEqual(['go', 'test', '-json', '-buildvcs=false']);
     expect(args).toContain('^TestGSRWitness$');
+  });
+});
+
+describe('workspace layout', () => {
+  it('keeps the world-writable work dir inside a 0700 parent and removes both together', () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-test-lay-'));
+    try {
+      fs.writeFileSync(path.join(repo, 'a.go'), 'package a');
+      const ws = copyWorkspaceWithoutGit(repo);
+      const parent = path.dirname(ws);
+      expect(path.basename(ws)).toBe('work');
+      expect(fs.statSync(parent).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(ws).mode & 0o777).toBe(0o777);
+      removeWorkspace(ws);
+      expect(fs.existsSync(parent)).toBe(false);
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
 
@@ -169,7 +190,7 @@ describe('workspace copy keeps execute bits', () => {
       try {
         expect(fs.statSync(path.join(ws, 'run.sh')).mode & 0o777).toBe(0o777);
         expect(fs.statSync(path.join(ws, 'data.txt')).mode & 0o777).toBe(0o666);
-      } finally { fs.rmSync(ws, { recursive: true, force: true }); }
+      } finally { removeWorkspace(ws); }
     } finally { fs.rmSync(repo, { recursive: true, force: true }); }
   });
 });
@@ -192,6 +213,7 @@ describe('workspace copy and witness write (attacker-controlled checkout)', () =
     fs.symlinkSync(victim, path.join(repo, 'internal', 'ingest'));
 
     const ws = copyWorkspaceWithoutGit(repo);
+    made.push(path.dirname(ws)); // the 0700 parent; the afterEach hook removes it with the work dir
     expect(fs.existsSync(path.join(ws, '.git'))).toBe(false);
     expect(fs.existsSync(path.join(ws, 'internal', 'ingest'))).toBe(false);
     expect(fs.existsSync(path.join(ws, 'internal', 'a.go'))).toBe(true);

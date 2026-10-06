@@ -36,6 +36,7 @@ export interface SandboxConfig {
 
 const OUTPUT_TAIL_CHARS = 4096;
 const CAPTURE_MAX_BYTES = 2_000_000;
+const WORKSPACE_PREFIX = 'gsr-witness-ws-';
 
 /**
  * Keeps roughly the last `max` bytes of a stream as a queue of Buffers, so a
@@ -68,20 +69,27 @@ export class TailBuffer {
 }
 
 /**
- * Copies `src` to a fresh world-writable temp dir, excluding .git and every
- * symlink. The checkout is attacker-controlled (a PR can commit a symlink to
- * any host path): copying a symlink and then chmod-ing or writing through it
- * would change permissions on, or write into, files outside the copy.
- * Dropping symlinks can only make a witness fail to build (inconclusive),
- * never turn a result into a false "proven".
+ * Copies `src` into a fresh workspace, excluding .git and every symlink. The
+ * checkout is attacker-controlled (a PR can commit a symlink to any host path):
+ * copying a symlink and then chmod-ing or writing through it would change
+ * permissions on, or write into, files outside the copy. Dropping symlinks can
+ * only make a witness fail to build (inconclusive), never turn a result into a
+ * false "proven".
+ *
+ * Layout: <tmp>/gsr-witness-ws-XXXX (0700, from mkdtemp) / work (0777). The
+ * container's uid 65534 must be able to write the mounted directory, so `work`
+ * is world-writable, but other host users cannot reach it through the 0700
+ * parent. Returns the `work` path; pass it to removeWorkspace to clean up both.
  */
 export function copyWorkspaceWithoutGit(src: string): string {
-  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-witness-ws-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), WORKSPACE_PREFIX));
+  const dest = path.join(root, 'work');
   try {
+    fs.mkdirSync(dest);
     populateWorkspace(src, dest);
   } catch (err) {
     // The caller only learns `dest` from a successful return, so it must not leak here.
-    fs.rmSync(dest, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
     throw err;
   }
   return dest;
@@ -92,11 +100,10 @@ function populateWorkspace(src: string, dest: string): void {
     recursive: true,
     filter: (p) => path.basename(p) !== '.git' && !fs.lstatSync(p).isSymbolicLink(),
   });
-  // The container runs as uid 65534, so the copy must be writable by it, which
-  // makes it world-writable on the host while the run lasts (mkdtemp alone
-  // would be 0700). Accepted for the spike, which runs on a developer machine
-  // or a single-job ephemeral runner; Phase 1 must not run this on a shared
-  // multi-user host (use per-run user namespaces or chown to the sandbox uid).
+  // The container runs as uid 65534, so the copy must be writable by it, i.e.
+  // world-writable; the 0700 parent (see copyWorkspaceWithoutGit) keeps other
+  // host users out. Phase 1 should still prefer per-run user namespaces or a
+  // chown to the sandbox uid over world-writable files.
   // lstat, not stat: never follow a link out of the copy.
   const chmodAll = (p: string) => {
     const st = fs.lstatSync(p);
@@ -119,10 +126,13 @@ function populateWorkspace(src: string, dest: string): void {
  * user namespaces or by running the container as the host uid.
  */
 export function removeWorkspace(ws: string, rm: typeof fs.rmSync = fs.rmSync): void {
+  // copyWorkspaceWithoutGit hands out <root>/work; remove the whole <root>.
+  const parent = path.dirname(ws);
+  const target = path.basename(ws) === 'work' && path.basename(parent).startsWith(WORKSPACE_PREFIX) ? parent : ws;
   try {
-    rm(ws, { recursive: true, force: true });
+    rm(target, { recursive: true, force: true });
   } catch (err) {
-    console.warn(`could not fully remove witness workspace ${ws}: ${(err as NodeJS.ErrnoException).code ?? err}`);
+    console.warn(`could not fully remove witness workspace ${target}: ${(err as NodeJS.ErrnoException).code ?? err}`);
   }
 }
 

@@ -78,9 +78,15 @@ export async function evaluateWitness(
   out: WitnessAuthorOutput,
   jest?: JestRunner,
 ): Promise<EvaluationResult> {
-  if (!out.claim.testable || !out.witness) {
+  if (!out.claim.testable) {
     const input: VerdictInput = { kind: 'not_testable', notTestableKind: out.claim.notTestableKind ?? 'insufficient_context' };
     return { verdict: decideVerdict(input), input };
+  }
+  if (!out.witness) {
+    // An authoring failure, not an untestable claim: keep it distinct so the
+    // author's yield can be measured honestly.
+    const input: VerdictInput = { kind: 'no_witness' };
+    return { verdict: decideVerdict(input), input, note: 'author returned testable:true but witness:null' };
   }
   const bad = validateWitness(out.claim, out.witness, headDir);
   if (bad) {

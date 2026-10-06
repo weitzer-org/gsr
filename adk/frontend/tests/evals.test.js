@@ -169,6 +169,7 @@ describe('Evals frontend logic (evals.js)', () => {
             const acc = document.getElementById('pr-accordion');
             expect(acc.querySelectorAll('details.pr-detail').length).toBe(2);
             expect(acc.querySelectorAll('.finding-item').length).toBe(2);
+            expect(acc.querySelector('.finding-severity.severity-unknown').textContent).toBe('UNKNOWN');
             expect(acc.querySelector('img')).toBeNull();
             expect(acc.textContent).toContain(hostile);
         });

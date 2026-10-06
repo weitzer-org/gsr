@@ -127,14 +127,16 @@ describe('Evals frontend logic (evals.js)', () => {
         };
         const baseRun = { aggregate_report: 'ok', aggregate_metrics: { targetA: {}, targetB: {} }, results: [] };
         let savedPurify;
+        let savedMarked;
 
         beforeEach(() => {
             savedPurify = window.DOMPurify;
+            savedMarked = global.marked;
             document.getElementById('run-list').innerHTML = '';
             document.getElementById('aggregate-report').innerHTML = '';
             document.getElementById('pr-accordion').innerHTML = '';
         });
-        afterEach(() => { window.DOMPurify = savedPurify; });
+        afterEach(() => { window.DOMPurify = savedPurify; global.marked = savedMarked; });
 
         it('fails closed (escaped text, no markup) when DOMPurify did not load', async () => {
             delete window.DOMPurify;
@@ -159,7 +161,10 @@ describe('Evals frontend logic (evals.js)', () => {
                     prUrl: 'https://github.com/o/r/pull/1',
                     llm_comparison_report: `report ${hostile}`,
                     targetA: { findings: [{ file: `"${hostile}.ts`, line: 3, severity: undefined, description: undefined }] },
-                    targetB: { findings: [{ file: 'b.ts', line: 1, severity: 'HIGH', description: `desc ${hostile}. more` }] },
+                    targetB: { findings: [
+                        { file: 'b.ts', line: 1, severity: 'HIGH', description: `desc ${hostile}. more` },
+                        { file: 'noline.ts', severity: 'LOW', description: 'no line number.' },
+                    ] },
                 }, {
                     // no prUrl at all: must not blank the whole dashboard
                     targetA: { findings: [] },
@@ -168,7 +173,10 @@ describe('Evals frontend logic (evals.js)', () => {
             });
             const acc = document.getElementById('pr-accordion');
             expect(acc.querySelectorAll('details.pr-detail').length).toBe(2);
-            expect(acc.querySelectorAll('.finding-item').length).toBe(2);
+            expect(acc.querySelectorAll('.finding-item').length).toBe(3);
+            const files = [...acc.querySelectorAll('.finding-file')].map((n) => n.textContent);
+            expect(files).toContain('noline.ts'); // no dangling colon without a line number
+            expect(files).toContain('b.ts:1');
             expect(acc.querySelector('.finding-severity.severity-unknown').textContent).toBe('UNKNOWN');
             expect(acc.querySelector('img')).toBeNull();
             expect(acc.textContent).toContain(hostile);

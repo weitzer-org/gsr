@@ -11,6 +11,18 @@ export function escapeHTML(str) {
     return String(str).replace(/[&<>'"]/g, tag => HTML_ENTITIES[tag]);
 }
 
+// Renders LLM-written markdown for innerHTML. Fails closed: markup is produced
+// only when BOTH marked and DOMPurify loaded (they come from CDN script tags);
+// otherwise the text is shown escaped. Keep every markdown sink on this helper
+// so the fallback exists in one place.
+export function renderMarkdownSafely(text) {
+    const source = text === null || text === undefined ? '' : String(text);
+    if (typeof marked !== 'undefined' && typeof window !== 'undefined' && window.DOMPurify) {
+        return window.DOMPurify.sanitize(marked.parse(source));
+    }
+    return escapeHTML(source).replace(/\n/g, '<br/>');
+}
+
 // Wraps fetch() so a 401 (no/expired login session) redirects to the login
 // page instead of surfacing as a confusing failed API call.
 export async function authFetch(url, options) {

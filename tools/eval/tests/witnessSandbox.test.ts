@@ -1,8 +1,8 @@
-import { describe, it, expect, afterEach } from '@jest/globals';
+import { describe, it, expect, afterEach, jest } from '@jest/globals';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { parseGoTestJson, dockerArgs, SandboxConfig, copyWorkspaceWithoutGit, writeWitnessFile, TailBuffer } from '../witness-spike/sandbox';
+import { parseGoTestJson, dockerArgs, SandboxConfig, copyWorkspaceWithoutGit, writeWitnessFile, TailBuffer, removeWorkspace } from '../witness-spike/sandbox';
 
 // Event lines below are trimmed from real `go test -json` output (go1.24.7)
 // captured for each outcome; see the Phase 0 report for how they were made.
@@ -123,6 +123,28 @@ describe('dockerArgs', () => {
     const i = args.indexOf('img');
     expect(args.slice(i + 1, i + 5)).toEqual(['go', 'test', '-json', '-buildvcs=false']);
     expect(args).toContain('^TestGSRWitness$');
+  });
+});
+
+describe('workspace removal', () => {
+  it('never throws, even when removal fails with EACCES (files owned by the sandbox uid)', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const eacces = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+      const calls: string[] = [];
+      expect(() => removeWorkspace('/some/ws', ((p: string) => { calls.push(p); throw eacces; }) as unknown as typeof fs.rmSync)).not.toThrow();
+      expect(calls).toEqual(['/some/ws']);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('removes a real directory', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-test-rm-'));
+    fs.writeFileSync(path.join(d, 'f'), 'x');
+    removeWorkspace(d);
+    expect(fs.existsSync(d)).toBe(false);
   });
 });
 

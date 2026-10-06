@@ -7,7 +7,7 @@ import type { Claim, WitnessAuthorOutput } from '../../../adk/backend/src/witnes
 import { GO_WITNESS_FILENAME, GO_WITNESS_TEST_NAME, JEST_WITNESS_SUFFIX, JEST_WITNESS_TEST_NAME } from '../../../adk/backend/src/witness/types';
 import type { SandboxRunResult, VerdictInput, WitnessVerdict } from '../../../adk/backend/src/witness/types';
 import { decideVerdict } from '../../../adk/backend/src/witness/verdict';
-import { copyWorkspaceWithoutGit, runGoWitness, SandboxConfig, writeWitnessFile } from './sandbox';
+import { copyWorkspaceWithoutGit, removeWorkspace, runGoWitness, SandboxConfig, writeWitnessFile } from './sandbox';
 import { runJestWitnessNative } from './jest';
 
 /** Returns an error string if the witness may not be run, else null. */
@@ -54,7 +54,7 @@ export async function runOnce(
     if (!jest) throw new Error('Jest witnesses run unsandboxed; pass a JestRunner (testbed only)');
     return await runJestWitnessNative(jest.jestBin, ws, witness.path, cfg.timeoutMs);
   } finally {
-    fs.rmSync(ws, { recursive: true, force: true });
+    removeWorkspace(ws);
   }
 }
 

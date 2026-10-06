@@ -110,6 +110,23 @@ function populateWorkspace(src: string, dest: string): void {
 }
 
 /**
+ * Best-effort removal of a workspace copy. It must never throw: the sandboxed
+ * code runs as uid 65534 and can create files and directories the host user is
+ * not allowed to delete (reproduced: EACCES as a non-root host user), and a
+ * throw from a `finally` would discard an already-finished run's result. A
+ * leftover directory under the OS temp dir is the lesser cost (ephemeral
+ * runners clean it up). Phase 1 must make removal reliable, e.g. with per-run
+ * user namespaces or by running the container as the host uid.
+ */
+export function removeWorkspace(ws: string, rm: typeof fs.rmSync = fs.rmSync): void {
+  try {
+    rm(ws, { recursive: true, force: true });
+  } catch (err) {
+    console.warn(`could not fully remove witness workspace ${ws}: ${(err as NodeJS.ErrnoException).code ?? err}`);
+  }
+}
+
+/**
  * Writes the witness file into the workspace copy, refusing any target that
  * resolves outside it (defence in depth on top of dropping symlinks).
  */

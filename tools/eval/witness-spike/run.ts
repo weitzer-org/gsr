@@ -73,7 +73,7 @@ export function bundleFor(e: FixtureEntry, wholePackage = false): string {
   ensureWorktree(worktree(e, 'base'), pr.baseSha);
 
   const head = worktree(e, 'head');
-  const dir = path.dirname(e.file);
+  const dir = path.posix.dirname(e.file);
   const diff = git(['diff', '--no-color', pr.baseSha, pr.headSha, '--', e.file]);
   const fileUnderTest = readOr(path.join(head, e.file));
   // The directory may not exist at head (the PR can delete the file's whole directory).
@@ -83,7 +83,7 @@ export function bundleFor(e: FixtureEntry, wholePackage = false): string {
     finding: { file: e.file, line: e.line, severity: 'HIGH', summary: e.summary, description: e.summary },
     diff,
     fileUnderTest,
-    nearby: { path: nearby ? path.join(dir, nearby) : '', content: nearby ? readOr(path.join(head, dir, nearby)) : '' },
+    nearby: { path: nearby ? path.posix.join(dir, nearby) : '', content: nearby ? readOr(path.join(head, dir, nearby)) : '' },
     dirListing: listing,
     packageFiles: wholePackage ? readPackageFiles(head, dir, e.file) : undefined,
   });

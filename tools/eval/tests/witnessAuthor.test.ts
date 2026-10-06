@@ -2,10 +2,10 @@ import { describe, it, expect } from '@jest/globals';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { parseAuthorOutput } from '../witness-spike/author';
+import { authorWitness, parseAuthorOutput } from '../witness-spike/author';
 import { buildBundle, readPackageFiles, tagSafe } from '../witness-spike/bundle';
 import { classify, summarize, Truth } from '../witness-spike/score';
-import { jestGuard } from '../witness-spike/author-bench';
+import { bindingError, jestGuard } from '../witness-spike/author-bench';
 
 const goWitness = { path: 'a/zz_gsr_witness_test.go', language: 'go', framework: 'go-test', source: 'package a' };
 const claim = { testable: true, language: 'go', file: 'a/a.go', symbol: 'F', input: 'F()', expected: '1', actual: '2' };
@@ -43,9 +43,9 @@ describe('author bundle', () => {
   });
   it('lists production files before tests, skips the file under test, and ignores subdirectories', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-'));
-    fs.mkdirSync(path.join(dir, 'p/sub'), { recursive: true });
-    for (const f of ['a.go', 'a_test.go', 'fake.go', 'sub/x.go', 'README.md']) fs.writeFileSync(path.join(dir, 'p', f), f);
     try {
+      fs.mkdirSync(path.join(dir, 'p/sub'), { recursive: true });
+      for (const f of ['a.go', 'a_test.go', 'fake.go', 'sub/x.go', 'README.md']) fs.writeFileSync(path.join(dir, 'p', f), f);
       expect(readPackageFiles(dir, 'p', 'p/a.go').map((f) => f.path)).toEqual(['p/fake.go', 'p/a_test.go']);
       expect(readPackageFiles(dir, 'missing', 'x')).toEqual([]);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -85,6 +85,52 @@ describe('jestGuard', () => {
     for (const bad of ["require('child_process')", 'process.env.X', "const f = require('fs/promises')", 'fetch("http://x")', 'eval("1")', "import('x')", "import net from 'node:net'"]) {
       expect(jestGuard(bad)).not.toBeNull();
     }
+    expect(jestGuard("const os = require('os');\nconst d = require('fs').mkdtempSync(os.tmpdir() + '/x');")).toBeNull();
     expect(jestGuard("const { f } = require('./a');\ntest('gsr witness', () => { expect(f(1)).toBe(2); });")).toBeNull();
+  });
+});
+
+describe('authorWitness with an injected client', () => {
+  const reply = (usage: Record<string, number>, text = JSON.stringify({ claim, witness: goWitness })) =>
+    ({ text, usageMetadata: usage }) as never;
+  const stub = (...results: (() => unknown)[]) => {
+    let i = 0;
+    return { models: { generateContent: async () => results[Math.min(i++, results.length - 1)]() } } as never;
+  };
+
+  it('does not bill cached prompt tokens, and keeps the with-thinking figure cache-aware too', async () => {
+    const res = await authorWitness('b', {
+      systemPrompt: 's',
+      client: stub(() => reply({ promptTokenCount: 10000, candidatesTokenCount: 100, thoughtsTokenCount: 400, cachedContentTokenCount: 4000 })),
+    });
+    expect(res.usage.cachedTokens).toBe(4000);
+    // gemini-3.1-pro-preview: $2.00/M input, $12.00/M output. 6000 billed in, 100 out.
+    expect(res.usage.costUsd).toBeCloseTo((6000 * 2 + 100 * 12) / 1e6, 9);
+    expect(res.usage.costUsdWithThinking).toBeCloseTo((6000 * 2 + 500 * 12) / 1e6, 9);
+  });
+  it('retries a retryable API error and then succeeds', async () => {
+    const res = await authorWitness('b', {
+      systemPrompt: 's', retryDelayMs: 1,
+      client: stub(() => { throw new Error('503 unavailable'); }, () => reply({ promptTokenCount: 1, candidatesTokenCount: 1 })),
+    });
+    expect(res.output).not.toBeNull();
+  });
+  it('reports a non-retryable error as api_error without throwing', async () => {
+    const res = await authorWitness('b', { systemPrompt: 's', client: stub(() => { throw new Error('400 bad request'); }) });
+    expect(res).toMatchObject({ output: null, failure: 'api_error' });
+  });
+});
+
+describe('bindingError', () => {
+  const f = { file: 'a/a.go', language: 'go' as const };
+  const out = (over: Record<string, unknown>, w: Record<string, unknown> = {}) =>
+    ({ claim: { ...claim, ...over }, witness: { ...goWitness, ...w } }) as never;
+  it('accepts a witness for the finding and rejects another file or language', () => {
+    expect(bindingError(f, out({}))).toBeNull();
+    expect(bindingError(f, out({ file: 'b/b.go' }))).toMatch(/not the finding's file/);
+    expect(bindingError(f, out({ language: 'javascript' }, { language: 'javascript', framework: 'jest' }))).toMatch(/not the finding's language/);
+  });
+  it('has nothing to bind when the claim is not testable or there is no witness', () => {
+    expect(bindingError(f, { claim: { ...claim, testable: false }, witness: null } as never)).toBeNull();
   });
 });

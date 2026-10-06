@@ -22,6 +22,7 @@
 
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import type { WitnessAuthorOutput, WitnessVerdict } from '../../../adk/backend/src/witness/types';
 import { authorWitness, AUTHOR_MODEL, loadPrompt, AuthorUsage } from './author';
@@ -38,9 +39,22 @@ const OUT_DIR = path.join(HERE, '..', 'fixtures', 'witness-author-runs');
 
 /** Output that Jest would run unsandboxed: refuse anything reaching outside the process's own data. */
 export function jestGuard(source: string): string | null {
-  const banned = /child_process|\bworker_threads\b|\bcluster\b|require\(\s*['"`](?:node:)?(?:net|http|https|http2|dgram|dns|tls|vm|os|fs\/promises)['"`]|from\s+['"`](?:node:)?(?:net|http|https|http2|dgram|dns|tls|vm|os|child_process)['"`]|process\.(?:env|exit|kill|binding|chdir)|\bfetch\s*\(|\beval\s*\(|new\s+Function\b|\bimport\s*\(|XMLHttpRequest|WebSocket/;
+  const banned = /child_process|\bworker_threads\b|\bcluster\b|require\(\s*['"`](?:node:)?(?:net|http|https|http2|dgram|dns|tls|vm|fs\/promises)['"`]|from\s+['"`](?:node:)?(?:net|http|https|http2|dgram|dns|tls|vm|child_process)['"`]|process\.(?:env|exit|kill|binding|chdir)|\bfetch\s*\(|\beval\s*\(|new\s+Function\b|\bimport\s*\(|XMLHttpRequest|WebSocket/;
+  // `os` is allowed on purpose: the prompt lets a witness write under fs.mkdtempSync(os.tmpdir()).
   const m = banned.exec(source);
   return m ? `bench guard rejected witness: ${m[0]}` : null;
+}
+
+/**
+ * A witness may only target the finding it was authored for. Without this, a
+ * model reply for a Go finding could carry a matching JavaScript claim and
+ * witness, which would reach the unsandboxed Jest runner. Returns a reason or null.
+ */
+export function bindingError(f: { file: string; language: 'go' | 'javascript' }, out: WitnessAuthorOutput): string | null {
+  if (!out.claim.testable || !out.witness) return null;
+  if (out.claim.file !== f.file) return `claim.file ${JSON.stringify(out.claim.file)} is not the finding's file ${JSON.stringify(f.file)}`;
+  if (out.witness.language !== f.language) return `witness language ${out.witness.language} is not the finding's language ${f.language}`;
+  return null;
 }
 
 function unifiedDiff(basePath: string | null, headPath: string, rel: string): string {
@@ -56,6 +70,8 @@ function unifiedDiff(basePath: string | null, headPath: string, rel: string): st
 
 interface Finding {
   id: string;
+  /** Repo-relative file the finding is about; a witness must be for exactly this file. */
+  file: string;
   set: 'testbed' | 'spike';
   language: 'go' | 'javascript';
   headDir: string;
@@ -72,9 +88,10 @@ function testbedFindings(): Finding[] {
     const rel = c.finding.file;
     const pkg = path.posix.dirname(rel);
     return {
-      id: c.id, set: 'testbed' as const, language: c.language, headDir: head, baseDir: base, timeoutMs: c.timeoutMs,
+      id: c.id, file: rel, set: 'testbed' as const, language: c.language, headDir: head, baseDir: base, timeoutMs: c.timeoutMs,
       bundle: (whole: boolean) => {
-        const listing = fs.readdirSync(path.join(head, pkg)).sort();
+        const pkgDir = path.join(head, pkg);
+        const listing = fs.existsSync(pkgDir) ? fs.readdirSync(pkgDir).sort() : [];
         const nearby = listing.find((f) => /_test\.go$|\.test\.js$/.test(f));
         return buildBundle({
           // Only the finding's own fields: never case.json's notes or expectedVerdict, nor the reference witness.
@@ -93,7 +110,7 @@ function testbedFindings(): Finding[] {
 function spikeFindings(): Finding[] {
   return entries.map((e) => {
     return {
-      id: e.id, set: 'spike' as const, language: 'go' as const,
+      id: e.id, file: e.file, set: 'spike' as const, language: 'go' as const,
       headDir: worktree(e, 'head'), baseDir: worktree(e, 'base'),
       bundle: (whole: boolean) => bundleFor(e, whole),
     };
@@ -141,7 +158,8 @@ async function main() {
   const baseCfg: SandboxConfig = {
     image: process.env.WITNESS_IMAGE || 'witness-go:1.24',
     goModCacheDir: process.env.GO_MOD_CACHE || execFileSync('go', ['env', 'GOMODCACHE'], { encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } }).trim(),
-    goBuildCacheDir: process.env.GO_BUILD_CACHE || '/tmp/gsr-witness-author-gocache',
+    // A fresh unpredictable directory: a fixed /tmp path could be a pre-planted symlink that chmod follows.
+    goBuildCacheDir: process.env.GO_BUILD_CACHE || fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-witness-author-gocache-')),
     timeoutMs: 120000, memory: '2g', cpus: '2',
   };
   fs.mkdirSync(baseCfg.goBuildCacheDir, { recursive: true });
@@ -162,7 +180,7 @@ async function main() {
     let headTail: string | undefined;
     if (res.output) {
       const out = res.output;
-      const guard = out.witness && out.witness.language !== 'go' ? jestGuard(out.witness.source) : null;
+      const guard = bindingError(f, out) ?? (out.witness && out.witness.language !== 'go' ? jestGuard(out.witness.source) : null);
       if (guard) {
         verdict = 'hypothesis';
         note = guard;

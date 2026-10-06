@@ -25,9 +25,11 @@ export interface AuthorUsage {
   inputTokens: number;
   outputTokens: number;
   thinkingTokens: number;
-  /** Cost by usage.ts's convention: thinking tokens are NOT billed on top of outputTokens. */
+  /** Prompt tokens served from Gemini's implicit cache (repeat prompts, e.g. n>1 samples). */
+  cachedTokens: number;
+  /** Cost by usage.ts's convention: cached input is not billed and thinking tokens are NOT billed on top of outputTokens. */
   costUsd: number;
-  /** Upper bound if thinking tokens are billed as output (unverified assumption; see the PR). */
+  /** Same, if thinking tokens are billed as output (unverified assumption; see the PR). */
   costUsdWithThinking: number;
   latencyMs: number;
 }
@@ -67,15 +69,21 @@ export function parseAuthorOutput(raw: string): { output?: WitnessAuthorOutput; 
 
 const RETRYABLE = /\b(429|500|502|503|504)\b|overloaded|unavailable|ECONNRESET|ETIMEDOUT/i;
 
+/** The one SDK method the author uses; tests inject a stub instead of the real client. */
+export interface AuthorClient { models: { generateContent: GoogleGenAI['models']['generateContent'] } }
+
 export async function authorWitness(
   bundle: string,
-  opts: { systemPrompt: string; model?: string; apiKey?: string; maxAttempts?: number },
+  opts: { systemPrompt: string; model?: string; apiKey?: string; maxAttempts?: number; client?: AuthorClient; retryDelayMs?: number },
 ): Promise<AuthorResult> {
   const model = opts.model ?? AUTHOR_MODEL;
-  const apiKey = opts.apiKey ?? process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
-  const ai = new GoogleGenAI({ apiKey });
-  const usage: AuthorUsage = { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, costUsd: 0, costUsdWithThinking: 0, latencyMs: 0 };
+  let ai = opts.client;
+  if (!ai) {
+    const apiKey = opts.apiKey ?? process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
+    ai = new GoogleGenAI({ apiKey });
+  }
+  const usage: AuthorUsage = { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, cachedTokens: 0, costUsd: 0, costUsdWithThinking: 0, latencyMs: 0 };
 
   const attempts = opts.maxAttempts ?? 3;
   let lastErr = '';
@@ -91,6 +99,7 @@ export async function authorWitness(
       usage.inputTokens += u?.promptTokenCount ?? 0;
       usage.outputTokens += u?.candidatesTokenCount ?? 0;
       usage.thinkingTokens += u?.thoughtsTokenCount ?? 0;
+      usage.cachedTokens += u?.cachedContentTokenCount ?? 0;
       usage.latencyMs += Date.now() - started;
       const raw = response.text ?? '';
       const parsed = parseAuthorOutput(raw);
@@ -101,14 +110,14 @@ export async function authorWitness(
       usage.latencyMs += Date.now() - started;
       lastErr = String((err as Error)?.message ?? err).slice(0, 300);
       if (!RETRYABLE.test(lastErr) || i === attempts - 1) break;
-      await new Promise((r) => setTimeout(r, 2000 * 2 ** i));
+      await new Promise((r) => setTimeout(r, (opts.retryDelayMs ?? 2000) * 2 ** i));
     }
   }
   finishCost(usage, model);
   return { output: null, failure: 'api_error', detail: lastErr, raw: '', usage };
 }
 
-function finishCost(u: AuthorUsage, model: string) {
-  u.costUsd = computeCostUsd(model, u.inputTokens, u.outputTokens);
-  u.costUsdWithThinking = computeCostUsd(model, u.inputTokens, u.outputTokens + u.thinkingTokens);
+export function finishCost(u: AuthorUsage, model: string) {
+  u.costUsd = computeCostUsd(model, u.inputTokens, u.outputTokens, u.cachedTokens);
+  u.costUsdWithThinking = computeCostUsd(model, u.inputTokens, u.outputTokens + u.thinkingTokens, u.cachedTokens);
 }

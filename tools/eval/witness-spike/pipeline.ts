@@ -16,10 +16,10 @@ export function validateWitness(claim: Claim, witness: NonNullable<WitnessAuthor
   if (claim.language !== witness.language) return `claim language ${claim.language} does not match witness language ${witness.language}`;
   let expected: string;
   if (witness.language === 'go' && witness.framework === 'go-test') {
-    expected = `${dir}/${GO_WITNESS_FILENAME}`;
+    expected = path.posix.join(dir, GO_WITNESS_FILENAME);
     if (!new RegExp(`func ${GO_WITNESS_TEST_NAME}\\(t \\*testing\\.T\\)`).test(witness.source)) return `no func ${GO_WITNESS_TEST_NAME}`;
   } else if (witness.language === 'javascript' && witness.framework === 'jest') {
-    expected = `${dir}/${path.posix.basename(claim.file, path.posix.extname(claim.file))}${JEST_WITNESS_SUFFIX}.js`;
+    expected = path.posix.join(dir, `${path.posix.basename(claim.file, path.posix.extname(claim.file))}${JEST_WITNESS_SUFFIX}.js`);
     if (!new RegExp(`test\\(\\s*['"]${JEST_WITNESS_TEST_NAME}['"]`).test(witness.source)) return `no test('${JEST_WITNESS_TEST_NAME}', ...)`;
   } else {
     // TypeScript Jest witnesses are valid per author.md but need a ts-jest
@@ -29,6 +29,7 @@ export function validateWitness(claim: Claim, witness: NonNullable<WitnessAuthor
   }
   if (witness.path !== expected) return `path ${JSON.stringify(witness.path)} is not the allowed ${JSON.stringify(expected)}`;
   if (witness.path.includes('..') || path.isAbsolute(witness.path)) return 'path escapes the repo';
+  if (!fs.existsSync(path.join(headDir, dir))) return `directory of ${claim.file} does not exist in the checkout`;
   if (fs.existsSync(path.join(headDir, witness.path))) return 'witness path already exists in the checkout';
   return null;
 }
@@ -86,8 +87,18 @@ export async function evaluateWitness(
     const input: VerdictInput = { kind: 'no_witness' };
     return { verdict: decideVerdict(input), input, note: `rejected: ${bad}` };
   }
-  const h1 = await runOnce(cfg, headDir, out.claim, out.witness, jest);
-  const h2 = await runOnce(cfg, headDir, out.claim, out.witness, jest);
+  let h1: Awaited<ReturnType<typeof runOnce>>;
+  let h2: Awaited<ReturnType<typeof runOnce>>;
+  try {
+    h1 = await runOnce(cfg, headDir, out.claim, out.witness, jest);
+    h2 = await runOnce(cfg, headDir, out.claim, out.witness, jest);
+  } catch (err) {
+    // The witness could not even be placed in the workspace (e.g. its directory
+    // is missing or resolves outside the copy): no run happened, so no verdict
+    // beyond "hypothesis". Never let one bad witness abort the whole batch.
+    const input: VerdictInput = { kind: 'no_witness' };
+    return { verdict: decideVerdict(input), input, note: `head run failed: ${(err as Error).message}` };
+  }
   const baseHasFile = baseDir !== null && fs.existsSync(path.join(baseDir, out.claim.file));
   let b: Awaited<ReturnType<typeof runOnce>> | null = null;
   let note: string | undefined;

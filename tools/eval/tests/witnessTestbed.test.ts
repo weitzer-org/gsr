@@ -56,4 +56,18 @@ describe('witness testbed cases', () => {
     const mislabelled = { ...out.claim, language: 'javascript' as const };
     expect(validateWitness(mislabelled, out.witness!, path.join(CASES_DIR, c.id, 'head'))).toMatch(/does not match/);
   });
+
+  it('validateWitness accepts a root-level file without a "./" prefix and rejects a missing directory', () => {
+    const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsr-val-'));
+    try {
+      fs.writeFileSync(path.join(tmp, 'main.go'), 'package main');
+      const source = 'package main\n\nimport "testing"\n\nfunc TestGSRWitness(t *testing.T) {}\n';
+      const claim = { testable: true, language: 'go' as const, file: 'main.go', symbol: 'f', input: '', expected: '', actual: '' };
+      const w = (p: string) => ({ path: p, language: 'go' as const, framework: 'go-test' as const, source });
+      expect(validateWitness(claim, w('zz_gsr_witness_test.go'), tmp)).toBeNull();
+      expect(validateWitness({ ...claim, file: 'nope/x.go' }, w('nope/zz_gsr_witness_test.go'), tmp)).toMatch(/does not exist/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

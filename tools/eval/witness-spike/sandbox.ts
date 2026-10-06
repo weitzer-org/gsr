@@ -90,7 +90,9 @@ export function copyWorkspaceWithoutGit(src: string): string {
   const chmodAll = (p: string) => {
     const st = fs.lstatSync(p);
     if (st.isSymbolicLink()) return;
-    fs.chmodSync(p, st.isDirectory() ? 0o777 : 0o666);
+    // OR the bits in (never overwrite): a test may exec a repo script, so keep +x.
+    // & 0o777 also drops setuid/setgid/sticky.
+    fs.chmodSync(p, st.isDirectory() ? 0o777 : (st.mode & 0o777) | 0o666);
     if (st.isDirectory()) for (const e of fs.readdirSync(p)) chmodAll(path.join(p, e));
   };
   chmodAll(dest);

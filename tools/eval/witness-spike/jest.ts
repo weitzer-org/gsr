@@ -59,7 +59,9 @@ export function runJestWitnessNative(
   const started = Date.now();
   const args = [
     '--json', '--ci', '--rootDir', workspace, '--roots', workspace,
-    '--testMatch', `**/${path.posix.basename(witnessRelPath)}`,
+    // Exact path, not **/<basename>: another file with the same name elsewhere in
+    // the checkout must not run (and collapse the result to not_run).
+    '--testMatch', `<rootDir>/${witnessRelPath}`,
   ];
   return new Promise((resolve) => {
     const child = spawn(jestBin, args, { cwd: workspace, stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH ?? '', HOME: workspace } });

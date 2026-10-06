@@ -116,6 +116,23 @@ describe('dockerArgs', () => {
   });
 });
 
+describe('workspace copy keeps execute bits', () => {
+  it('keeps +x on scripts and makes everything writable by the sandbox uid', () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-test-x-'));
+    try {
+      fs.writeFileSync(path.join(repo, 'run.sh'), '#!/bin/sh\n');
+      fs.chmodSync(path.join(repo, 'run.sh'), 0o755);
+      fs.writeFileSync(path.join(repo, 'data.txt'), 'x');
+      fs.chmodSync(path.join(repo, 'data.txt'), 0o644);
+      const ws = copyWorkspaceWithoutGit(repo);
+      try {
+        expect(fs.statSync(path.join(ws, 'run.sh')).mode & 0o777).toBe(0o777);
+        expect(fs.statSync(path.join(ws, 'data.txt')).mode & 0o777).toBe(0o666);
+      } finally { fs.rmSync(ws, { recursive: true, force: true }); }
+    } finally { fs.rmSync(repo, { recursive: true, force: true }); }
+  });
+});
+
 describe('workspace copy and witness write (attacker-controlled checkout)', () => {
   const made: string[] = [];
   const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-test-')); made.push(d); return d; };
@@ -137,6 +154,7 @@ describe('workspace copy and witness write (attacker-controlled checkout)', () =
     expect(fs.existsSync(path.join(ws, '.git'))).toBe(false);
     expect(fs.existsSync(path.join(ws, 'internal', 'ingest'))).toBe(false);
     expect(fs.existsSync(path.join(ws, 'internal', 'a.go'))).toBe(true);
+    expect(fs.statSync(path.join(ws, 'internal', 'a.go')).mode & 0o666).toBe(0o666);
     expect(fs.statSync(victim).mode & 0o777).toBe(0o700);
     expect(fs.statSync(path.join(victim, 'data.txt')).mode & 0o777).toBe(0o600);
   });

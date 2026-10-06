@@ -44,18 +44,25 @@ const CAPTURE_MAX_BYTES = 2_000_000;
  */
 export class TailBuffer {
   private chunks: Buffer[] = [];
+  private head = 0; // chunks before this index are logically dropped
   private len = 0;
   constructor(private readonly max = CAPTURE_MAX_BYTES) {}
   push(d: Buffer | string): void {
     const b = typeof d === 'string' ? Buffer.from(d) : d;
     this.chunks.push(b);
     this.len += b.length;
-    while (this.chunks.length > 1 && this.len - this.chunks[0].length >= this.max) {
-      this.len -= this.chunks.shift()!.length;
+    // Advance an index instead of Array.shift(): shift() is O(n) on a large
+    // array (measured: 100k 64-byte chunks past a 2MB cap took 5.5s).
+    while (this.chunks.length - this.head > 1 && this.len - this.chunks[this.head].length >= this.max) {
+      this.len -= this.chunks[this.head++].length;
+    }
+    if (this.head >= 1024 && this.head * 2 >= this.chunks.length) {
+      this.chunks = this.chunks.slice(this.head);
+      this.head = 0;
     }
   }
   toString(): string {
-    const s = Buffer.concat(this.chunks).toString('utf8');
+    const s = Buffer.concat(this.chunks.slice(this.head)).toString('utf8');
     return s.length > this.max ? s.slice(-this.max) : s;
   }
 }
@@ -161,7 +168,7 @@ export function parseGoTestJson(
     try {
       ev = JSON.parse(line);
     } catch {
-      out.push(line); // non-JSON line (e.g. raw build error text)
+      out.push(line + '\n'); // non-JSON line (e.g. raw build error text); split() dropped its newline
       if (/\[(build|setup) failed\]/.test(line)) buildFailed = true;
       continue;
     }

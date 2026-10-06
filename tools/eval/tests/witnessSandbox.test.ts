@@ -60,6 +60,7 @@ describe('parseGoTestJson', () => {
     const r = parse('docker: Error response from daemon: boom\n{not json\n');
     expect(r.witnessOutcome).toBe('not_run');
     expect(r.outputTail).toContain('Error response from daemon');
+    expect(r.outputTail).toContain('Error response from daemon: boom\n{not json');
   });
 
   it('caps outputTail', () => {
@@ -74,6 +75,15 @@ describe('TailBuffer', () => {
     for (let i = 0; i < 1000; i++) b.push(Buffer.from('0123456789'));
     expect(b.toString().length).toBeLessThanOrEqual(100);
     expect(b.toString().endsWith('0123456789')).toBe(true);
+  });
+
+  it('stays fast with many tiny chunks past the cap (no O(n) shift per push)', () => {
+    const b = new TailBuffer(2_000_000);
+    const chunk = Buffer.alloc(64, 97);
+    const t = Date.now();
+    for (let i = 0; i < 100_000; i++) b.push(chunk);
+    expect(Date.now() - t).toBeLessThan(1500);
+    expect(b.toString().length).toBeLessThanOrEqual(2_000_000);
   });
 });
 
@@ -134,7 +144,7 @@ describe('workspace copy and witness write (attacker-controlled checkout)', () =
 
     fs.mkdirSync(path.join(ws, 'pkg'));
     writeWitnessFile(ws, 'pkg/zz_gsr_witness_test.go', 'first');
-    expect(() => writeWitnessFile(ws, 'pkg/zz_gsr_witness_test.go', 'second')).toThrow();
+    expect(() => writeWitnessFile(ws, 'pkg/zz_gsr_witness_test.go', 'second')).toThrow(/EEXIST/);
     expect(fs.readFileSync(path.join(ws, 'pkg', 'zz_gsr_witness_test.go'), 'utf8')).toBe('first');
   });
 });

@@ -7,7 +7,7 @@ set -u
 cd "$(dirname "$0")"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-CGO_ENABLED=0 go build -o "$WORK/probe" probe.go || exit 1
+GOOS=linux CGO_ENABLED=0 go build -o "$WORK/probe" probe.go || exit 1
 (cd "$WORK" && tar -c probe) | docker import - witness-probe:local >/dev/null || exit 1
 
 # Workspace under test: PROBE_WORKSPACE if set (e.g. a real actions/checkout),

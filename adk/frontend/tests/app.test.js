@@ -278,7 +278,8 @@ describe('App frontend logic (app.js)', () => {
     // PR diff filenames and LLM-derived fields reach the page through the
     // progress stream and the findings list; they are attacker-controlled.
     describe('rendering untrusted review fields', () => {
-        const flush = () => new Promise(process.nextTick).then(() => new Promise(process.nextTick));
+        // A macrotask: runs after every pending promise continuation has drained.
+        const flush = () => new Promise(resolve => setTimeout(resolve, 0));
         const evilFile = '"><img src=x onerror="alert(1)">.ts';
         const evilAgent = '<img src=x onerror="alert(1)">';
 
@@ -327,6 +328,49 @@ describe('App frontend logic (app.js)', () => {
             grid.querySelectorAll('.agent-name').forEach(el => {
                 expect(el.textContent).toBe(`🤖 ${evilAgent} Agent`);
             });
+        });
+
+        it('shows a server error message in the error banner as text, not markup', async () => {
+            document.body.insertAdjacentHTML('beforeend', '<div class="tabs" id="test-tabs"></div>');
+            global.fetch.mockImplementation((url) => {
+                if (url === '/api/review') return Promise.resolve({ ok: false, status: 500, json: async () => ({ error: `boom ${evilAgent}` }) });
+                if (url === '/api/agents') return Promise.resolve({ ok: true, status: 200, json: async () => ({ agents: [] }) });
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+            });
+            initApp();
+            await flush();
+            document.getElementById('review-form').dispatchEvent(new Event('submit', { cancelable: true }));
+            await flush();
+            await flush();
+
+            const banner = document.querySelector('.main-error-message');
+            expect(banner).not.toBeNull();
+            expect(banner.querySelector('img')).toBeNull();
+            expect(banner.textContent).toContain(evilAgent);
+            document.querySelectorAll('.main-error-message, #test-tabs').forEach(el => el.remove());
+        });
+
+        it('shows a review history URL as text and keeps it inside the title attribute', async () => {
+            document.body.insertAdjacentHTML('beforeend', '<aside id="history-container" class="hidden"><div id="history-list"></div></aside>');
+            global.fetch.mockImplementation((url) => {
+                if (url === '/api/review/history') {
+                    return Promise.resolve({ ok: true, status: 200, json: async () => ([{ name: 'review-run_x.json', originalUrl: evilFile, updated: '2026-03-22' }]) });
+                }
+                if (url === '/api/agents') return Promise.resolve({ ok: true, status: 200, json: async () => ({ agents: [] }) });
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({ findings: [], metrics: null }) });
+            });
+            initApp();
+            await flush();
+            await flush();
+
+            const list = document.getElementById('history-list');
+            const item = list.querySelector('.history-item-url');
+            expect(item).not.toBeNull();
+            expect(list.querySelector('img')).toBeNull();
+            expect(item.textContent).toBe(evilFile);
+            expect(item.getAttribute('title')).toBe(evilFile);
+            expect(item.hasAttribute('onerror')).toBe(false);
+            document.getElementById('history-container').remove();
         });
 
         it('shows finding file, agent and line as text, not markup', async () => {

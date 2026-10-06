@@ -115,15 +115,16 @@ describe('Evals frontend logic (evals.js)', () => {
 
     describe('rendering untrusted eval content', () => {
         const hostile = '<img src=x onerror="alert(1)">';
+        // A macrotask: runs after every pending promise continuation has drained.
+        const settle = () => new Promise(resolve => setTimeout(resolve, 0));
         const loadRun = async (run) => {
             global.marked = { parse: (t) => t };
             global.fetch.mockResolvedValueOnce({ ok: true, json: async () => [{ name: 'eval-run_x.json', updated: '2026-03-22' }] });
             global.fetch.mockResolvedValueOnce({ ok: true, json: async () => run });
             initEvals();
-            await new Promise(process.nextTick);
+            await settle();
             document.querySelector('#run-list li.run-item').click();
-            await new Promise(process.nextTick);
-            await new Promise(process.nextTick);
+            await settle();
         };
         const baseRun = { aggregate_report: 'ok', aggregate_metrics: { targetA: {}, targetB: {} }, results: [] };
         let savedPurify;
@@ -136,7 +137,11 @@ describe('Evals frontend logic (evals.js)', () => {
             document.getElementById('aggregate-report').innerHTML = '';
             document.getElementById('pr-accordion').innerHTML = '';
         });
-        afterEach(() => { window.DOMPurify = savedPurify; global.marked = savedMarked; });
+        afterEach(() => {
+            window.DOMPurify = savedPurify;
+            global.marked = savedMarked;
+            global.fetch.mockReset(); // drop any unconsumed mockResolvedValueOnce responses
+        });
 
         it('fails closed (escaped text, no markup) when DOMPurify did not load', async () => {
             delete window.DOMPurify;

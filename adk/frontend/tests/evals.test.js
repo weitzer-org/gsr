@@ -157,11 +157,17 @@ describe('Evals frontend logic (evals.js)', () => {
                 ...baseRun,
                 results: [{
                     prUrl: 'https://github.com/o/r/pull/1',
+                    llm_comparison_report: `report ${hostile}`,
                     targetA: { findings: [{ file: `"${hostile}.ts`, line: 3, severity: undefined, description: undefined }] },
                     targetB: { findings: [{ file: 'b.ts', line: 1, severity: 'HIGH', description: `desc ${hostile}. more` }] },
+                }, {
+                    // no prUrl at all: must not blank the whole dashboard
+                    targetA: { findings: [] },
+                    targetB: { findings: [] },
                 }],
             });
             const acc = document.getElementById('pr-accordion');
+            expect(acc.querySelectorAll('details.pr-detail').length).toBe(2);
             expect(acc.querySelectorAll('.finding-item').length).toBe(2);
             expect(acc.querySelector('img')).toBeNull();
             expect(acc.textContent).toContain(hostile);

@@ -194,7 +194,7 @@ export function initEvals() {
             const detailStr = `
                 <details class="pr-detail">
                     <summary class="pr-summary">
-                        <h3>PR #${idx + 1}: ${escapeHTML(r.prUrl.split('/').pop())}</h3>
+                        <h3>PR #${idx + 1}: ${escapeHTML(String(r.prUrl || 'unknown').split('/').pop())}</h3>
                         <span class="pr-arrow">▼</span>
                     </summary>
                     <div class="pr-content">

@@ -174,7 +174,15 @@ export function parseGoTestJson(
     }
     if (ev.Output) {
       out.push(ev.Output);
-      if (/\[(build|setup) failed\]/.test(ev.Output)) buildFailed = true;
+      // Output with a Test field was printed by the code under test, which the
+      // PR author controls; the go tool's own build/setup failure lines are
+      // package-level (no Test). Only the latter may set buildFailed.
+      // The timeout panic is attributed to the running test even when genuine
+      // (verified with go1.24.7), so it cannot be filtered this way; it stays
+      // text-matched because a spoof there only downgrades the verdict to
+      // inconclusive, whereas missing a real one would let a timed-out witness
+      // read as `fail` and prove a claim.
+      if (!ev.Test && /\[(build|setup) failed\]/.test(ev.Output)) buildFailed = true;
       if (/panic: test timed out/.test(ev.Output)) frameworkTimeout = true;
     }
     if (ev.Action === 'build-fail') buildFailed = true;

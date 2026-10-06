@@ -58,9 +58,9 @@ function ensureWorktree(dir: string, sha: string) {
   }
 }
 
-/** Stops untrusted text from closing one of the bundle's own tags early. */
+/** Stops untrusted text from opening or closing one of the bundle's own tags. */
 export function tagSafe(text: string): string {
-  return text.replace(/<\/(FINDING|DIFF|FILE_UNDER_TEST|NEARBY_TEST|DIR_LISTING)\b/gi, '<\\/$1');
+  return text.replace(/<(\/?)(FINDING|DIFF|FILE_UNDER_TEST|NEARBY_TEST|DIR_LISTING)\b/gi, '<\\$1$2');
 }
 
 function readOr(p: string, fallback = ''): string {

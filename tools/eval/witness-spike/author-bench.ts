@@ -164,6 +164,12 @@ async function main() {
   };
   fs.mkdirSync(baseCfg.goBuildCacheDir, { recursive: true });
   fs.chmodSync(baseCfg.goBuildCacheDir, 0o777);
+  // A dead daemon makes every Go run come back `not_run`, which scores as an
+  // inconclusive verdict and would silently corrupt the measurement. Fail loudly instead.
+  if (findings.some((f) => f.language === 'go')) {
+    try { execFileSync('docker', ['image', 'inspect', baseCfg.image], { stdio: 'ignore' }); }
+    catch { throw new Error(`Docker is not reachable or image ${baseCfg.image} is missing; start dockerd and run build-go-image.sh`); }
+  }
   const jest = { jestBin: path.join(HERE, '..', 'node_modules', '.bin', 'jest') };
 
   const jobs = findings.flatMap((f) => Array.from({ length: n }, (_, rep) => ({ f, rep })));

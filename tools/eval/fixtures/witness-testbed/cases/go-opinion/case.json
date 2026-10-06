@@ -1,0 +1,12 @@
+{
+  "id": "go-opinion",
+  "language": "go",
+  "finding": {
+    "file": "pager/pager.go",
+    "line": 3,
+    "severity": "LOW",
+    "summary": "Page has no doc comment explaining that pages are 1-based; unclear whether 0-based was intended."
+  },
+  "expectedVerdict": "opinion",
+  "notes": "Intent/documentation question with no deterministic expected result: the author returns testable:false (opinion) and nothing runs."
+}

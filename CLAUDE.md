@@ -135,6 +135,11 @@ just guessable. Independent gates now cover this:
   the Gemini SDK; never hits real object storage or the network).
 - `cd adk/frontend && npm test` — Jest; `npm run test:e2e` for Playwright.
 - `cd tools/eval && npm test` — Jest + ts-jest.
+- Witness (Prove It) testbed: `tools/eval/fixtures/witness-testbed/` holds
+  twelve synthetic Go/Jest cases with expected verdicts; see its README.
+  `npm test` in `tools/eval` checks their shape offline;
+  `npx ts-node witness-spike/testbed.ts` runs them end to end (needs Docker
+  and `./witness-spike/build-go-image.sh`).
 - Node isn't on PATH by default in every shell here — if `node`/`npm` are
   missing, install via `nvm` (`~/.nvm`) and symlink into `~/.local/bin`
   rather than reinstalling from scratch each time.

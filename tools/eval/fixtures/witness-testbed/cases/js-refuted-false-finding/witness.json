@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "javascript",
+    "file": "src/sum.js",
+    "symbol": "sumPositive",
+    "input": "sumPositive([1, -5, 2])",
+    "expected": "3",
+    "actual": "-2"
+  },
+  "witness": {
+    "path": "src/sum.gsr-witness.test.js",
+    "language": "javascript",
+    "framework": "jest",
+    "source": "const { sumPositive } = require('./sum');\n\nif (typeof sumPositive !== 'function') throw new Error('gsr-setup: sumPositive not exported');\n\ntest('gsr witness', () => {\n  expect(sumPositive([1, -5, 2])).toBe(3);\n});\n"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "go-refuted-false-finding",
+  "language": "go",
+  "finding": {
+    "file": "pct/pct.go",
+    "line": 8,
+    "severity": "MEDIUM",
+    "summary": "Percent truncates instead of rounding: Percent(2, 3) returns 66 instead of 67."
+  },
+  "expectedVerdict": "refuted",
+  "notes": "The finding is false (the code rounds half up): the witness passes on head."
+}

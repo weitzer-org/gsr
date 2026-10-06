@@ -24,10 +24,10 @@
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Claim, SandboxRunResult, VerdictInput, WitnessAuthorOutput, WitnessVerdict } from '../../../adk/backend/src/witness/types';
-import { GO_WITNESS_FILENAME, GO_WITNESS_TEST_NAME } from '../../../adk/backend/src/witness/types';
+import type { SandboxRunResult, WitnessAuthorOutput, WitnessVerdict } from '../../../adk/backend/src/witness/types';
 import { decideVerdict } from '../../../adk/backend/src/witness/verdict';
-import { copyWorkspaceWithoutGit, runGoWitness, SandboxConfig, writeWitnessFile } from './sandbox';
+import { SandboxConfig } from './sandbox';
+import { evaluateWitness } from './pipeline';
 
 interface FixtureEntry { id: string; prUrl: string; file: string; line: number; summary: string; gap?: string }
 interface Cases { goDirectiveOverride?: string; prs: Record<string, { headSha: string; baseSha: string }> }
@@ -90,27 +90,6 @@ function prepare() {
   }
 }
 
-/** Returns an error string if the witness may not be run, else null. */
-export function validateWitness(claim: Claim, witness: NonNullable<WitnessAuthorOutput['witness']>, headDir: string): string | null {
-  const expected = `${path.posix.dirname(claim.file)}/${GO_WITNESS_FILENAME}`;
-  if (witness.language !== 'go' || witness.framework !== 'go-test') return 'spike runs Go witnesses only';
-  if (witness.path !== expected) return `path ${JSON.stringify(witness.path)} is not the allowed ${JSON.stringify(expected)}`;
-  if (witness.path.includes('..') || path.isAbsolute(witness.path)) return 'path escapes the repo';
-  if (fs.existsSync(path.join(headDir, witness.path))) return 'witness path already exists in the checkout';
-  if (!new RegExp(`func ${GO_WITNESS_TEST_NAME}\\(t \\*testing\\.T\\)`).test(witness.source)) return `no func ${GO_WITNESS_TEST_NAME}`;
-  return null;
-}
-
-async function runOnce(cfg: SandboxConfig, checkout: string, claim: Claim, source: string) {
-  const ws = copyWorkspaceWithoutGit(checkout);
-  try {
-    writeWitnessFile(ws, path.posix.join(path.posix.dirname(claim.file), GO_WITNESS_FILENAME), source);
-    return await runGoWitness(cfg, ws, path.dirname(claim.file), GO_WITNESS_TEST_NAME);
-  } finally {
-    fs.rmSync(ws, { recursive: true, force: true });
-  }
-}
-
 async function run() {
   const cfg: SandboxConfig = {
     image: process.env.WITNESS_IMAGE || 'witness-go:1.24',
@@ -127,38 +106,27 @@ async function run() {
   for (const e of entries) {
     const row: Record<string, unknown> = { id: e.id, pr: prNumber(e) };
     const authored = path.join(WITNESS_DIR, `${e.id}.json`);
-    let input: VerdictInput;
     let verdict: WitnessVerdict;
 
     if (!fs.existsSync(authored)) {
-      input = { kind: 'no_witness' };
       row.note = 'no authored witness fixture';
+      verdict = decideVerdict({ kind: 'no_witness' });
     } else {
       const out: WitnessAuthorOutput = JSON.parse(fs.readFileSync(authored, 'utf8'));
       row.claim = out.claim;
-      if (!out.claim.testable || !out.witness) {
-        input = { kind: 'not_testable', notTestableKind: out.claim.notTestableKind ?? 'insufficient_context' };
-      } else {
-        const bad = validateWitness(out.claim, out.witness, worktree(e, 'head'));
-        if (bad) {
-          input = { kind: 'no_witness' };
-          row.note = `rejected: ${bad}`;
-        } else {
-          const h1 = await runOnce(cfg, worktree(e, 'head'), out.claim, out.witness.source);
-          const h2 = await runOnce(cfg, worktree(e, 'head'), out.claim, out.witness.source);
-          const baseHasFile = fs.existsSync(path.join(worktree(e, 'base'), out.claim.file));
-          const b = baseHasFile ? await runOnce(cfg, worktree(e, 'base'), out.claim, out.witness.source) : null;
-          input = { kind: 'executed', headRun: h1.result, headRerun: h2.result, baseRun: b ? b.result : null };
-          row.runs = {
-            head1: summarize(h1.result, h1.wallMs),
-            head2: summarize(h2.result, h2.wallMs),
-            base: b ? summarize(b.result, b.wallMs) : 'null (file absent on base: new in this PR)',
-          };
-          row.headOutputTail = h1.result.outputTail.slice(-600);
-        }
+      const ev = await evaluateWitness(cfg, worktree(e, 'head'), worktree(e, 'base'), out);
+      verdict = ev.verdict;
+      if (ev.note) row.note = ev.note;
+      if (ev.runs) {
+        row.runs = {
+          head1: summarize(ev.runs.head1, ev.wallMs![0]),
+          head2: summarize(ev.runs.head2, ev.wallMs![1]),
+          base: ev.runs.base ? summarize(ev.runs.base, ev.wallMs![2]) : 'null (file absent on base: new in this PR)',
+        };
+        row.headOutputTail = ev.runs.head1.outputTail.slice(-600);
       }
     }
-    verdict = decideVerdict(input);
+
     row.verdict = verdict;
     rows.push(row);
     console.log(`${e.id.padEnd(48)} ${verdict}`);

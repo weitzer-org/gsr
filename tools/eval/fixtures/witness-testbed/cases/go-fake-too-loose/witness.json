@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "store/store.go",
+    "symbol": "Fetch",
+    "input": "Fetch(cancelledCtx, MemReader{Err: ErrRetry}, \"k\")",
+    "expected": "fewer than 3 reads",
+    "actual": "3 reads"
+  },
+  "witness": {
+    "path": "store/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package store\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tr := &MemReader{Err: ErrRetry}\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\t_, _ = Fetch(ctx, r, \"k\")\n\tif r.Reads() >= 3 {\n\t\tt.Fatalf(\"Fetch with a cancelled context made %d reads, want fewer than 3\", r.Reads())\n\t}\n}\n"
+  }
+}

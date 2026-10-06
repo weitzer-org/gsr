@@ -1,0 +1,12 @@
+{
+  "id": "go-build-failure",
+  "language": "go",
+  "finding": {
+    "file": "pager/pager.go",
+    "line": 5,
+    "severity": "HIGH",
+    "summary": "Page returns the wrong slice for page 1."
+  },
+  "expectedVerdict": "hypothesis",
+  "notes": "The witness does not compile (calls a symbol that does not exist): a build failure is never evidence the claim is true."
+}

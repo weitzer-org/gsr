@@ -1,0 +1,12 @@
+{
+  "id": "go-setup-skip",
+  "language": "go",
+  "finding": {
+    "file": "pager/pager.go",
+    "line": 5,
+    "severity": "LOW",
+    "summary": "Page mishandles nil input."
+  },
+  "expectedVerdict": "hypothesis",
+  "notes": "The witness signals a fixture problem with t.Skip(\"gsr-setup: ...\"): never evidence the claim is true."
+}

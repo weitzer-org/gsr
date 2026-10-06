@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "pager/pager.go",
+    "symbol": "Page",
+    "input": "Page(...)",
+    "expected": "returns",
+    "actual": "hangs"
+  },
+  "witness": {
+    "path": "pager/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package pager\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tfor {\n\t}\n}\n"
+  }
+}

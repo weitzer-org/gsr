@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "slug/slug.go",
+    "symbol": "Slugify",
+    "input": "Slugify(\"Hello World\")",
+    "expected": "\"hello-world\"",
+    "actual": "\"hello world\""
+  },
+  "witness": {
+    "path": "slug/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package slug\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tif got := Slugify(\"Hello World\"); got != \"hello-world\" {\n\t\tt.Fatalf(\"Slugify(%q) = %q, want %q\", \"Hello World\", got, \"hello-world\")\n\t}\n}\n"
+  }
+}

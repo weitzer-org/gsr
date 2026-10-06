@@ -1,0 +1,12 @@
+{
+  "id": "js-refuted-false-finding",
+  "language": "javascript",
+  "finding": {
+    "file": "src/sum.js",
+    "line": 3,
+    "severity": "MEDIUM",
+    "summary": "sumPositive includes negative numbers: sumPositive([1, -5, 2]) returns -2."
+  },
+  "expectedVerdict": "refuted",
+  "notes": "The finding is false: the witness passes on head."
+}

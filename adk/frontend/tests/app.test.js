@@ -303,6 +303,8 @@ describe('App frontend logic (app.js)', () => {
 
         afterEach(() => {
             global.fetch.mockReset();
+            // Elements some tests add; removed here so a failed assertion cannot leak them.
+            document.querySelectorAll('.main-error-message, #test-tabs, #history-container').forEach(el => el.remove());
         });
 
         beforeEach(() => {
@@ -347,7 +349,6 @@ describe('App frontend logic (app.js)', () => {
             expect(banner).not.toBeNull();
             expect(banner.querySelector('img')).toBeNull();
             expect(banner.textContent).toContain(evilAgent);
-            document.querySelectorAll('.main-error-message, #test-tabs').forEach(el => el.remove());
         });
 
         it('shows a review history URL as text and keeps it inside the title attribute', async () => {
@@ -370,7 +371,6 @@ describe('App frontend logic (app.js)', () => {
             expect(item.textContent).toBe(evilFile);
             expect(item.getAttribute('title')).toBe(evilFile);
             expect(item.hasAttribute('onerror')).toBe(false);
-            document.getElementById('history-container').remove();
         });
 
         it('shows finding file, agent and line as text, not markup', async () => {

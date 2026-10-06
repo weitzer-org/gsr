@@ -1,14 +1,14 @@
+const HTML_ENTITIES = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;'
+};
+
 export function escapeHTML(str) {
     if (str === null || str === undefined || str === '') return '';
-    return String(str).replace(/[&<>'"]/g, 
-        tag => ({
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            "'": '&#39;',
-            '"': '&quot;'
-        }[tag])
-    );
+    return String(str).replace(/[&<>'"]/g, tag => HTML_ENTITIES[tag]);
 }
 
 // Wraps fetch() so a 401 (no/expired login session) redirects to the login

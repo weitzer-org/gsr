@@ -228,7 +228,7 @@ export function initEvals() {
                 <li class="finding-item">
                     <div class="finding-header">
                         <span class="finding-file">${escapeHTML(f.file)}:${escapeHTML(f.line)}</span>
-                        <span class="finding-severity ${badgeClass}">${escapeHTML(f.severity)}</span>
+                        <span class="finding-severity ${badgeClass}">${escapeHTML(f.severity || 'UNKNOWN')}</span>
                     </div>
                     <div class="finding-title">${escapeHTML(String(f.description || '').split('.')[0])}.</div>
                     <p class="finding-desc">${escapeHTML(f.description)}</p>

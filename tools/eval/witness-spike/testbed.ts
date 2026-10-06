@@ -30,7 +30,13 @@ export interface TestbedCase {
 }
 
 export function listCases(): TestbedCase[] {
-  return fs.readdirSync(CASES_DIR).sort().map((id) => JSON.parse(fs.readFileSync(path.join(CASES_DIR, id, 'case.json'), 'utf8')));
+  // Directories only (a stray .DS_Store must not be read as a case), but every
+  // directory must have a case.json, so a missing manifest still fails.
+  return fs.readdirSync(CASES_DIR, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort()
+    .map((id) => JSON.parse(fs.readFileSync(path.join(CASES_DIR, id, 'case.json'), 'utf8')));
 }
 
 async function main() {

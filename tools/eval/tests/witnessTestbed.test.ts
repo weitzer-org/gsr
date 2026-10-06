@@ -20,7 +20,7 @@ describe('witness testbed cases', () => {
   });
 
   it('keeps directory name and case id in sync', () => {
-    for (const id of fs.readdirSync(CASES_DIR)) {
+    for (const id of fs.readdirSync(CASES_DIR, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)) {
       expect(JSON.parse(fs.readFileSync(path.join(CASES_DIR, id, 'case.json'), 'utf8')).id).toBe(id);
     }
   });

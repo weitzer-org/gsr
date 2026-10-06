@@ -26,6 +26,11 @@ mkdir -p "$WORK/wscopy"
 tar -C "$WS" --exclude=.git -c . | tar -x -C "$WORK/wscopy"
 chmod -R a+rwX "$WORK/wscopy"
 
+# This is a STRICTER profile than the witness runner's (dockerArgs in
+# ../witness-spike/sandbox.ts), which needs an executable 1g /tmp (`go test`
+# compiles its binary there), --pids-limit 512 and a configurable memory limit.
+# The probe checks what the shared flags block (network, root fs, capabilities,
+# uid, env, host files); it does not measure the runner's resource limits.
 HARDEN=(--network none --read-only --tmpfs /tmp:rw,noexec,size=64m --user 65534:65534
   --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --memory 256m --cpus 1)
 

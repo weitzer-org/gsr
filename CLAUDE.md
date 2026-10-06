@@ -269,6 +269,30 @@ bare `Agent` call silently inherits Sonnet, which defeats the entire point.
 Hand the subagent full context; it starts cold. Report where it disagreed with
 you, not just its conclusion.
 
+### Model assignment by kind of work
+
+When a task or plan says "follow the model assignments", use this table. The
+main session runs on whatever `/model` is set to (Sonnet by default) and
+cannot switch itself, so every non-Sonnet row below runs as a subagent with
+`model` passed explicitly. Subagents are only spawned when the user has asked
+for them or has said to follow these assignments.
+
+| Kind of work | Model | Notes |
+|---|---|---|
+| Implementation: features, bug fixes, tests, refactors, CI wiring | Sonnet | The default builder; runs in the main session |
+| Mechanical, fully specified chores: untracking files, `.gitignore`, formatting, docs for an already-built feature, flipping a workflow input | Haiku | Pass `model: "haiku"`. Hand it exact file paths and the exact change; don't use it for anything needing judgment |
+| Sandbox, secrets, auth, or code-execution design and its review | Opus | Pair with `/security-review`; this is the "irreversible or expensive" trigger above |
+| Writing or tuning a prompt whose quality decides whether a feature works | Opus | Review the result with Fable |
+| Scoring a run, comparing measurements, writing a gate report | Opus | The "comparing measurements" trigger above |
+| Triaging or rebutting a bot review finding | Opus | The "false positive" trigger above; reproduce the claim first |
+| "Is there a simpler way?" design checks | Fable | Pass `model: "fable"` |
+| Routine pre-merge review of a diff | `/quick-review` | No sub-agent; same quota profile as one call |
+
+Cloud sessions don't have the `opus-verifier` or `fable-reviewer` agents (they
+live in a developer's local `~/.claude/agents`), so pass `model` explicitly
+there. Never put a model name in a commit message, PR title or body, or code
+comment.
+
 ## Review-round triage ledger
 
 Bot-review rounds are where misinterpretation concentrates, and PRs here have

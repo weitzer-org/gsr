@@ -170,9 +170,12 @@ async function main() {
   for (const f of findings) if (!TRUTH.cases[f.id]) throw new Error(`no ground truth for ${f.id}`);
 
   const image = process.env.WITNESS_IMAGE || 'witness-go:1.24';
+  // Everything Go-specific (Docker, the module cache, the build cache) is skipped for a JavaScript-only
+  // selection, so such a run works on a host with no Go toolchain.
+  const hasGo = findings.some((f) => f.language === 'go');
   // A dead daemon makes every Go run come back `not_run`, which scores as an
   // inconclusive verdict and would silently corrupt the measurement. Fail loudly instead.
-  if (findings.some((f) => f.language === 'go')) {
+  if (hasGo) {
     try { execFileSync('docker', ['image', 'inspect', image], { stdio: 'ignore' }); }
     catch { throw new Error(`Docker is not reachable or image ${image} is missing; start dockerd and run build-go-image.sh`); }
   }
@@ -180,15 +183,15 @@ async function main() {
   // holding a 0777 child the container's non-root user can write. Other local users cannot traverse the
   // parent. A user-supplied GO_BUILD_CACHE is used as given and never chmod'ed: it must already be
   // writable by the sandbox user, because this script will not loosen permissions on a directory it did not create.
-  const tempCache = !process.env.GO_BUILD_CACHE;
+  const tempCache = hasGo && !process.env.GO_BUILD_CACHE;
   const cacheRoot = tempCache ? fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-witness-author-gocache-')) : '';
   const baseCfg: SandboxConfig = {
     image,
-    goModCacheDir: process.env.GO_MOD_CACHE || execFileSync('go', ['env', 'GOMODCACHE'], { encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } }).trim(),
-    goBuildCacheDir: tempCache ? path.join(cacheRoot, 'cache') : (process.env.GO_BUILD_CACHE as string),
+    goModCacheDir: process.env.GO_MOD_CACHE || (hasGo ? execFileSync('go', ['env', 'GOMODCACHE'], { encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } }).trim() : ''),
+    goBuildCacheDir: tempCache ? path.join(cacheRoot, 'cache') : (process.env.GO_BUILD_CACHE ?? ''),
     timeoutMs: 120000, memory: '2g', cpus: '2',
   };
-  fs.mkdirSync(baseCfg.goBuildCacheDir, { recursive: true });
+  if (hasGo) fs.mkdirSync(baseCfg.goBuildCacheDir, { recursive: true });
   if (tempCache) fs.chmodSync(baseCfg.goBuildCacheDir, 0o777);
   const jest = { jestBin: path.join(HERE, '..', 'node_modules', '.bin', 'jest') };
 

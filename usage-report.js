@@ -92,7 +92,7 @@ const KNOWN_REVIEW_CALL_TYPES = new Set([
 ]);
 
 function workloadOf(rec) {
-  if (rec.callType === 'evaluate' || (typeof rec.callType === 'string' && rec.callType.startsWith('llm_compare'))) {
+  if (rec.callType === 'evaluate' || rec.callType === 'witness_author' || (typeof rec.callType === 'string' && rec.callType.startsWith('llm_compare'))) {
     return 'eval';
   }
   if (KNOWN_REVIEW_CALL_TYPES.has(rec.callType)) return 'review';

@@ -513,7 +513,10 @@ const KNOWN_REVIEW_CALL_TYPES = new Set([
 ]);
 
 function workloadOf(rec: UsageRecord): 'eval' | 'review' | 'product' {
-  if (rec.callType === 'evaluate' || rec.callType.startsWith('llm_compare')) return 'eval';
+  // tools/eval's judge calls (llm_compare*), the evaluate call, and the Prove It witness author benchmark
+  // (tools/eval/witness-spike/author.ts). No record with callType witness_author existed before this was
+  // added, so no already-cached rollup is stale and CURRENT_SCHEMA_VERSION is deliberately not bumped.
+  if (rec.callType === 'evaluate' || rec.callType.startsWith('llm_compare') || rec.callType === 'witness_author') return 'eval';
   if (KNOWN_REVIEW_CALL_TYPES.has(rec.callType)) return 'review';
   return 'product';
 }

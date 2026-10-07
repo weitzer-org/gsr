@@ -453,6 +453,15 @@ describe('aggregate', () => {
         expect(rollup.byRepository['tools-eval (local)'].calls).toBe(2);
     });
 
+    it('classifies the Prove It witness author benchmark (witness_author) as eval, not product', () => {
+        const records: Array<Record<string, unknown>> = [
+            { timestamp: 't', provider: 'gemini', callType: 'witness_author', model: 'gemini-3.1-pro-preview', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: 'tools-eval (local)' },
+        ];
+        const rollup = usage.aggregate('2026-10-07', records as any);
+        expect(rollup.byWorkload['eval'].calls).toBe(1);
+        expect(rollup.byWorkload['product']).toBeUndefined();
+    });
+
     it('builds the model x repository intersection keyed on "model|repository"', () => {
         const records: Array<Record<string, unknown>> = [
             { timestamp: 't', provider: 'gemini', callType: 'discovery', model: 'gemini-3.1-pro-preview', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, repository: 'weitzer-org/logo-maker' },

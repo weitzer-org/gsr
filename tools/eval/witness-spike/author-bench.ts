@@ -4,7 +4,7 @@
 // validate/sandbox/decide pipeline the testbed uses, and scores the verdict
 // against author-truth.json.
 //
-//   ts-node witness-spike/author-bench.ts --prompt v1|v2 [--n 3] [--set all|testbed|spike|heldout]
+//   ts-node witness-spike/author-bench.ts --prompt v1|v2 [--n 3] [--set all|testbed|spike|heldout|realpr]
 //                                          [--bundle single|whole]
 //                                          [--only <id>] [--out <file>]
 //
@@ -33,12 +33,13 @@ import { SandboxConfig } from './sandbox';
 import { classify, Row, summarize, Truth } from './score';
 import { listCases, CASES_DIR, HELDOUT_DIR } from './testbed';
 import { bundleFor, entries, worktree } from './run';
+import { realprBundle, realprFindings } from './realpr';
 
 const HERE = __dirname;
 type TruthFile = { cases: Record<string, Truth & { why: string }> };
 const readTruth = (f: string): TruthFile => JSON.parse(fs.readFileSync(path.join(HERE, f), 'utf8'));
 // Both files together: ids never overlap (the held-out cases have their own ids), so one lookup serves every set.
-const TRUTH: TruthFile = { cases: { ...readTruth('author-truth.json').cases, ...readTruth('heldout-truth.json').cases } };
+const TRUTH: TruthFile = { cases: { ...readTruth('author-truth.json').cases, ...readTruth('heldout-truth.json').cases, ...readTruth('realpr-truth.json').cases } };
 const OUT_DIR = path.join(HERE, '..', 'fixtures', 'witness-author-runs');
 
 /** Output that Jest would run unsandboxed: refuse anything reaching outside the process's own data. */
@@ -86,7 +87,7 @@ interface Finding {
   id: string;
   /** Repo-relative file the finding is about; a witness must be for exactly this file. */
   file: string;
-  set: 'testbed' | 'spike' | 'heldout';
+  set: 'testbed' | 'spike' | 'heldout' | 'realpr';
   language: 'go' | 'javascript';
   headDir: string;
   baseDir: string | null;
@@ -131,6 +132,13 @@ function spikeFindings(): Finding[] {
   });
 }
 
+function realprSet(): Finding[] {
+  return realprFindings().map((f) => ({
+    id: f.id, file: f.file, set: 'realpr' as const, language: 'go' as const,
+    headDir: f.headDir, baseDir: f.baseDir, bundle: (whole: boolean) => realprBundle(f, whole),
+  }));
+}
+
 /** Serializes sandbox runs so concurrent author calls cannot starve the timeout-sensitive runner. */
 let chain: Promise<unknown> = Promise.resolve();
 function exclusive<T>(fn: () => Promise<T>): Promise<T> {
@@ -172,9 +180,9 @@ async function main() {
   const whole = bundleMode === 'whole';
   const systemPrompt = loadPrompt(version);
 
-  if (!['all', 'testbed', 'spike', 'heldout'].includes(set)) throw new Error('--set must be all, testbed, spike or heldout');
+  if (!['all', 'testbed', 'spike', 'heldout', 'realpr'].includes(set)) throw new Error('--set must be all, testbed, spike, heldout or realpr');
   // 'all' is the original in-sample set (testbed + spike). The held-out cases are only ever selected by name.
-  let findings = set === 'heldout'
+  let findings = set === 'realpr' ? realprSet() : set === 'heldout'
     ? testbedFindings(HELDOUT_DIR, 'heldout')
     : [...(set === 'spike' ? [] : testbedFindings()), ...(set === 'testbed' ? [] : spikeFindings())];
   if (only) findings = findings.filter((f) => f.id === only);

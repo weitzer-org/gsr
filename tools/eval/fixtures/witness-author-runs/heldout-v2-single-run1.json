@@ -1,0 +1,2096 @@
+{
+  "prompt": "v2",
+  "bundle": "single",
+  "model": "gemini-3.1-pro-preview",
+  "n": 3,
+  "set": "heldout",
+  "findings": [
+    "go-cents-round-false",
+    "go-contract-sorted-false",
+    "go-ctx-package-double-loose",
+    "go-ctx-retry-true",
+    "go-flush-after-error-true",
+    "go-median-new-true",
+    "go-memo-error-path-false",
+    "go-naming-opinion",
+    "go-sorted-copy-false",
+    "go-tally-nilmap-true",
+    "go-window-offbyone-true",
+    "js-chunk-partial-true",
+    "js-clamp-false"
+  ],
+  "summary": {
+    "n": 39,
+    "counts": {
+      "correct_proven": 18,
+      "misattributed_proven": 0,
+      "wrong_proven": 0,
+      "correct_refuted": 18,
+      "false_refutation": 0,
+      "spurious_refuted": 0,
+      "correct_abstain": 3,
+      "no_conclusion": 0,
+      "author_failure": 0
+    },
+    "proven": 18,
+    "wrongProven": 0,
+    "provenPrecision": 1,
+    "conclusive": 36,
+    "yield": 0.9230769230769231,
+    "costUsd": 0.3827519999999997,
+    "costUsdWithThinking": 1.0639199999999998,
+    "costPerFinding": 0.009814153846153839,
+    "costPerCorrectProven": 0.021263999999999984
+  },
+  "samples": [
+    {
+      "id": "go-cents-round-false",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Uses math.Round; 0.29*100 is 28.999999999999996 and rounds to 29."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "money/money.go",
+        "symbol": "Cents",
+        "input": "Cents(0.29)",
+        "expected": "29",
+        "actual": "28"
+      },
+      "witnessSource": "package money\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Cents(0.29)\n\tif got != 29 {\n\t\tt.Fatalf(\"Cents(0.29) = %v, want 29\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-cents-round-false/money\t0.003s\n",
+      "usage": {
+        "inputTokens": 3121,
+        "outputTokens": 217,
+        "thinkingTokens": 545,
+        "cachedTokens": 0,
+        "costUsd": 0.008846,
+        "costUsdWithThinking": 0.015386,
+        "latencyMs": 10256
+      },
+      "costUsd": 0.008846,
+      "costUsdWithThinking": 0.015386
+    },
+    {
+      "id": "go-cents-round-false",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Uses math.Round; 0.29*100 is 28.999999999999996 and rounds to 29."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "money/money.go",
+        "symbol": "Cents",
+        "input": "Cents(0.29)",
+        "expected": "29",
+        "actual": "28"
+      },
+      "witnessSource": "package money\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Cents(0.29)\n\tif got != 29 {\n\t\tt.Fatalf(\"Cents(0.29) = %v, want 29\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-cents-round-false/money\t0.003s\n",
+      "usage": {
+        "inputTokens": 3121,
+        "outputTokens": 196,
+        "thinkingTokens": 408,
+        "cachedTokens": 0,
+        "costUsd": 0.008594000000000001,
+        "costUsdWithThinking": 0.01349,
+        "latencyMs": 5673
+      },
+      "costUsd": 0.008594000000000001,
+      "costUsdWithThinking": 0.01349
+    },
+    {
+      "id": "go-cents-round-false",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Uses math.Round; 0.29*100 is 28.999999999999996 and rounds to 29."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "money/money.go",
+        "symbol": "Cents",
+        "input": "Cents(0.29)",
+        "expected": "29",
+        "actual": "28"
+      },
+      "witnessSource": "package money\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Cents(0.29)\n\tif got != 29 {\n\t\tt.Fatalf(\"Cents(0.29) = %v, want %v\", got, 29)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-cents-round-false/money\t0.003s\n",
+      "usage": {
+        "inputTokens": 3121,
+        "outputTokens": 220,
+        "thinkingTokens": 1024,
+        "cachedTokens": 0,
+        "costUsd": 0.008882000000000001,
+        "costUsdWithThinking": 0.02117,
+        "latencyMs": 10342
+      },
+      "costUsd": 0.008882000000000001,
+      "costUsdWithThinking": 0.02117
+    },
+    {
+      "id": "go-contract-sorted-false",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "The stated input is within the Lister contract (each lister is sorted and duplicate-free; the same name appears once in each). Merge handles equal heads in its default branch and returns [a]. Only a single Lister that itself lists a name twice, violating its no-duplicates contract, makes Merge return a duplicate."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "merge/merge.go",
+        "symbol": "Merge",
+        "input": "Merge([\"a\"], [\"a\"])",
+        "expected": "[\"a\"]",
+        "actual": "[\"a\", \"a\"]"
+      },
+      "witnessSource": "package merge\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\ntype gsrWitnessLister struct {\n\titems []string\n}\n\nfunc (l *gsrWitnessLister) List() []string {\n\treturn l.items\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\ta := &gsrWitnessLister{items: []string{\"a\"}}\n\tb := &gsrWitnessLister{items: []string{\"a\"}}\n\t\n\tgot := Merge(a, b)\n\twant := []string{\"a\"}\n\t\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Merge([\\\"a\\\"], [\\\"a\\\"]) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-contract-sorted-false/merge\t0.003s\n",
+      "usage": {
+        "inputTokens": 3328,
+        "outputTokens": 354,
+        "thinkingTokens": 2594,
+        "cachedTokens": 0,
+        "costUsd": 0.010904,
+        "costUsdWithThinking": 0.042032,
+        "latencyMs": 21272
+      },
+      "costUsd": 0.010904,
+      "costUsdWithThinking": 0.042032
+    },
+    {
+      "id": "go-contract-sorted-false",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "The stated input is within the Lister contract (each lister is sorted and duplicate-free; the same name appears once in each). Merge handles equal heads in its default branch and returns [a]. Only a single Lister that itself lists a name twice, violating its no-duplicates contract, makes Merge return a duplicate."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "merge/merge.go",
+        "symbol": "Merge",
+        "input": "Merge([\"a\"], [\"a\"])",
+        "expected": "[\"a\"]",
+        "actual": "[\"a\", \"a\"]"
+      },
+      "witnessSource": "package merge\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\ntype gsrWitnessLister []string\n\nfunc (l gsrWitnessLister) List() []string {\n\treturn []string(l)\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\ta := gsrWitnessLister{\"a\"}\n\tb := gsrWitnessLister{\"a\"}\n\tgot := Merge(a, b)\n\twant := []string{\"a\"}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Merge([\\\"a\\\"], [\\\"a\\\"]) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-contract-sorted-false/merge\t0.003s\n",
+      "usage": {
+        "inputTokens": 3328,
+        "outputTokens": 326,
+        "thinkingTokens": 1829,
+        "cachedTokens": 0,
+        "costUsd": 0.010568,
+        "costUsdWithThinking": 0.032516,
+        "latencyMs": 16091
+      },
+      "costUsd": 0.010568,
+      "costUsdWithThinking": 0.032516
+    },
+    {
+      "id": "go-contract-sorted-false",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "The stated input is within the Lister contract (each lister is sorted and duplicate-free; the same name appears once in each). Merge handles equal heads in its default branch and returns [a]. Only a single Lister that itself lists a name twice, violating its no-duplicates contract, makes Merge return a duplicate."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "merge/merge.go",
+        "symbol": "Merge",
+        "input": "Merge([\"a\"], [\"a\"])",
+        "expected": "[\"a\"]",
+        "actual": "[\"a\", \"a\"]"
+      },
+      "witnessSource": "package merge\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\ntype gsrWitnessLister struct {\n\titems []string\n}\n\nfunc (l *gsrWitnessLister) List() []string {\n\treturn l.items\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\ta := &gsrWitnessLister{items: []string{\"a\"}}\n\tb := &gsrWitnessLister{items: []string{\"a\"}}\n\tgot := Merge(a, b)\n\twant := []string{\"a\"}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Merge(a, b) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-contract-sorted-false/merge\t0.002s\n",
+      "usage": {
+        "inputTokens": 3328,
+        "outputTokens": 338,
+        "thinkingTokens": 2521,
+        "cachedTokens": 0,
+        "costUsd": 0.010712,
+        "costUsdWithThinking": 0.040964,
+        "latencyMs": 20642
+      },
+      "costUsd": 0.010712,
+      "costUsdWithThinking": 0.040964
+    },
+    {
+      "id": "go-ctx-package-double-loose",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Store documents that implementations MUST honour ctx, so with any compliant Store a cancelled ctx stops Save after the first Put. Only the package MemStore (documented as non-compliant) shows 2 calls."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "saver/saver.go",
+        "symbol": "Save",
+        "input": "Save(cancelledCtx, store, \"id\", \"a\", \"b\")",
+        "expected": "less than 2 calls to Put",
+        "actual": "2 calls to Put"
+      },
+      "witnessSource": "package saver\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\ntype gsrWitnessFakeStore struct {\n\tcalls int\n}\n\nfunc (s *gsrWitnessFakeStore) Put(ctx context.Context, key, value string) error {\n\ts.calls++\n\tif err := ctx.Err(); err != nil {\n\t\treturn err\n\t}\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\n\tstore := &gsrWitnessFakeStore{}\n\t_ = Save(ctx, store, \"id\", \"a\", \"b\")\n\n\tif store.calls >= 2 {\n\t\tt.Fatalf(\"store.calls = %v, want < 2\", store.calls)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-ctx-package-double-loose/saver\t0.004s\n",
+      "usage": {
+        "inputTokens": 3206,
+        "outputTokens": 374,
+        "thinkingTokens": 4153,
+        "cachedTokens": 0,
+        "costUsd": 0.0109,
+        "costUsdWithThinking": 0.060736,
+        "latencyMs": 34107
+      },
+      "costUsd": 0.0109,
+      "costUsdWithThinking": 0.060736
+    },
+    {
+      "id": "go-ctx-package-double-loose",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Store documents that implementations MUST honour ctx, so with any compliant Store a cancelled ctx stops Save after the first Put. Only the package MemStore (documented as non-compliant) shows 2 calls."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "saver/saver.go",
+        "symbol": "Save",
+        "input": "Save(cancelledCtx, store, \"id\", \"a\", \"b\")",
+        "expected": "stops after 1 Put call",
+        "actual": "performs both Put calls"
+      },
+      "witnessSource": "package saver\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\ntype gsrWitnessStore struct {\n\tcalls int\n}\n\nfunc (s *gsrWitnessStore) Put(ctx context.Context, key, value string) error {\n\ts.calls++\n\tif err := ctx.Err(); err != nil {\n\t\treturn err\n\t}\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\n\tstore := &gsrWitnessStore{}\n\t_ = Save(ctx, store, \"id\", \"a\", \"b\")\n\n\tif store.calls > 1 {\n\t\tt.Fatalf(\"Put calls with cancelled context = %d, want <= 1\", store.calls)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-ctx-package-double-loose/saver\t0.002s\n",
+      "usage": {
+        "inputTokens": 3206,
+        "outputTokens": 372,
+        "thinkingTokens": 4568,
+        "cachedTokens": 0,
+        "costUsd": 0.010876,
+        "costUsdWithThinking": 0.065692,
+        "latencyMs": 36051
+      },
+      "costUsd": 0.010876,
+      "costUsdWithThinking": 0.065692
+    },
+    {
+      "id": "go-ctx-package-double-loose",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Store documents that implementations MUST honour ctx, so with any compliant Store a cancelled ctx stops Save after the first Put. Only the package MemStore (documented as non-compliant) shows 2 calls."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "saver/saver.go",
+        "symbol": "Save",
+        "input": "Save(cancelledContext, store, \"id\", \"a\", \"b\")",
+        "expected": "1 Put call (first call returns the context error, halting execution)",
+        "actual": "2 Put calls"
+      },
+      "witnessSource": "package saver\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\ntype gsrWitnessStore struct {\n\tcalls int\n}\n\nfunc (s *gsrWitnessStore) Put(ctx context.Context, key, value string) error {\n\ts.calls++\n\tif err := ctx.Err(); err != nil {\n\t\treturn err\n\t}\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel() // cancel immediately so ctx.Err() is non-nil\n\n\tstore := &gsrWitnessStore{}\n\terr := Save(ctx, store, \"id1\", \"valA\", \"valB\")\n\n\tif store.calls != 1 {\n\t\tt.Fatalf(\"Save(cancelledCtx, ...) resulted in %d Put calls, want 1\", store.calls)\n\t}\n\tif err == nil {\n\t\tt.Fatalf(\"Save(cancelledCtx, ...) returned nil error, want context cancellation error\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-ctx-package-double-loose/saver\t0.003s\n",
+      "usage": {
+        "inputTokens": 3206,
+        "outputTokens": 432,
+        "thinkingTokens": 3392,
+        "cachedTokens": 0,
+        "costUsd": 0.011596,
+        "costUsdWithThinking": 0.0523,
+        "latencyMs": 28061
+      },
+      "costUsd": 0.011596,
+      "costUsdWithThinking": 0.0523
+    },
+    {
+      "id": "go-ctx-retry-true",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head retries on every error including ctx.Err(); base returned on any error other than ErrNotReady. A ctx-honouring Source (the package FakeSource) shows 4 calls vs 1.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "poll/poll.go",
+        "symbol": "Poll",
+        "input": "Poll(alreadyCancelledCtx, src, \"key\")",
+        "expected": "1 call to Get",
+        "actual": "4 calls to Get"
+      },
+      "witnessSource": "package poll\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\ntype gsrWitnessFakeSource struct {\n\tcalls int\n}\n\nfunc (s *gsrWitnessFakeSource) Get(ctx context.Context, key string) (string, error) {\n\ts.calls++\n\tif err := ctx.Err(); err != nil {\n\t\treturn \"\", err\n\t}\n\treturn \"\", ErrNotReady\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\n\tsrc := &gsrWitnessFakeSource{}\n\t_, _ = Poll(ctx, src, \"key\")\n\n\tif src.calls != 1 {\n\t\tt.Fatalf(\"Poll with already-cancelled context = %d calls to Get, want 1\", src.calls)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:28: Poll with already-cancelled context = 4 calls to Get, want 1\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-ctx-retry-true/poll\t0.003s\n",
+      "usage": {
+        "inputTokens": 3356,
+        "outputTokens": 374,
+        "thinkingTokens": 2038,
+        "cachedTokens": 0,
+        "costUsd": 0.0112,
+        "costUsdWithThinking": 0.035656,
+        "latencyMs": 17289
+      },
+      "costUsd": 0.0112,
+      "costUsdWithThinking": 0.035656
+    },
+    {
+      "id": "go-ctx-retry-true",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head retries on every error including ctx.Err(); base returned on any error other than ErrNotReady. A ctx-honouring Source (the package FakeSource) shows 4 calls vs 1.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "poll/poll.go",
+        "symbol": "Poll",
+        "input": "Poll(cancelledCtx, src, \"test-key\")",
+        "expected": "1 call to src.Get",
+        "actual": "4 calls to src.Get"
+      },
+      "witnessSource": "package poll\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\ntype gsrWitnessSource struct {\n\tcalls int\n}\n\nfunc (s *gsrWitnessSource) Get(ctx context.Context, key string) (string, error) {\n\ts.calls++\n\tif err := ctx.Err(); err != nil {\n\t\treturn \"\", err\n\t}\n\treturn \"\", ErrNotReady\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\n\tsrc := &gsrWitnessSource{}\n\t_, _ = Poll(ctx, src, \"test-key\")\n\n\tif src.calls != 1 {\n\t\tt.Fatalf(\"Poll with cancelled context made %d calls to Get, want 1\", src.calls)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:28: Poll with cancelled context made 4 calls to Get, want 1\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-ctx-retry-true/poll\t0.003s\n",
+      "usage": {
+        "inputTokens": 3356,
+        "outputTokens": 376,
+        "thinkingTokens": 1960,
+        "cachedTokens": 0,
+        "costUsd": 0.011224000000000001,
+        "costUsdWithThinking": 0.034744000000000004,
+        "latencyMs": 17073
+      },
+      "costUsd": 0.011224000000000001,
+      "costUsdWithThinking": 0.034744000000000004
+    },
+    {
+      "id": "go-ctx-retry-true",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head retries on every error including ctx.Err(); base returned on any error other than ErrNotReady. A ctx-honouring Source (the package FakeSource) shows 4 calls vs 1.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "poll/poll.go",
+        "symbol": "Poll",
+        "input": "Poll(cancelledCtx, src, \"key\")",
+        "expected": "1 call to Get",
+        "actual": "4 calls to Get"
+      },
+      "witnessSource": "package poll\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\ntype gsrWitnessSource struct {\n\tcalls int\n}\n\nfunc (s *gsrWitnessSource) Get(ctx context.Context, key string) (string, error) {\n\ts.calls++\n\tif err := ctx.Err(); err != nil {\n\t\treturn \"\", err\n\t}\n\treturn \"\", ErrNotReady\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\n\tsrc := &gsrWitnessSource{}\n\t_, _ = Poll(ctx, src, \"key\")\n\n\tif src.calls != 1 {\n\t\tt.Fatalf(\"Get calls = %v, want %v\", src.calls, 1)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:28: Get calls = 4, want 1\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-ctx-retry-true/poll\t0.002s\n",
+      "usage": {
+        "inputTokens": 3356,
+        "outputTokens": 366,
+        "thinkingTokens": 3911,
+        "cachedTokens": 0,
+        "costUsd": 0.011104,
+        "costUsdWithThinking": 0.058036000000000004,
+        "latencyMs": 30028
+      },
+      "costUsd": 0.011104,
+      "costUsdWithThinking": 0.058036000000000004
+    },
+    {
+      "id": "go-flush-after-error-true",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head flushes inside the error branch; base returned the error without flushing. The package RecordingWriter honours the Writer contract.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "upload/upload.go",
+        "symbol": "Upload",
+        "input": "Upload(w, []string{\"part1\"}) where w.Write() returns an error",
+        "expected": "w.Flush() is not called",
+        "actual": "w.Flush() is called"
+      },
+      "witnessSource": "package upload\n\nimport (\n\t\"errors\"\n\t\"testing\"\n)\n\ntype gsrWitnessWriter struct {\n\tflushCalled bool\n}\n\nfunc (w *gsrWitnessWriter) Write(part string) error {\n\treturn errors.New(\"write error\")\n}\n\nfunc (w *gsrWitnessWriter) Flush() error {\n\tw.flushCalled = true\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tw := &gsrWitnessWriter{}\n\terr := Upload(w, []string{\"part1\"})\n\tif err == nil {\n\t\tt.Skip(\"gsr-setup: expected Write to fail and return error\")\n\t}\n\tif w.flushCalled {\n\t\tt.Fatalf(\"Upload called Flush after a failed Write = %v, want %v\", w.flushCalled, false)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:28: Upload called Flush after a failed Write = true, want false\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-flush-after-error-true/upload\t0.003s\n",
+      "usage": {
+        "inputTokens": 3286,
+        "outputTokens": 379,
+        "thinkingTokens": 2054,
+        "cachedTokens": 0,
+        "costUsd": 0.01112,
+        "costUsdWithThinking": 0.035768,
+        "latencyMs": 17749
+      },
+      "costUsd": 0.01112,
+      "costUsdWithThinking": 0.035768
+    },
+    {
+      "id": "go-flush-after-error-true",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head flushes inside the error branch; base returned the error without flushing. The package RecordingWriter honours the Writer contract.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "upload/upload.go",
+        "symbol": "Upload",
+        "input": "Upload(failingWriter, []string{\"part1\"})",
+        "expected": "w.Flush() is not called",
+        "actual": "w.Flush() is called"
+      },
+      "witnessSource": "package upload\n\nimport (\n\t\"errors\"\n\t\"testing\"\n)\n\ntype gsrWitnessWriter struct {\n\tflushed bool\n}\n\nfunc (w *gsrWitnessWriter) Write(part string) error {\n\treturn errors.New(\"simulated write error\")\n}\n\nfunc (w *gsrWitnessWriter) Flush() error {\n\tw.flushed = true\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tw := &gsrWitnessWriter{}\n\t_ = Upload(w, []string{\"part1\"})\n\n\tif w.flushed {\n\t\tt.Fatalf(\"Upload called Flush after a failed Write, want no Flush on error\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:26: Upload called Flush after a failed Write, want no Flush on error\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-flush-after-error-true/upload\t0.003s\n",
+      "usage": {
+        "inputTokens": 3286,
+        "outputTokens": 341,
+        "thinkingTokens": 1310,
+        "cachedTokens": 0,
+        "costUsd": 0.010664,
+        "costUsdWithThinking": 0.026383999999999998,
+        "latencyMs": 12675
+      },
+      "costUsd": 0.010664,
+      "costUsdWithThinking": 0.026383999999999998
+    },
+    {
+      "id": "go-flush-after-error-true",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head flushes inside the error branch; base returned the error without flushing. The package RecordingWriter honours the Writer contract.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "upload/upload.go",
+        "symbol": "Upload",
+        "input": "Upload(writerFailingOnWrite, []string{\"part1\"})",
+        "expected": "Flush is not called",
+        "actual": "Flush is called"
+      },
+      "witnessSource": "package upload\n\nimport (\n\t\"errors\"\n\t\"testing\"\n)\n\ntype gsrWitnessFailWriter struct {\n\tflushCalled bool\n}\n\nfunc (f *gsrWitnessFailWriter) Write(part string) error {\n\treturn errors.New(\"write failed\")\n}\n\nfunc (f *gsrWitnessFailWriter) Flush() error {\n\tf.flushCalled = true\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tfw := &gsrWitnessFailWriter{}\n\terr := Upload(fw, []string{\"part1\"})\n\tif err == nil {\n\t\tt.Skip(\"gsr-setup: expected Write to fail and return an error\")\n\t}\n\tif fw.flushCalled {\n\t\tt.Fatalf(\"flushCalled = %v, want false\", fw.flushCalled)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:28: flushCalled = true, want false\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-flush-after-error-true/upload\t0.003s\n",
+      "usage": {
+        "inputTokens": 3286,
+        "outputTokens": 367,
+        "thinkingTokens": 1587,
+        "cachedTokens": 0,
+        "costUsd": 0.010976,
+        "costUsdWithThinking": 0.030019999999999998,
+        "latencyMs": 14558
+      },
+      "costUsd": 0.010976,
+      "costUsdWithThinking": 0.030019999999999998
+    },
+    {
+      "id": "go-median-new-true",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "File is new in the PR; the even-length branch returns the lower middle, contradicting its own doc comment.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "stats/stats.go",
+        "symbol": "Median",
+        "input": "Median([]float64{1, 2, 3, 4})",
+        "expected": "2.5",
+        "actual": "2.0"
+      },
+      "witnessSource": "package stats\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Median([]float64{1, 2, 3, 4})\n\twant := 2.5\n\tif got != want {\n\t\tt.Fatalf(\"Median([]float64{1, 2, 3, 4}) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: Median([]float64{1, 2, 3, 4}) = 2, want 2.5\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-median-new-true/stats\t0.004s\n",
+      "usage": {
+        "inputTokens": 3362,
+        "outputTokens": 255,
+        "thinkingTokens": 881,
+        "cachedTokens": 0,
+        "costUsd": 0.009784,
+        "costUsdWithThinking": 0.020356,
+        "latencyMs": 8460
+      },
+      "costUsd": 0.009784,
+      "costUsdWithThinking": 0.020356
+    },
+    {
+      "id": "go-median-new-true",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "File is new in the PR; the even-length branch returns the lower middle, contradicting its own doc comment.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "stats/stats.go",
+        "symbol": "Median",
+        "input": "Median([]float64{1, 2, 3, 4})",
+        "expected": "2.5",
+        "actual": "2.0"
+      },
+      "witnessSource": "package stats\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\txs := []float64{1, 2, 3, 4}\n\tgot := Median(xs)\n\twant := 2.5\n\tif got != want {\n\t\tt.Fatalf(\"Median(%v) = %v, want %v\", xs, got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:10: Median([1 2 3 4]) = 2, want 2.5\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-median-new-true/stats\t0.003s\n",
+      "usage": {
+        "inputTokens": 3362,
+        "outputTokens": 252,
+        "thinkingTokens": 554,
+        "cachedTokens": 0,
+        "costUsd": 0.009748,
+        "costUsdWithThinking": 0.016396,
+        "latencyMs": 6768
+      },
+      "costUsd": 0.009748,
+      "costUsdWithThinking": 0.016396
+    },
+    {
+      "id": "go-median-new-true",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "File is new in the PR; the even-length branch returns the lower middle, contradicting its own doc comment.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "stats/stats.go",
+        "symbol": "Median",
+        "input": "Median([]float64{1, 2, 3, 4})",
+        "expected": "2.5",
+        "actual": "2"
+      },
+      "witnessSource": "package stats\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Median([]float64{1, 2, 3, 4})\n\twant := 2.5\n\tif got != want {\n\t\tt.Fatalf(\"Median([]float64{1, 2, 3, 4}) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: Median([]float64{1, 2, 3, 4}) = 2, want 2.5\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-median-new-true/stats\t0.002s\n",
+      "usage": {
+        "inputTokens": 3362,
+        "outputTokens": 253,
+        "thinkingTokens": 788,
+        "cachedTokens": 0,
+        "costUsd": 0.00976,
+        "costUsdWithThinking": 0.019216,
+        "latencyMs": 8156
+      },
+      "costUsd": 0.00976,
+      "costUsdWithThinking": 0.019216
+    },
+    {
+      "id": "go-memo-error-path-false",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "For a successful load, load runs once per key (second Get is served from the map). Only a FAILING load runs twice, which the doc comment says is intended (errors are not cached)."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "memo/memo.go",
+        "symbol": "(*Memoizer).Get",
+        "input": "calling Get(\"k\", load) twice sequentially for a successful load",
+        "expected": "load is called exactly 1 time",
+        "actual": "load is called 2 times"
+      },
+      "witnessSource": "package memo\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tm := New()\n\tcalls := 0\n\tload := func(k string) (string, error) {\n\t\tcalls++\n\t\treturn \"v\", nil\n\t}\n\n\t_, err := m.Get(\"k\", load)\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: first Get failed: %v\", err)\n\t}\n\n\t_, err = m.Get(\"k\", load)\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: second Get failed: %v\", err)\n\t}\n\n\tif calls != 1 {\n\t\tt.Fatalf(\"Get(\\\"k\\\", load) twice called load %d times, want 1\", calls)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-memo-error-path-false/memo\t0.003s\n",
+      "usage": {
+        "inputTokens": 3254,
+        "outputTokens": 383,
+        "thinkingTokens": 2071,
+        "cachedTokens": 0,
+        "costUsd": 0.011104,
+        "costUsdWithThinking": 0.035956,
+        "latencyMs": 17663
+      },
+      "costUsd": 0.011104,
+      "costUsdWithThinking": 0.035956
+    },
+    {
+      "id": "go-memo-error-path-false",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "For a successful load, load runs once per key (second Get is served from the map). Only a FAILING load runs twice, which the doc comment says is intended (errors are not cached)."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "memo/memo.go",
+        "symbol": "(*Memoizer).Get",
+        "input": "Two consecutive calls to Get(\"k\", load) where load succeeds",
+        "expected": "load is called exactly once",
+        "actual": "load is called twice"
+      },
+      "witnessSource": "package memo\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tm := New()\n\tcalls := 0\n\tload := func(k string) (string, error) {\n\t\tcalls++\n\t\treturn \"value\", nil\n\t}\n\n\t_, err := m.Get(\"k\", load)\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: first Get failed: %v\", err)\n\t}\n\n\t_, err = m.Get(\"k\", load)\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: second Get failed: %v\", err)\n\t}\n\n\tif calls != 1 {\n\t\tt.Fatalf(\"load called %d times, want 1\", calls)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-memo-error-path-false/memo\t0.003s\n",
+      "usage": {
+        "inputTokens": 3254,
+        "outputTokens": 370,
+        "thinkingTokens": 1749,
+        "cachedTokens": 0,
+        "costUsd": 0.010948,
+        "costUsdWithThinking": 0.031936,
+        "latencyMs": 16133
+      },
+      "costUsd": 0.010948,
+      "costUsdWithThinking": 0.031936
+    },
+    {
+      "id": "go-memo-error-path-false",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "For a successful load, load runs once per key (second Get is served from the map). Only a FAILING load runs twice, which the doc comment says is intended (errors are not cached)."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "memo/memo.go",
+        "symbol": "(*Memoizer).Get",
+        "input": "Calling Get(\"k\", load) twice consecutively",
+        "expected": "load is invoked exactly once",
+        "actual": "load is invoked two times"
+      },
+      "witnessSource": "package memo\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tm := New()\n\tcalls := 0\n\tload := func(k string) (string, error) {\n\t\tcalls++\n\t\treturn \"value\", nil\n\t}\n\n\t_, err := m.Get(\"k\", load)\n\tif err != nil {\n\t\tt.Skip(\"gsr-setup: first Get failed\")\n\t}\n\n\t_, err = m.Get(\"k\", load)\n\tif err != nil {\n\t\tt.Skip(\"gsr-setup: second Get failed\")\n\t}\n\n\tif calls != 1 {\n\t\tt.Fatalf(\"load called %d times, want 1\", calls)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-memo-error-path-false/memo\t0.003s\n",
+      "usage": {
+        "inputTokens": 3254,
+        "outputTokens": 357,
+        "thinkingTokens": 1823,
+        "cachedTokens": 0,
+        "costUsd": 0.010792,
+        "costUsdWithThinking": 0.032668,
+        "latencyMs": 16211
+      },
+      "costUsd": 0.010792,
+      "costUsdWithThinking": 0.032668
+    },
+    {
+      "id": "go-naming-opinion",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "opinion",
+        "why": "Naming preference, not behaviour."
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding is about variable naming preference and not about the code's behavior.",
+        "language": "go",
+        "file": "naming/naming.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 3133,
+        "outputTokens": 97,
+        "thinkingTokens": 57,
+        "cachedTokens": 0,
+        "costUsd": 0.00743,
+        "costUsdWithThinking": 0.008114,
+        "latencyMs": 3382
+      },
+      "costUsd": 0.00743,
+      "costUsdWithThinking": 0.008114
+    },
+    {
+      "id": "go-naming-opinion",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "opinion",
+        "why": "Naming preference, not behaviour."
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding is about the variable naming style (renaming 'd' to 'duration'), which does not affect behavior and cannot be asserted in a test.",
+        "language": "go",
+        "file": "naming/naming.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 3133,
+        "outputTokens": 94,
+        "thinkingTokens": 143,
+        "cachedTokens": 0,
+        "costUsd": 0.0073939999999999995,
+        "costUsdWithThinking": 0.00911,
+        "latencyMs": 3172
+      },
+      "costUsd": 0.0073939999999999995,
+      "costUsdWithThinking": 0.00911
+    },
+    {
+      "id": "go-naming-opinion",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "opinion",
+        "why": "Naming preference, not behaviour."
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding is about variable naming style and clarity, not about the behavior of the code.",
+        "language": "go",
+        "file": "naming/naming.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 3133,
+        "outputTokens": 108,
+        "thinkingTokens": 115,
+        "cachedTokens": 0,
+        "costUsd": 0.007562,
+        "costUsdWithThinking": 0.008942,
+        "latencyMs": 3161
+      },
+      "costUsd": 0.007562,
+      "costUsdWithThinking": 0.008942
+    },
+    {
+      "id": "go-sorted-copy-false",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Sorts a copy made with append([]int(nil), xs...)."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "order/order.go",
+        "symbol": "Sorted",
+        "input": "xs := []int{2, 1, 3}; Sorted(xs)",
+        "expected": "xs remains []int{2, 1, 3}",
+        "actual": "xs is reordered"
+      },
+      "witnessSource": "package order\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tin := []int{2, 1, 3}\n\t_ = Sorted(in)\n\twant := []int{2, 1, 3}\n\tif !reflect.DeepEqual(in, want) {\n\t\tt.Fatalf(\"input after Sorted = %v, want %v (mutated)\", in, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-sorted-copy-false/order\t0.003s\n",
+      "usage": {
+        "inputTokens": 3125,
+        "outputTokens": 281,
+        "thinkingTokens": 1116,
+        "cachedTokens": 0,
+        "costUsd": 0.009622,
+        "costUsdWithThinking": 0.023014,
+        "latencyMs": 10314
+      },
+      "costUsd": 0.009622,
+      "costUsdWithThinking": 0.023014
+    },
+    {
+      "id": "go-sorted-copy-false",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Sorts a copy made with append([]int(nil), xs...)."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "order/order.go",
+        "symbol": "Sorted",
+        "input": "xs := []int{2, 1}; Sorted(xs)",
+        "expected": "xs remains [2 1]",
+        "actual": "xs is mutated to [1 2]"
+      },
+      "witnessSource": "package order\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\txs := []int{2, 1}\n\tSorted(xs)\n\tif len(xs) != 2 || xs[0] != 2 || xs[1] != 1 {\n\t\tt.Fatalf(\"after Sorted(xs), xs = %v, want [2 1]\", xs)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-sorted-copy-false/order\t0.003s\n",
+      "usage": {
+        "inputTokens": 3125,
+        "outputTokens": 202,
+        "thinkingTokens": 917,
+        "cachedTokens": 0,
+        "costUsd": 0.008674000000000001,
+        "costUsdWithThinking": 0.019678,
+        "latencyMs": 9031
+      },
+      "costUsd": 0.008674000000000001,
+      "costUsdWithThinking": 0.019678
+    },
+    {
+      "id": "go-sorted-copy-false",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Sorts a copy made with append([]int(nil), xs...)."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "order/order.go",
+        "symbol": "Sorted",
+        "input": "Sorted([]int{3, 2, 1})",
+        "expected": "input slice remains []int{3, 2, 1}",
+        "actual": "input slice is reordered to []int{1, 2, 3}"
+      },
+      "witnessSource": "package order\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tinput := []int{3, 2, 1}\n\tSorted(input)\n\twant := []int{3, 2, 1}\n\tif !reflect.DeepEqual(input, want) {\n\t\tt.Fatalf(\"input after Sorted(input) = %v, want %v\", input, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-sorted-copy-false/order\t0.004s\n",
+      "usage": {
+        "inputTokens": 3125,
+        "outputTokens": 288,
+        "thinkingTokens": 989,
+        "cachedTokens": 0,
+        "costUsd": 0.009706,
+        "costUsdWithThinking": 0.021574000000000003,
+        "latencyMs": 10100
+      },
+      "costUsd": 0.009706,
+      "costUsdWithThinking": 0.021574000000000003
+    },
+    {
+      "id": "go-tally-nilmap-true",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "The map is declared but never made, on base and on head, so any non-empty input panics.",
+        "attribution": "preexisting"
+      },
+      "verdict": "proven_preexisting",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "tally/tally.go",
+        "symbol": "Tally",
+        "input": "Tally([]string{\"a\"})",
+        "expected": "map[string]int{\"a\": 1}",
+        "actual": "panic"
+      },
+      "witnessSource": "package tally\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Tally([]string{\"a\"})\n\tif len(got) != 1 || got[\"a\"] != 1 {\n\t\tt.Fatalf(\"Tally([]string{\\\"a\\\"}) = %v, want map[string]int{\\\"a\\\": 1}\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": ".go:1737 +0x35e\npanic({0x54fea0?, 0x6a07f0?})\n\t/usr/local/go/src/runtime/panic.go:792 +0x132\ntestbed/go-tally-nilmap-true/tally.Tally(...)\n\t/work/tally/tally.go:7\ntestbed/go-tally-nilmap-true/tally.TestGSRWitness(0xc000126540)\n\t/work/tally/zz_gsr_witness_test.go:6 +0x54\ntesting.tRunner(0xc000126540, 0x5843d0)\n\t/usr/local/go/src/testing/testing.go:1792 +0xf4\ncreated by testing.(*T).Run in goroutine 1\n\t/usr/local/go/src/testing/testing.go:1851 +0x413\nFAIL\ttestbed/go-tally-nilmap-true/tally\t0.006s\n",
+      "usage": {
+        "inputTokens": 3149,
+        "outputTokens": 214,
+        "thinkingTokens": 989,
+        "cachedTokens": 0,
+        "costUsd": 0.008865999999999999,
+        "costUsdWithThinking": 0.020734,
+        "latencyMs": 9096
+      },
+      "costUsd": 0.008865999999999999,
+      "costUsdWithThinking": 0.020734
+    },
+    {
+      "id": "go-tally-nilmap-true",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "The map is declared but never made, on base and on head, so any non-empty input panics.",
+        "attribution": "preexisting"
+      },
+      "verdict": "proven_preexisting",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "tally/tally.go",
+        "symbol": "Tally",
+        "input": "Tally([]string{\"a\"})",
+        "expected": "map[string]int{\"a\": 1}",
+        "actual": "panic (write to nil map)"
+      },
+      "witnessSource": "package tally\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Tally([]string{\"a\"})\n\twant := map[string]int{\"a\": 1}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Tally([]string{\\\"a\\\"}) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": ".go:1737 +0x35e\npanic({0x553080?, 0x6a67f0?})\n\t/usr/local/go/src/runtime/panic.go:792 +0x132\ntestbed/go-tally-nilmap-true/tally.Tally(...)\n\t/work/tally/tally.go:7\ntestbed/go-tally-nilmap-true/tally.TestGSRWitness(0xc0000828c0)\n\t/work/tally/zz_gsr_witness_test.go:9 +0x57\ntesting.tRunner(0xc0000828c0, 0x587828)\n\t/usr/local/go/src/testing/testing.go:1792 +0xf4\ncreated by testing.(*T).Run in goroutine 1\n\t/usr/local/go/src/testing/testing.go:1851 +0x413\nFAIL\ttestbed/go-tally-nilmap-true/tally\t0.005s\n",
+      "usage": {
+        "inputTokens": 3149,
+        "outputTokens": 269,
+        "thinkingTokens": 1066,
+        "cachedTokens": 0,
+        "costUsd": 0.009526,
+        "costUsdWithThinking": 0.022317999999999998,
+        "latencyMs": 9904
+      },
+      "costUsd": 0.009526,
+      "costUsdWithThinking": 0.022317999999999998
+    },
+    {
+      "id": "go-tally-nilmap-true",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "The map is declared but never made, on base and on head, so any non-empty input panics.",
+        "attribution": "preexisting"
+      },
+      "verdict": "proven_preexisting",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "tally/tally.go",
+        "symbol": "Tally",
+        "input": "Tally([]string{\"a\"})",
+        "expected": "map[string]int{\"a\": 1}",
+        "actual": "panic"
+      },
+      "witnessSource": "package tally\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Tally([]string{\"a\"})\n\twant := map[string]int{\"a\": 1}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Tally([]string{\\\"a\\\"}) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": ".go:1737 +0x35e\npanic({0x553080?, 0x6a67f0?})\n\t/usr/local/go/src/runtime/panic.go:792 +0x132\ntestbed/go-tally-nilmap-true/tally.Tally(...)\n\t/work/tally/tally.go:7\ntestbed/go-tally-nilmap-true/tally.TestGSRWitness(0xc000003a40)\n\t/work/tally/zz_gsr_witness_test.go:9 +0x57\ntesting.tRunner(0xc000003a40, 0x587828)\n\t/usr/local/go/src/testing/testing.go:1792 +0xf4\ncreated by testing.(*T).Run in goroutine 1\n\t/usr/local/go/src/testing/testing.go:1851 +0x413\nFAIL\ttestbed/go-tally-nilmap-true/tally\t0.005s\n",
+      "usage": {
+        "inputTokens": 3149,
+        "outputTokens": 264,
+        "thinkingTokens": 1199,
+        "cachedTokens": 0,
+        "costUsd": 0.009465999999999999,
+        "costUsdWithThinking": 0.023854,
+        "latencyMs": 11158
+      },
+      "costUsd": 0.009465999999999999,
+      "costUsdWithThinking": 0.023854
+    },
+    {
+      "id": "go-window-offbyone-true",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head slices from len-n-1; base sliced from len-n.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "win/win.go",
+        "symbol": "Last",
+        "input": "Last([]int{1, 2, 3, 4}, 2)",
+        "expected": "[]int{3, 4}",
+        "actual": "[]int{2, 3, 4}"
+      },
+      "witnessSource": "package win\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Last([]int{1, 2, 3, 4}, 2)\n\twant := []int{3, 4}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Last([]int{1, 2, 3, 4}, 2) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:12: Last([]int{1, 2, 3, 4}, 2) = [2 3 4], want [3 4]\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-window-offbyone-true/win\t0.003s\n",
+      "usage": {
+        "inputTokens": 3243,
+        "outputTokens": 290,
+        "thinkingTokens": 925,
+        "cachedTokens": 0,
+        "costUsd": 0.009966,
+        "costUsdWithThinking": 0.021065999999999998,
+        "latencyMs": 10789
+      },
+      "costUsd": 0.009966,
+      "costUsdWithThinking": 0.021065999999999998
+    },
+    {
+      "id": "go-window-offbyone-true",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head slices from len-n-1; base sliced from len-n.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "win/win.go",
+        "symbol": "Last",
+        "input": "Last([]int{1, 2, 3, 4}, 2)",
+        "expected": "[]int{3, 4}",
+        "actual": "[]int{2, 3, 4}"
+      },
+      "witnessSource": "package win\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Last([]int{1, 2, 3, 4}, 2)\n\twant := []int{3, 4}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Last([]int{1, 2, 3, 4}, 2) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:12: Last([]int{1, 2, 3, 4}, 2) = [2 3 4], want [3 4]\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-window-offbyone-true/win\t0.003s\n",
+      "usage": {
+        "inputTokens": 3243,
+        "outputTokens": 290,
+        "thinkingTokens": 1155,
+        "cachedTokens": 0,
+        "costUsd": 0.009966,
+        "costUsdWithThinking": 0.023826,
+        "latencyMs": 10951
+      },
+      "costUsd": 0.009966,
+      "costUsdWithThinking": 0.023826
+    },
+    {
+      "id": "go-window-offbyone-true",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head slices from len-n-1; base sliced from len-n.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "win/win.go",
+        "symbol": "Last",
+        "input": "Last([]int{1, 2, 3, 4}, 2)",
+        "expected": "[]int{3, 4}",
+        "actual": "[]int{2, 3, 4}"
+      },
+      "witnessSource": "package win\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Last([]int{1, 2, 3, 4}, 2)\n\twant := []int{3, 4}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Last([]int{1, 2, 3, 4}, 2) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:12: Last([]int{1, 2, 3, 4}, 2) = [2 3 4], want [3 4]\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-window-offbyone-true/win\t0.003s\n",
+      "usage": {
+        "inputTokens": 3243,
+        "outputTokens": 290,
+        "thinkingTokens": 1188,
+        "cachedTokens": 0,
+        "costUsd": 0.009966,
+        "costUsdWithThinking": 0.024221999999999997,
+        "latencyMs": 10317
+      },
+      "costUsd": 0.009966,
+      "costUsdWithThinking": 0.024221999999999997
+    },
+    {
+      "id": "js-chunk-partial-true",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head loop condition i + size <= length skips the last short group; base used i < length.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/chunk.js",
+        "symbol": "chunk",
+        "input": "chunk([1, 2, 3], 2)",
+        "expected": "[[1, 2], [3]]",
+        "actual": "[[1, 2]]"
+      },
+      "witnessSource": "const { chunk } = require('./chunk.js');\n\nif (typeof chunk !== 'function') throw new Error('gsr-setup: chunk not exported');\n\ntest('gsr witness', () => {\n  expect(chunk([1, 2, 3], 2)).toEqual([[1, 2], [3]]);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "  ● gsr witness\n\n    expect(received).toEqual(expected) // deep equality\n\n    - Expected  - 3\n    + Received  + 0\n\n      Array [\n        Array [\n          1,\n          2,\n        ],\n    -   Array [\n    -     3,\n    -   ],\n      ]\n\n      4 |\n      5 | test('gsr witness', () => {\n    > 6 |   expect(chunk([1, 2, 3], 2)).toEqual([[1, 2], [3]]);\n        |                               ^\n      7 | });\n      8 |\n\n      at Object.toEqual (src/chunk.gsr-witness.test.js:6:31)\n",
+      "usage": {
+        "inputTokens": 3309,
+        "outputTokens": 228,
+        "thinkingTokens": 1163,
+        "cachedTokens": 0,
+        "costUsd": 0.009354,
+        "costUsdWithThinking": 0.023309999999999997,
+        "latencyMs": 10332
+      },
+      "costUsd": 0.009354,
+      "costUsdWithThinking": 0.023309999999999997
+    },
+    {
+      "id": "js-chunk-partial-true",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head loop condition i + size <= length skips the last short group; base used i < length.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/chunk.js",
+        "symbol": "chunk",
+        "input": "chunk([1, 2, 3], 2)",
+        "expected": "[[1, 2], [3]]",
+        "actual": "[[1, 2]]"
+      },
+      "witnessSource": "const { chunk } = require('./chunk.js');\n\nif (typeof chunk !== 'function') throw new Error('gsr-setup: chunk not exported');\n\ntest('gsr witness', () => {\n  expect(chunk([1, 2, 3], 2)).toEqual([[1, 2], [3]]);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "  ● gsr witness\n\n    expect(received).toEqual(expected) // deep equality\n\n    - Expected  - 3\n    + Received  + 0\n\n      Array [\n        Array [\n          1,\n          2,\n        ],\n    -   Array [\n    -     3,\n    -   ],\n      ]\n\n      4 |\n      5 | test('gsr witness', () => {\n    > 6 |   expect(chunk([1, 2, 3], 2)).toEqual([[1, 2], [3]]);\n        |                               ^\n      7 | });\n      8 |\n\n      at Object.toEqual (src/chunk.gsr-witness.test.js:6:31)\n",
+      "usage": {
+        "inputTokens": 3309,
+        "outputTokens": 228,
+        "thinkingTokens": 423,
+        "cachedTokens": 0,
+        "costUsd": 0.009354,
+        "costUsdWithThinking": 0.01443,
+        "latencyMs": 5952
+      },
+      "costUsd": 0.009354,
+      "costUsdWithThinking": 0.01443
+    },
+    {
+      "id": "js-chunk-partial-true",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Head loop condition i + size <= length skips the last short group; base used i < length.",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/chunk.js",
+        "symbol": "chunk",
+        "input": "chunk([1, 2, 3], 2)",
+        "expected": "[[1, 2], [3]]",
+        "actual": "[[1, 2]]"
+      },
+      "witnessSource": "const { chunk } = require('./chunk.js');\n\nif (typeof chunk !== 'function') throw new Error('gsr-setup: chunk not exported');\n\ntest('gsr witness', () => {\n  expect(chunk([1, 2, 3], 2)).toEqual([[1, 2], [3]]);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "  ● gsr witness\n\n    expect(received).toEqual(expected) // deep equality\n\n    - Expected  - 3\n    + Received  + 0\n\n      Array [\n        Array [\n          1,\n          2,\n        ],\n    -   Array [\n    -     3,\n    -   ],\n      ]\n\n      4 |\n      5 | test('gsr witness', () => {\n    > 6 |   expect(chunk([1, 2, 3], 2)).toEqual([[1, 2], [3]]);\n        |                               ^\n      7 | });\n      8 |\n\n      at Object.toEqual (src/chunk.gsr-witness.test.js:6:31)\n",
+      "usage": {
+        "inputTokens": 3309,
+        "outputTokens": 228,
+        "thinkingTokens": 781,
+        "cachedTokens": 0,
+        "costUsd": 0.009354,
+        "costUsdWithThinking": 0.018726,
+        "latencyMs": 7781
+      },
+      "costUsd": 0.009354,
+      "costUsdWithThinking": 0.018726
+    },
+    {
+      "id": "js-clamp-false",
+      "set": "heldout",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Math.min(1, ...) caps the value at 1."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/clamp.js",
+        "symbol": "clamp01",
+        "input": "clamp01(1.5)",
+        "expected": "1",
+        "actual": "1.5"
+      },
+      "witnessSource": "const { clamp01 } = require('./clamp.js');\n\nif (typeof clamp01 !== 'function') throw new Error('gsr-setup: clamp01 not exported');\n\ntest('gsr witness', () => {\n  expect(clamp01(1.5)).toBe(1);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "",
+      "usage": {
+        "inputTokens": 3126,
+        "outputTokens": 208,
+        "thinkingTokens": 711,
+        "cachedTokens": 0,
+        "costUsd": 0.008747999999999999,
+        "costUsdWithThinking": 0.01728,
+        "latencyMs": 7337
+      },
+      "costUsd": 0.008747999999999999,
+      "costUsdWithThinking": 0.01728
+    },
+    {
+      "id": "js-clamp-false",
+      "set": "heldout",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Math.min(1, ...) caps the value at 1."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/clamp.js",
+        "symbol": "clamp01",
+        "input": "clamp01(1.5)",
+        "expected": "1",
+        "actual": "1.5"
+      },
+      "witnessSource": "const { clamp01 } = require('./clamp.js');\n\nif (typeof clamp01 !== 'function') throw new Error('gsr-setup: clamp01 not exported');\n\ntest('gsr witness', () => {\n  expect(clamp01(1.5)).toBe(1);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "",
+      "usage": {
+        "inputTokens": 3126,
+        "outputTokens": 208,
+        "thinkingTokens": 1230,
+        "cachedTokens": 0,
+        "costUsd": 0.008747999999999999,
+        "costUsdWithThinking": 0.023508,
+        "latencyMs": 10679
+      },
+      "costUsd": 0.008747999999999999,
+      "costUsdWithThinking": 0.023508
+    },
+    {
+      "id": "js-clamp-false",
+      "set": "heldout",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "Math.min(1, ...) caps the value at 1."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/clamp.js",
+        "symbol": "clamp01",
+        "input": "clamp01(1.5)",
+        "expected": "1",
+        "actual": "1.5"
+      },
+      "witnessSource": "const { clamp01 } = require('./clamp.js');\n\nif (typeof clamp01 !== 'function') throw new Error('gsr-setup: clamp01 not exported');\n\ntest('gsr witness', () => {\n  expect(clamp01(1.5)).toBe(1);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "",
+      "usage": {
+        "inputTokens": 3126,
+        "outputTokens": 208,
+        "thinkingTokens": 837,
+        "cachedTokens": 0,
+        "costUsd": 0.008747999999999999,
+        "costUsdWithThinking": 0.018792,
+        "latencyMs": 8650
+      },
+      "costUsd": 0.008747999999999999,
+      "costUsdWithThinking": 0.018792
+    }
+  ]
+}

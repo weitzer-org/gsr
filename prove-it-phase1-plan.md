@@ -38,22 +38,38 @@ Non-goals
   proof).
 - Concurrency/timing, network, DB claims (`needs_environment`).
 
-## 3. The decision that shapes everything: where the sandbox runs
+## 3. Where the sandbox runs
 
-GSR's consumer deployment is a GitHub Action that runs the backend **as a
-Docker container on the consumer's runner** (`action.yml`). The Phase 0
-sandbox needs `docker run` — from inside that container there is no Docker.
+Design review result (Opus, with execution; see §8): the first draft assumed
+the review container has no Docker. That is **false**: per the actions/runner
+source (`ContainerActionHandler.cs`, fetched, not run on a real runner), the
+runner mounts `/var/run/docker.sock` into every container action, and the
+action image has no `USER`, so it runs as root. The container that holds
+`GEMINI_API_KEY` and `GITHUB_TOKEN` therefore already has root on the runner
+today. That exposure exists regardless of Prove It; Phase 1 must not widen it
+and should not claim to fix it.
 
-| Option | How | Pros | Cons |
-|---|---|---|---|
-| **A. Host-side step (recommended)** | The review container writes `witness-jobs.json` (claim + witness source) to a shared dir; a second composite-action step on the runner host runs the sandbox and writes `witness-results.json`; a third step (container again) applies `decideVerdict` and posts. | No Docker socket in any container; sandbox code runs where Docker already exists on `ubuntu-latest`; runner is ephemeral. Verdict logic stays pure and in-container. | Three-step action, two hand-offs; author step must run before the host step, so posting is delayed until after sandboxing; more moving parts in `action.yml`. |
-| B. Mount `/var/run/docker.sock` into the review container | Container calls `docker run` itself | Simplest code (reuse Phase 0 as-is) | Socket access = root on the runner, handed to the container that holds `GEMINI_API_KEY` and `GITHUB_TOKEN`. Rejected. |
-| C. Hosted runner service (e.g. a Fly app) | POST witness + checkout | Central cache, no consumer Docker dependency | Ships consumer source code to a hosted service — contradicts the Action's "no diff content leaves your runner" promise. Rejected for Phase 1. |
-| D. No Docker: gVisor/nsjail/firecracker on host | | Stronger isolation | Not available on stock `ubuntu-latest` without install; large new surface. Defer. |
+| Option | Pros | Cons |
+|---|---|---|
+| **B'. Review container calls `docker run` itself (socket already there)** | Smallest change: reuse the Phase 0 sandbox, no `action.yml` rewrite. No new privilege. | Witness code never shares a container with secrets, but the orchestrating process does hold them; a sandbox bug is a bug next to the keys. Self-hosted/ARC runners may not mount the socket (unverified). |
+| A. Host-side step between container steps | Secrets are not in the process that launches the witness container. | Needs `action.yml` converted to `using: composite` with manual `docker build/run` (a composite action cannot cleanly `uses:` a Dockerfile inside itself: unverified). Hand-off files add a tamper surface (§5). |
+| C. Hosted runner service | Central cache | Ships consumer source off the runner. Rejected. |
+| D. gVisor/nsjail/firecracker | Stronger isolation | Not on stock runners. Defer. |
 
-Recommendation: **A**. The host step must have `GEMINI_API_KEY`/`GITHUB_TOKEN`
-**not** in its environment (the Phase 0 container already inherits no host
-env; the host step is a plain `node` script with a scrubbed env).
+Recommendation: **B' for Phase 1a**, because A's secret-isolation benefit is
+smaller than first claimed and its cost is a full action rewrite. Revisit A if
+the action is ever converted to composite for other reasons. Either way, the
+container that runs witnesses is the only boundary that matters, and it is
+the Phase 0 hardened one.
+
+**Hard gates (both options):** witnessing is forced off on
+`pull_request_target` and whenever the head repo differs from the base repo.
+Fork PRs under `pull_request` get no secrets and the action already fails at
+the key check, so they are out of scope. The witness workspace is built only
+from git-tracked files of the exact head and base SHAs (fetched without
+persisted credentials), never from `/github/workspace`, which is the merge
+commit on `pull_request` and may hold credential files from earlier steps.
+`outputTail` is never rendered publicly.
 
 ## 4. Phase 0 limits → Phase 1 work items
 
@@ -61,9 +77,9 @@ env; the host step is a plain `node` script with a scrubbed env).
 |---|---|---|---|
 | 1 | Workspace copy is synchronous `fs.cpSync` in the module that will run inside the Express/Action process | Port `sandbox.ts` into `adk/backend/src/witness/` with an async copy (`fs.promises`, bounded concurrency). Keep symlink-drop and `.git` exclusion. | Copy of a tree with a symlink to an outside file leaves outside untouched; event-loop lag during a large copy stays under a bound. |
 | 2 | Jest runner is unsandboxed | Run Jest inside the same hardened container (needs a `witness-node` image: node + jest, no network). Use `--outputFile` to a path inside `/work` rather than parsing stdout, so test `console.log` cannot interleave with the JSON. Keep the exit-code/JSON agreement rule. | Parser fixtures for forged stdout JSON; testbed JS cases run in container. |
-| 3 | Go build cache shared | One cache dir per PR run (created under a 0700 parent, removed after). Cold build ≈47s vs warm ≈1s (Phase 0 measurement), so the 3 runs per finding and all findings of a PR share it; never across PRs or repos. Optional later: restore a read-only cache built from the base commit by a trusted step. | Two runs in the same PR hit the cache; a second PR gets an empty one. |
-| 4 | Workspace removal leaves files the host user cannot delete | Run the container as the host uid, with a user-namespace remap if available; fallback: a tiny cleanup container that chowns then deletes. `removeWorkspace` must still never throw. | Witness that creates a `0000` directory leaves no residue. |
-| 5 | `go test -json` parsed from container stdout | Build the test binary in the container (`go test -c`), run it, and run `test2json` on the host from captured raw output, so the JSON stream the verdict depends on is produced by trusted code, not by the process the witness controls. (Forged raw output can still lie; the exit-code agreement rule stays.) | Forged `{"Action":"pass"}` lines in test output do not change the outcome. |
+| 3 | Go build cache shared | One cache dir per PR run **and separate caches for head and base runs** (head code can poison entries the base run reads, skewing attribution) (created under a 0700 parent, removed after). Cold build ≈47s vs warm ≈1s (Phase 0 measurement), so the 3 runs per finding and all findings of a PR share it; never across PRs or repos. Optional later: restore a read-only cache built from the base commit by a trusted step. | Two runs in the same PR hit the cache; a second PR gets an empty one. |
+| 4 | Workspace removal leaves files the host user cannot delete | Run as the host uid (verified: works with `--read-only` only if the cache dir is owned by that uid; `/tmp` tmpfs for GOTMPDIR works). Not sufficient alone: removal of a `000` directory still fails as owner, so chmod recursively before `rm`. `removeWorkspace` must still never throw. | Witness that creates a `0000` directory leaves no residue. |
+| 5 | `go test -json` parsed from container stdout | **Dropped.** Verified: host-side `test2json` over `go test -c` output *weakens* forge resistance (a test printing `\x16--- PASS` then `os.Exit(0)` reads as pass; `go test -json` reports inconclusive). Keep `go test -json`. Optionally add `-test.paniconexit0`. `syscall.Exit(0)` forges a pass in both modes, today included. | Forged-pass fixtures for `os.Exit(0)` and the `\x16` marker stay inconclusive. |
 
 ## 5. Verdict surfacing — never drop a finding
 
@@ -75,10 +91,14 @@ env; the host step is a plain `node` script with a scrubbed env).
   ("Reproduce: …"). Witness source is model output derived from untrusted PR
   content, rendered through the existing escaping path — treat as untrusted
   Markdown/HTML.
-- Forge-suspicion downgrade: if the PR diff touches `TestMain`, an `init()`,
-  or any `*_test.go` in the witness's package, or the file under test
-  contains `/proc/`, `os.Exit`, `syscall` or `//go:linkname`, show the verdict
-  as `hypothesis (suspicious package)`. Grep level, detection only.
+- Forge-suspicion signal: if the PR diff touches `TestMain`, an `init()`, or
+  any `*_test.go` in the witness's package, or those files contain `/proc/`,
+  `os.Exit`, `syscall`, `x/sys` or `//go:linkname`, show a "suspicious
+  package" note. It only ever *adds* doubt: it misses imports and other
+  files, so a clean result must never read as "not suspicious".
+- Because `pass` (refuted) is as forgeable as the rest (`syscall.Exit(0)`
+  verified), Phase 1 `on` mode does **not** auto-collapse on `refuted`; it
+  shows the verdict as a label until the real-PR set says otherwise.
 - Cost/latency caps: at most N findings witnessed per PR (default 10, highest
   severity first), one author call each, per-run timeout 60s, overall step
   budget. Over-cap findings are simply unverdicted.
@@ -99,14 +119,24 @@ env; the host step is a plain `node` script with a scrubbed env).
 5. Promote the v2 rule into `author.md` (keeping a frozen `author.v1.md`)
    as part of 1a.
 
-## 7. Open questions for the reviewer (all unverified)
+## 7. Remaining open questions (unverified)
 
-1. Is the host-step hand-off (A) really isolated from the review container's
-   secrets on `ubuntu-latest`, given `$GITHUB_ENV`/`$GITHUB_OUTPUT` and a
-   shared workspace directory?
-2. Does running the container as the host uid break Go's writes to `/gocache`
-   or `GOTMPDIR` on a read-only root?
-3. Is `go test -c` + host `test2json` behaviour-identical for `-run`,
-   timeouts and panics? Phase 0 only used `go test -json`.
-4. Is the grep-level forge-suspicion list worth shipping, or does it give
-   false confidence?
+1. Is the runner user uid 1001 on `ubuntu-latest`, and which Go is installed
+   on the host?
+2. Do self-hosted / ARC runners mount the Docker socket?
+3. Is Go's build cache safe for concurrent writers?
+4. Missing mechanics to specify: `go mod download` (with network) to fill the
+   module cache before the sandbox, image pull, total step-time budget
+   (10 findings x 3 runs x 60s plus 47s cold builds).
+5. If option A is ever chosen: hand-off files in a fresh `mktemp -d` under
+   `RUNNER_TEMP` (never the workspace, which can hold a PR-committed forged
+   result), pre-deleted, root-owned from the container, host step under
+   `env -i`.
+
+## 8. Design review
+
+Opus review with execution (witness-go:1.24, go1.24.7): verified the
+`test2json` regression and `syscall.Exit(0)` forge above, and the host-uid
+cache behaviour. Refuted two draft claims (no Docker in the container; host
+test2json makes the stream trusted). Runner-source facts come from reading
+actions/runner source, not from a live runner.

@@ -106,3 +106,61 @@ Per case, every arm returned the same verdict in all 6 samples, with one excepti
 - Adopt the v2 prompt rule. On the in-sample set, where v1 produced false proofs, the rule removed them; on the held-out set no arm produced any; it caused no wrongly refuted or abandoned true finding in the cases we have; and it costs about 14% more per call than v1.
 - Do not adopt the whole-package bundle on this evidence. It adds up to about 2x per call at full billing and changed no outcome the rule did not already change, except on the one testbed case where the rule also fixed it. Revisit it if a real finding needs a double that is visible only in another file.
 - This is not a measured safety property. Two findings produced every false proof, and the rule was written against them. The next measurement that would count is a realistic held-out set built from real PRs, with labels from human outcomes and contracts left as implicit as they are in real code, run with `refuted` kept collapse-never-drop.
+
+## Real-PR held-out set (job_tracker, 26 findings x 3 samples)
+
+Set: 26 behavioural Go findings from job_tracker PRs (candidates in
+`fixtures/witness-realpr/candidates.json`, selected by keyword filter, about 2 per PR,
+so not a random sample). Truth labels were set by running code at the reviewed commit
+(`fixtures/witness-realpr/LABELLING.md`), not by whether the maintainer fixed it, and
+were frozen in `realpr-truth.json` before any author run. Arm: prompt v2 + whole-package
+bundle, `gemini-3.1-pro-preview`, n=3. Raw: `fixtures/witness-author-runs/realpr-v2-whole.json`.
+Labels: 20 true (19 regression, 1 preexisting), 5 false, 1 opinion; 12 flagged weak.
+
+| Outcome (78 samples) | n |
+|---|---|
+| correct proven | 42 |
+| misattributed proven (true claim, wrong regression/preexisting) | 4 |
+| **wrong proven** (false finding proven) | **4** |
+| correct refuted | 8 |
+| **false refutation** (true finding refuted) | **2** |
+| correct abstain (opinion) | 3 |
+| no conclusion (hypothesis / opinion on a behavioural finding) | 15 |
+
+Cost $5.25 (cached tokens free); $11.52 if thinking tokens are billed as output (unverified).
+Samples of one finding are correlated: the effective sample size is 26 findings, not 78.
+
+- 46 of 50 proven verdicts were on true claims; 4 of 50 were false proofs (all on two of
+  the five false findings: 17 and 39). Of the 15 samples on the 5 false findings: 4 wrong
+  proven, 8 correctly refuted, 3 no conclusion.
+- On the 14 findings with solid labels (42 samples): 0 wrong proven, 0 false refutations,
+  3 misattributions. All wrong proofs and both false refutations fall on weak-label findings.
+
+### Post-hoc adjudication of every discrepancy (labels NOT changed)
+
+An independent Opus agent re-ran the witnesses at the reviewed commits.
+
+- **rp-17, rp-39 (wrong proofs): author errors, labels right.** The witnesses call an unexported/internal
+  function directly with an input no production caller produces (`representativeRep(nil)`, which the only
+  caller guards with `len(jr.Reps)==0`; `rowsData` with `Offset:-1`, which `parseFilters` never produces).
+  The sample that tested the finding's actual scenario through the real entry point passed (refuted). This is a
+  new failure class: **unreachable input**. The v2 rule (honour double contracts) does not address it.
+- **rp-44 (false refutations): label arguable.** The refuting witnesses used inputs with spaces on both
+  sides, where words do not merge; one passing input cannot refute a "this can happen" claim. Whether real job
+  text triggers it is unverified.
+- **rp-19 (3/3) and rp-25 (1/3) (misattribution): pipeline flaw, labels right.** The base commit was correct. The
+  witness failed to **build** on base (it used a helper that exists only at head), or failed on a setup error
+  (`can't evaluate field OtherAssessments`), and `decideVerdict` maps "base inconclusive" to `proven_regression`.
+  For rp-25 a base failure for the wrong reason produced `proven_preexisting`. The base run's failure reason is never checked.
+
+### What this changes
+
+1. A "proven" verdict was right about the claim in 92% of proven samples (46/50) but the errors are
+   structured, not random: they sit in defensive-caller code, the exact situation real reviews are full of.
+2. Attribution (regression vs preexisting) is not trustworthy as built: a base build failure must not
+   read as "regression". Phase 1: base build failure or setup failure -> attribution "unknown", show "proven" only.
+3. Post-hoc, untuned: requiring all 3 samples to agree would have produced 0 wrong proofs and 0 false
+   refutations (the 17, 39, 44 samples disagree), while 10 of the 20 true findings still get a unanimous correct
+   proof. Costs 3x author calls. Not validated on a separate set; do not treat as a measured property.
+4. Candidate prompt rule (untested): the witness must reach the code through a path a real caller uses, or
+   say `insufficient_context`; supply call sites in the bundle.

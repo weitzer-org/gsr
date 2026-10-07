@@ -91,8 +91,12 @@ const KNOWN_REVIEW_CALL_TYPES = new Set([
   'debug_single',
 ]);
 
+// Mirrors adk/backend/src/usage.ts's KNOWN_EVAL_CALL_TYPES / EVAL_CALL_PREFIXES.
+const KNOWN_EVAL_CALL_TYPES = new Set(['evaluate', 'witness_author']);
+const EVAL_CALL_PREFIXES = ['llm_compare'];
+
 function workloadOf(rec) {
-  if (rec.callType === 'evaluate' || rec.callType === 'witness_author' || (typeof rec.callType === 'string' && rec.callType.startsWith('llm_compare'))) {
+  if (KNOWN_EVAL_CALL_TYPES.has(rec.callType) || (typeof rec.callType === 'string' && EVAL_CALL_PREFIXES.some((p) => rec.callType.startsWith(p)))) {
     return 'eval';
   }
   if (KNOWN_REVIEW_CALL_TYPES.has(rec.callType)) return 'review';

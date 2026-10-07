@@ -173,6 +173,30 @@ makes a cheaper local pass acceptable, on top of the CI test gate above.
   and let the user decide whether to budget for the full fan-out — don't
   quietly spawn sub-agents to compensate.
 
+### Replying to review findings (required on every PR)
+This repo's own GSR review runs on every PR (the `GSR self-review (basic)`
+and `(swarm)` checks), alongside CodeRabbit and gemini-code-assist. **Always
+reply on the PR thread to every finding any of them raises, including the ones
+you decide not to fix.** A finding with no reply looks unreviewed even when it
+was considered, and a PR with open unanswered threads is not ready to hand to
+the user for merge.
+
+- Reply to each thread individually and say plainly whether it was **fixed**
+  (name the commit) or **declined**, and why. A one-line reply is enough for
+  a low-severity, out-of-scope or pre-existing finding.
+- Before declining, **reproduce the claim** (see Verification discipline) and
+  quote what you ran. A decline that rests on an unexecuted assumption must say
+  so. Declining a security finding, or rebutting a bot, is an Opus trigger (see
+  Escalating to another model).
+- Cover every page of review threads and the review summary comments; do not
+  stop at the first page of results.
+- Engage with GSR's follow-up rebuttal too: GSR's PR-comment feedback loop may
+  reply to a dismissal. Concede and fix, or restate concretely why the call
+  stands, for at least one more round.
+- Resolve threads you fixed. Leave a declined security finding open until the
+  user decides.
+- Replies end with the Claude Code attribution footer.
+
 ### Security review
 The standard review lenses (correctness, cleanup, altitude, conventions) are
 not a substitute for an explicit security pass — they check whether a change

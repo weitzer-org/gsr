@@ -16,10 +16,10 @@
 // $WORK_DIR/gocache), WITNESS_IMAGE (default witness-go:1.24),
 // WITNESS_TIMEOUT_MS (default 120000).
 //
-// The author step is NOT automated here: this environment has no Gemini key,
-// so authors are Claude subagents following adk/prompts/witness/author.md and
-// the results are committed as fixtures. That is a validity caveat for the
-// yield number, recorded in the Phase 0 report.
+// `run` reads fixtures/witness-spike/<id>.json, the Phase 0 witnesses written
+// by Claude subagents. The automated Gemini author is author-bench.ts, which
+// reuses this file's worktrees and bundle. WHOLE_PACKAGE=1 adds the package's
+// source files to the bundle (prompt v2).
 
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -28,8 +28,11 @@ import type { SandboxRunResult, WitnessAuthorOutput, WitnessVerdict } from '../.
 import { decideVerdict } from '../../../adk/backend/src/witness/verdict';
 import { SandboxConfig } from './sandbox';
 import { evaluateWitness } from './pipeline';
+import { buildBundle, readPackageFiles, tagSafe } from './bundle';
 
-interface FixtureEntry { id: string; prUrl: string; file: string; line: number; summary: string; gap?: string }
+export { tagSafe };
+
+export interface FixtureEntry { id: string; prUrl: string; file: string; line: number; summary: string; gap?: string }
 interface Cases { goDirectiveOverride?: string; prs: Record<string, { headSha: string; baseSha: string }> }
 
 const HERE = __dirname;
@@ -39,10 +42,10 @@ const JOB_TRACKER_DIR = process.env.JOB_TRACKER_DIR || '/home/user/job_tracker';
 const WORK_DIR = process.env.WORK_DIR || '/tmp/gsr-witness-spike';
 
 const cases: Cases = JSON.parse(fs.readFileSync(path.join(HERE, 'cases.json'), 'utf8'));
-const entries: FixtureEntry[] = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8')).entries.must_catch;
+export const entries: FixtureEntry[] = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8')).entries.must_catch;
 
-const prNumber = (e: FixtureEntry) => e.prUrl.split('/').pop() as string;
-const worktree = (e: FixtureEntry, side: 'head' | 'base') => path.join(WORK_DIR, `pr${prNumber(e)}-${side}`);
+export const prNumber = (e: FixtureEntry) => e.prUrl.split('/').pop() as string;
+export const worktree = (e: FixtureEntry, side: 'head' | 'base') => path.join(WORK_DIR, `pr${prNumber(e)}-${side}`);
 
 function git(args: string[], cwd = JOB_TRACKER_DIR): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -58,40 +61,38 @@ function ensureWorktree(dir: string, sha: string) {
   }
 }
 
-/** Stops untrusted text from opening or closing one of the bundle's own tags. */
-export function tagSafe(text: string): string {
-  return text.replace(/<\s*(\/?)\s*(FINDING|DIFF|FILE_UNDER_TEST|NEARBY_TEST|DIR_LISTING)\b/gi, '<\\$1$2');
-}
-
 function readOr(p: string, fallback = ''): string {
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : fallback;
+}
+
+/** Prepares the head/base worktrees for one entry and returns its author input bundle. */
+export function bundleFor(e: FixtureEntry, wholePackage = false): string {
+  const pr = cases.prs[prNumber(e)];
+  if (!pr) throw new Error(`No commits for PR ${prNumber(e)} in cases.json`);
+  ensureWorktree(worktree(e, 'head'), pr.headSha);
+  ensureWorktree(worktree(e, 'base'), pr.baseSha);
+
+  const head = worktree(e, 'head');
+  const dir = path.posix.dirname(e.file);
+  const diff = git(['diff', '--no-color', pr.baseSha, pr.headSha, '--', e.file]);
+  const fileUnderTest = readOr(path.join(head, e.file));
+  // The directory may not exist at head (the PR can delete the file's whole directory).
+  const listing = fs.existsSync(path.join(head, dir)) ? fs.readdirSync(path.join(head, dir)).sort() : [];
+  const nearby = listing.filter((f) => f.endsWith('_test.go'))[0];
+  return buildBundle({
+    finding: { file: e.file, line: e.line, severity: 'HIGH', summary: e.summary, description: e.summary },
+    diff,
+    fileUnderTest,
+    nearby: { path: nearby ? path.posix.join(dir, nearby) : '', content: nearby ? readOr(path.join(head, dir, nearby)) : '' },
+    dirListing: listing,
+    packageFiles: wholePackage ? readPackageFiles(head, dir, e.file) : undefined,
+  });
 }
 
 function prepare() {
   fs.mkdirSync(path.join(WORK_DIR, 'author-inputs'), { recursive: true });
   for (const e of entries) {
-    const pr = cases.prs[prNumber(e)];
-    if (!pr) throw new Error(`No commits for PR ${prNumber(e)} in cases.json`);
-    ensureWorktree(worktree(e, 'head'), pr.headSha);
-    ensureWorktree(worktree(e, 'base'), pr.baseSha);
-
-    const head = worktree(e, 'head');
-    const dir = path.dirname(e.file);
-    const diff = git(['diff', '--no-color', pr.baseSha, pr.headSha, '--', e.file]);
-    const fileUnderTest = readOr(path.join(head, e.file));
-    // The directory may not exist at head (the PR can delete the file's whole directory).
-    const entries = fs.existsSync(path.join(head, dir)) ? fs.readdirSync(path.join(head, dir)).sort() : [];
-    const nearby = entries.filter((f) => f.endsWith('_test.go'))[0];
-    const listing = entries.join('\n');
-    const finding = JSON.stringify({ file: e.file, line: e.line, severity: 'HIGH', summary: e.summary, description: e.summary }, null, 2);
-
-    const bundle = [
-      `<FINDING>\n${tagSafe(finding)}\n</FINDING>`,
-      `<DIFF>\n${tagSafe(diff)}\n</DIFF>`,
-      `<FILE_UNDER_TEST path="${e.file}">\n${tagSafe(fileUnderTest)}\n</FILE_UNDER_TEST>`,
-      `<NEARBY_TEST path="${nearby ? path.join(dir, nearby) : ''}">\n${nearby ? tagSafe(readOr(path.join(head, dir, nearby))) : ''}\n</NEARBY_TEST>`,
-      `<DIR_LISTING>\n${tagSafe(listing)}\n</DIR_LISTING>`,
-    ].join('\n\n');
+    const bundle = bundleFor(e, !!process.env.WHOLE_PACKAGE);
     fs.writeFileSync(path.join(WORK_DIR, 'author-inputs', `${e.id}.txt`), bundle);
     console.log(`prepared ${e.id} (bundle ${bundle.length} chars)`);
   }

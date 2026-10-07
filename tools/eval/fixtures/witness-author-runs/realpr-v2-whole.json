@@ -1,0 +1,4008 @@
+{
+  "prompt": "v2",
+  "bundle": "whole",
+  "model": "gemini-3.1-pro-preview",
+  "n": 3,
+  "set": "realpr",
+  "findings": [
+    "rp-2-pr1",
+    "rp-3-pr2",
+    "rp-8-pr12",
+    "rp-9-pr13",
+    "rp-12-pr14",
+    "rp-17-pr23",
+    "rp-18-pr25",
+    "rp-19-pr25",
+    "rp-21-pr29",
+    "rp-22-pr29",
+    "rp-25-pr33",
+    "rp-33-pr50",
+    "rp-34-pr52",
+    "rp-35-pr55",
+    "rp-36-pr61",
+    "rp-37-pr61",
+    "rp-38-pr65",
+    "rp-39-pr65",
+    "rp-41-pr69",
+    "rp-42-pr69",
+    "rp-43-pr72",
+    "rp-44-pr72",
+    "rp-45-pr76",
+    "rp-46-pr76",
+    "rp-47-pr81",
+    "rp-48-pr81"
+  ],
+  "summary": {
+    "n": 78,
+    "counts": {
+      "correct_proven": 42,
+      "misattributed_proven": 4,
+      "wrong_proven": 4,
+      "correct_refuted": 8,
+      "false_refutation": 2,
+      "spurious_refuted": 0,
+      "correct_abstain": 3,
+      "no_conclusion": 15,
+      "author_failure": 0
+    },
+    "proven": 50,
+    "wrongProven": 4,
+    "provenPrecision": 0.92,
+    "conclusive": 60,
+    "yield": 0.7692307692307693,
+    "costUsd": 5.251322,
+    "costUsdWithThinking": 11.518286000000003,
+    "costPerFinding": 0.06732464102564102,
+    "costPerCorrectProven": 0.1250314761904762
+  },
+  "samples": [
+    {
+      "id": "rp-12-pr14",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/eval -run ZZ -v (truncate(strings.Repeat(\"a\",119)+\"日本語\",120)) -> \"valid=false tail=\\\"aaaa\\\\xe6…\\\"\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/eval/judge.go",
+        "symbol": "truncate",
+        "input": "truncate(\"世界\", 4)",
+        "expected": "a valid UTF-8 string",
+        "actual": "a corrupted string with invalid UTF-8 sequences"
+      },
+      "witnessSource": "package eval\n\nimport (\n\t\"testing\"\n\t\"unicode/utf8\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := truncate(\"世界\", 4)\n\tif !utf8.ValidString(got) {\n\t\tt.Fatalf(\"truncate(\\\"世界\\\", 4) = %q, want valid UTF-8\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:11: truncate(\"世界\", 4) = \"世\\xe7…\", want valid UTF-8\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/eval\t0.003s\n",
+      "usage": {
+        "inputTokens": 19817,
+        "outputTokens": 252,
+        "thinkingTokens": 3966,
+        "cachedTokens": 0,
+        "costUsd": 0.042658,
+        "costUsdWithThinking": 0.09025,
+        "latencyMs": 35111
+      },
+      "costUsd": 0.042658,
+      "costUsdWithThinking": 0.09025
+    },
+    {
+      "id": "rp-12-pr14",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/eval -run ZZ -v (truncate(strings.Repeat(\"a\",119)+\"日本語\",120)) -> \"valid=false tail=\\\"aaaa\\\\xe6…\\\"\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/eval/judge.go",
+        "symbol": "truncate",
+        "input": "truncate(\"世界\", 4)",
+        "expected": "valid UTF-8 string",
+        "actual": "invalid UTF-8 string"
+      },
+      "witnessSource": "package eval\n\nimport (\n\t\"testing\"\n\t\"unicode/utf8\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := truncate(\"世界\", 4)\n\tif !utf8.ValidString(got) {\n\t\tt.Fatalf(\"truncate(\\\"世界\\\", 4) = %q, want valid UTF-8 string\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:11: truncate(\"世界\", 4) = \"世\\xe7…\", want valid UTF-8 string\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/eval\t0.002s\n",
+      "usage": {
+        "inputTokens": 19817,
+        "outputTokens": 248,
+        "thinkingTokens": 4284,
+        "cachedTokens": 16308,
+        "costUsd": 0.009994,
+        "costUsdWithThinking": 0.061402,
+        "latencyMs": 36111
+      },
+      "costUsd": 0.009994,
+      "costUsdWithThinking": 0.061402
+    },
+    {
+      "id": "rp-12-pr14",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/eval -run ZZ -v (truncate(strings.Repeat(\"a\",119)+\"日本語\",120)) -> \"valid=false tail=\\\"aaaa\\\\xe6…\\\"\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/eval/judge.go",
+        "symbol": "truncate",
+        "input": "truncate(\"世界\", 1)",
+        "expected": "valid UTF-8 string",
+        "actual": "invalid UTF-8 sequence"
+      },
+      "witnessSource": "package eval\n\nimport (\n\t\"testing\"\n\t\"unicode/utf8\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := truncate(\"世界\", 1)\n\tif !utf8.ValidString(got) {\n\t\tt.Fatalf(\"truncate(\\\"世界\\\", 1) = %q, want valid UTF-8 string\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:11: truncate(\"世界\", 1) = \"\\xe4…\", want valid UTF-8 string\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/eval\t0.003s\n",
+      "usage": {
+        "inputTokens": 19817,
+        "outputTokens": 226,
+        "thinkingTokens": 3420,
+        "cachedTokens": 16308,
+        "costUsd": 0.009729999999999999,
+        "costUsdWithThinking": 0.050769999999999996,
+        "latencyMs": 31124
+      },
+      "costUsd": 0.009729999999999999,
+      "costUsdWithThinking": 0.050769999999999996
+    },
+    {
+      "id": "rp-17-pr23",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/eval -run ZZ -v (RunTarget with job1 failing every rep, with judge) -> \"no panic; job1 reps=0 job2 reps=3 failed=3 judgeCalls=1\"; representativeRep(nil) directly -> \"index out of range [0] with length 0\"",
+        "weak": true
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/eval/metrics.go",
+        "symbol": "RunTarget",
+        "input": "RunTarget() with a job experiencing a 100% failure rate alongside a successful job",
+        "expected": "Returns TargetResult without panicking",
+        "actual": "Crashes the entire evaluation pipeline with a runtime panic"
+      },
+      "witnessSource": "package eval\n\nimport (\n\t\"context\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\t// The finding claims a job with a 100% failure rate will cause an empty reps slice\n\t// that crashes the evaluation pipeline because representativeRep is invoked unconditionally.\n\t// We call RunTarget (the pipeline) to demonstrate it safely guards against this scenario.\n\tsample := []SampleJob{\n\t\t{JobID: \"job-fails-100\", Company: \"A\", Title: \"T\", Description: \"d\"},\n\t\t{JobID: \"job-succeeds\", Company: \"B\", Title: \"T\", Description: \"d\"},\n\t}\n\tbaseResults := []JobResult{\n\t\t{JobID: \"job-fails-100\", HasLabel: false},\n\t\t{JobID: \"job-succeeds\", HasLabel: false},\n\t}\n\t\n\t// flakyProvider is an existing fake from run_test.go.\n\t// failFor: 5 means the first 5 calls for \"job-fails-100\" return an error.\n\tprovider := &flakyProvider{failFor: map[string]int{\"job-fails-100\": 5}}\n\tjudge := &capturingJudgeProvider{}\n\n\t// If the claim is true, this will panic and crash the test.\n\t// If the claim is false (because the caller already guards len == 0), this completes safely.\n\tres := RunTarget(context.Background(), \"mock:target\", provider, scoring.Profile{}, sample, baseResults, 5, 1, judge)\n\n\tvar failsReps int\n\tfor _, jr := range res.JobResults {\n\t\tif jr.JobID == \"job-fails-100\" {\n\t\t\tfailsReps = len(jr.Reps)\n\t\t}\n\t}\n\tif failsReps != 0 {\n\t\tt.Skip(\"gsr-setup: expected job-fails-100 to have 0 successful reps\")\n\t}\n\n\t// Verify the pipeline didn't fail fully due to the single failed job\n\tif res.Incomplete {\n\t\tt.Fatalf(\"RunTarget() = Incomplete, want partial success without pipeline crash\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "t mock:target: rep failed for job job-fails-100: simulated transient failure\n2026/10/07 21:06:53 eval: target mock:target: rep failed for job job-fails-100: simulated transient failure\n2026/10/07 21:06:53 eval: target mock:target: rep failed for job job-fails-100: simulated transient failure\n2026/10/07 21:06:53 eval: target mock:target: rep failed for job job-fails-100: simulated transient failure\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/eval\t0.004s\n",
+      "usage": {
+        "inputTokens": 31718,
+        "outputTokens": 764,
+        "thinkingTokens": 15055,
+        "cachedTokens": 0,
+        "costUsd": 0.072604,
+        "costUsdWithThinking": 0.253264,
+        "latencyMs": 117769
+      },
+      "costUsd": 0.072604,
+      "costUsdWithThinking": 0.253264
+    },
+    {
+      "id": "rp-17-pr23",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/eval -run ZZ -v (RunTarget with job1 failing every rep, with judge) -> \"no panic; job1 reps=0 job2 reps=3 failed=3 judgeCalls=1\"; representativeRep(nil) directly -> \"index out of range [0] with length 0\"",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "wrong_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/eval/metrics.go",
+        "symbol": "representativeRep",
+        "input": "representativeRep(nil)",
+        "expected": "no panic",
+        "actual": "runtime panic"
+      },
+      "witnessSource": "package eval\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\tt.Fatalf(\"representativeRep(nil) panicked: %v\", r)\n\t\t}\n\t}()\n\trepresentativeRep(nil)\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: representativeRep(nil) panicked: runtime error: index out of range [0] with length 0\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/eval\t0.003s\n",
+      "usage": {
+        "inputTokens": 31718,
+        "outputTokens": 227,
+        "thinkingTokens": 4537,
+        "cachedTokens": 28589,
+        "costUsd": 0.008982,
+        "costUsdWithThinking": 0.063426,
+        "latencyMs": 36280
+      },
+      "costUsd": 0.008982,
+      "costUsdWithThinking": 0.063426
+    },
+    {
+      "id": "rp-17-pr23",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/eval -run ZZ -v (RunTarget with job1 failing every rep, with judge) -> \"no panic; job1 reps=0 job2 reps=3 failed=3 judgeCalls=1\"; representativeRep(nil) directly -> \"index out of range [0] with length 0\"",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "wrong_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/eval/metrics.go",
+        "symbol": "representativeRep",
+        "input": "representativeRep([]Rep{})",
+        "expected": "returns without panicking",
+        "actual": "panics due to out-of-bounds slice access"
+      },
+      "witnessSource": "package eval\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\tt.Fatalf(\"representativeRep([]Rep{}) panicked: %v, want it to return without panicking\", r)\n\t\t}\n\t}()\n\n\t_ = representativeRep([]Rep{})\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: representativeRep([]Rep{}) panicked: runtime error: index out of range [0] with length 0, want it to return without panicking\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/eval\t0.003s\n",
+      "usage": {
+        "inputTokens": 31718,
+        "outputTokens": 252,
+        "thinkingTokens": 3296,
+        "cachedTokens": 28589,
+        "costUsd": 0.009282,
+        "costUsdWithThinking": 0.048834,
+        "latencyMs": 28031
+      },
+      "costUsd": 0.009282,
+      "costUsdWithThinking": 0.048834
+    },
+    {
+      "id": "rp-18-pr25",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/scoring/anthropic -run ZZ -v (httptest server returning usage output_tokens=1000, output_tokens_details.thinking_tokens=600, model claude-opus-4-8) -> \"OutputTokens=1000 ThinkingTokens=0 CostUSD=0.0250 (... with thinking added separately = 0.0400)\"",
+        "weak": true
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "insufficient_context",
+        "notTestableReason": "Writing a witness requires mocking an Anthropic API response that contains thinking tokens, but the correct JSON key or SDK struct field for thinking tokens is not visible in the provided code, making it impossible to construct a deterministic test input without guessing an unseen API.",
+        "language": "go",
+        "file": "internal/scoring/anthropic/anthropic.go",
+        "symbol": "(*provider).call",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 10809,
+        "outputTokens": 144,
+        "thinkingTokens": 3357,
+        "cachedTokens": 0,
+        "costUsd": 0.023346,
+        "costUsdWithThinking": 0.06362999999999999,
+        "latencyMs": 30143
+      },
+      "costUsd": 0.023346,
+      "costUsdWithThinking": 0.06362999999999999
+    },
+    {
+      "id": "rp-18-pr25",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/scoring/anthropic -run ZZ -v (httptest server returning usage output_tokens=1000, output_tokens_details.thinking_tokens=600, model claude-opus-4-8) -> \"OutputTokens=1000 ThinkingTokens=0 CostUSD=0.0250 (... with thinking added separately = 0.0400)\"",
+        "weak": true
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "insufficient_context",
+        "notTestableReason": "Showing that thinking tokens are properly extracted requires constructing a mock HTTP response with the exact JSON key the Anthropic SDK expects for thinking tokens, but the SDK's response structure is not visible in the provided code.",
+        "language": "go",
+        "file": "internal/scoring/anthropic/anthropic.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 10809,
+        "outputTokens": 131,
+        "thinkingTokens": 3159,
+        "cachedTokens": 0,
+        "costUsd": 0.02319,
+        "costUsdWithThinking": 0.061098,
+        "latencyMs": 28397
+      },
+      "costUsd": 0.02319,
+      "costUsdWithThinking": 0.061098
+    },
+    {
+      "id": "rp-18-pr25",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/scoring/anthropic -run ZZ -v (httptest server returning usage output_tokens=1000, output_tokens_details.thinking_tokens=600, model claude-opus-4-8) -> \"OutputTokens=1000 ThinkingTokens=0 CostUSD=0.0250 (... with thinking added separately = 0.0400)\"",
+        "weak": true
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "insufficient_context",
+        "notTestableReason": "Writing the witness requires knowing the exact JSON key or struct field name for thinking tokens in the external Anthropic Go SDK's usage response, which is not visible in the provided code, preventing the construction of a mock API response to test the extraction without guessing unseen APIs.",
+        "language": "go",
+        "file": "internal/scoring/anthropic/anthropic.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 10809,
+        "outputTokens": 143,
+        "thinkingTokens": 3681,
+        "cachedTokens": 8122,
+        "costUsd": 0.007090000000000001,
+        "costUsdWithThinking": 0.051262,
+        "latencyMs": 32577
+      },
+      "costUsd": 0.007090000000000001,
+      "costUsdWithThinking": 0.051262
+    },
+    {
+      "id": "rp-19-pr25",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/scoring/gemini -run ZZ -v (mock RoundTripper captures request body) -> \"MaxTokens=1024 ... sent=[\\\"maxOutputTokens\\\":1024 \\\"thinkingBudget\\\":1024]\" vs \"MaxTokens=1023 ... sent=[\\\"maxOutputTokens\\\":1023 \\\"thinkingBudget\\\":511]\"",
+        "attribution": "preexisting"
+      },
+      "verdict": "proven_regression",
+      "outcome": "misattributed_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/scoring/gemini/gemini.go",
+        "symbol": "call",
+        "input": "Config{MaxTokens: 100, ThinkingBudget: 100}",
+        "expected": "50 (budget halved to reserve space for output)",
+        "actual": "100 (budget unmodified)"
+      },
+      "witnessSource": "package gemini\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\t\"strings\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tvar gotBudget int32 = -1\n\tbody := mustJSONString(t, `{\"matchScore\":50,\"reasons\":[],\"whyItFits\":\"x\"}`)\n\t\n\tbudget := 100\n\tp, err := newProviderWithHTTPClient(\n\t\tscoring.Config{Model: \"gemini-3.5-flash\", APIKey: \"test-key\", MaxTokens: 100, ThinkingBudget: &budget},\n\t\t&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {\n\t\t\tgotBudget = captureThinkingBudget(t, req)\n\t\t\treturn jsonResponse(200, strings.ReplaceAll(canonicalGenerateContentResponse, \"%s\", body)), nil\n\t\t})},\n\t)\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: newProviderWithHTTPClient: %v\", err)\n\t}\n\t\n\t_, err = p.ScoreJob(context.Background(), scoring.JobInput{}, scoring.Profile{})\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: ScoreJob: %v\", err)\n\t}\n\t\n\tif gotBudget == 100 {\n\t\tt.Fatalf(\"call(MaxTokens=100, ThinkingBudget=100) sent thinkingBudget = %d, want < 100\", gotBudget)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:34: call(MaxTokens=100, ThinkingBudget=100) sent thinkingBudget = 100, want < 100\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/scoring/gemini\t0.009s\n",
+      "usage": {
+        "inputTokens": 16135,
+        "outputTokens": 612,
+        "thinkingTokens": 3812,
+        "cachedTokens": 0,
+        "costUsd": 0.039613999999999996,
+        "costUsdWithThinking": 0.085358,
+        "latencyMs": 32835
+      },
+      "costUsd": 0.039613999999999996,
+      "costUsdWithThinking": 0.085358
+    },
+    {
+      "id": "rp-19-pr25",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/scoring/gemini -run ZZ -v (mock RoundTripper captures request body) -> \"MaxTokens=1024 ... sent=[\\\"maxOutputTokens\\\":1024 \\\"thinkingBudget\\\":1024]\" vs \"MaxTokens=1023 ... sent=[\\\"maxOutputTokens\\\":1023 \\\"thinkingBudget\\\":511]\"",
+        "attribution": "preexisting"
+      },
+      "verdict": "proven_regression",
+      "outcome": "misattributed_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/scoring/gemini/gemini.go",
+        "symbol": "call",
+        "input": "Config{MaxTokens: 1024, ThinkingBudget: 1024}",
+        "expected": "thinkingBudget < 1024 (clamped)",
+        "actual": "1024"
+      },
+      "witnessSource": "package gemini\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\t\"strings\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tvar gotBudget int32 = -1\n\tbody := mustJSONString(t, `{\"matchScore\":50,\"reasons\":[],\"whyItFits\":\"x\"}`)\n\tbudget := 1024\n\tcfg := scoring.Config{\n\t\tModel:          \"gemini-3.5-flash\",\n\t\tAPIKey:         \"test-key\",\n\t\tMaxTokens:      1024,\n\t\tThinkingBudget: &budget,\n\t}\n\n\tp, err := newProviderWithHTTPClient(cfg, &http.Client{\n\t\tTransport: roundTripFunc(func(req *http.Request) (*http.Response, error) {\n\t\t\tgotBudget = captureThinkingBudget(t, req)\n\t\t\treturn jsonResponse(200, strings.ReplaceAll(canonicalGenerateContentResponse, \"%s\", body)), nil\n\t\t}),\n\t})\n\tif err != nil {\n\t\tt.Skip(\"gsr-setup: newProviderWithHTTPClient failed: \" + err.Error())\n\t}\n\n\t_, err = p.ScoreJob(context.Background(), scoring.JobInput{}, scoring.Profile{})\n\tif err != nil {\n\t\tt.Skip(\"gsr-setup: ScoreJob failed: \" + err.Error())\n\t}\n\n\tif gotBudget == 1024 {\n\t\tt.Fatalf(\"thinkingBudget = %d, want < 1024\", gotBudget)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:39: thinkingBudget = 1024, want < 1024\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/scoring/gemini\t0.012s\n",
+      "usage": {
+        "inputTokens": 16135,
+        "outputTokens": 628,
+        "thinkingTokens": 2883,
+        "cachedTokens": 12218,
+        "costUsd": 0.015370000000000002,
+        "costUsdWithThinking": 0.049966,
+        "latencyMs": 24386
+      },
+      "costUsd": 0.015370000000000002,
+      "costUsdWithThinking": 0.049966
+    },
+    {
+      "id": "rp-19-pr25",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/scoring/gemini -run ZZ -v (mock RoundTripper captures request body) -> \"MaxTokens=1024 ... sent=[\\\"maxOutputTokens\\\":1024 \\\"thinkingBudget\\\":1024]\" vs \"MaxTokens=1023 ... sent=[\\\"maxOutputTokens\\\":1023 \\\"thinkingBudget\\\":511]\"",
+        "attribution": "preexisting"
+      },
+      "verdict": "proven_regression",
+      "outcome": "misattributed_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/scoring/gemini/gemini.go",
+        "symbol": "(*provider).call",
+        "input": "scoring.Config{MaxTokens: 1024, ThinkingBudget: intPtr(1024)}",
+        "expected": "thinkingBudget = 512 (MaxTokens / 2)",
+        "actual": "thinkingBudget = 1024"
+      },
+      "witnessSource": "package gemini\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\t\"strings\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tvar gotBudget int32 = -1\n\tbody := mustJSONString(t, `{\"matchScore\":50,\"reasons\":[],\"whyItFits\":\"x\"}`)\n\n\tp, err := newProviderWithHTTPClient(\n\t\tscoring.Config{\n\t\t\tModel:          \"gemini-3.5-flash\",\n\t\t\tAPIKey:         \"test-key\",\n\t\t\tMaxTokens:      1024,\n\t\t\tThinkingBudget: intPtr(1024),\n\t\t},\n\t\t&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {\n\t\t\tgotBudget = captureThinkingBudget(t, req)\n\t\t\treturn jsonResponse(200, strings.ReplaceAll(canonicalGenerateContentResponse, \"%s\", body)), nil\n\t\t})},\n\t)\n\tif err != nil {\n\t\tt.Skip(\"gsr-setup: newProviderWithHTTPClient failed\")\n\t}\n\n\tif _, err := p.ScoreJob(context.Background(), scoring.JobInput{}, scoring.Profile{}); err != nil {\n\t\tt.Skip(\"gsr-setup: ScoreJob failed\")\n\t}\n\n\tif gotBudget != 512 {\n\t\tt.Fatalf(\"thinkingBudget = %d, want 512\", gotBudget)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:37: thinkingBudget = 1024, want 512\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/scoring/gemini\t0.009s\n",
+      "usage": {
+        "inputTokens": 16135,
+        "outputTokens": 626,
+        "thinkingTokens": 7194,
+        "cachedTokens": 12218,
+        "costUsd": 0.015346,
+        "costUsdWithThinking": 0.10167400000000001,
+        "latencyMs": 53027
+      },
+      "costUsd": 0.015346,
+      "costUsdWithThinking": 0.10167400000000001
+    },
+    {
+      "id": "rp-2-pr1",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v (throwaway test: truncate(strings.Repeat(\"a\",499)+\"é tail\",500)) -> \"valid=false tail=\\\"aaaa\\\\xc3...\\\"\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/apify.go",
+        "symbol": "truncate",
+        "input": "truncate(\"你好\", 1)",
+        "expected": "\"你...\"",
+        "actual": "\"\\xe4...\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := truncate(\"你好\", 1)\n\twant := \"你...\"\n\tif got != want {\n\t\tt.Fatalf(\"truncate(\\\"你好\\\", 1) = %q, want %q\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: truncate(\"你好\", 1) = \"\\xe4...\", want \"你...\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.006s\n",
+      "usage": {
+        "inputTokens": 24860,
+        "outputTokens": 217,
+        "thinkingTokens": 3786,
+        "cachedTokens": 0,
+        "costUsd": 0.052324,
+        "costUsdWithThinking": 0.09775600000000001,
+        "latencyMs": 33343
+      },
+      "costUsd": 0.052324,
+      "costUsdWithThinking": 0.09775600000000001
+    },
+    {
+      "id": "rp-2-pr1",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v (throwaway test: truncate(strings.Repeat(\"a\",499)+\"é tail\",500)) -> \"valid=false tail=\\\"aaaa\\\\xc3...\\\"\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/apify.go",
+        "symbol": "truncate",
+        "input": "truncate(\"ññ\", 1)",
+        "expected": "a valid UTF-8 string",
+        "actual": "an invalid UTF-8 string"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"testing\"\n\t\"unicode/utf8\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := truncate(\"ññ\", 1)\n\tif !utf8.ValidString(got) {\n\t\tt.Fatalf(\"truncate(\\\"ññ\\\", 1) = %q, want valid UTF-8 string\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:11: truncate(\"ññ\", 1) = \"\\xc3...\", want valid UTF-8 string\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.006s\n",
+      "usage": {
+        "inputTokens": 24860,
+        "outputTokens": 256,
+        "thinkingTokens": 3486,
+        "cachedTokens": 0,
+        "costUsd": 0.052792,
+        "costUsdWithThinking": 0.094624,
+        "latencyMs": 32835
+      },
+      "costUsd": 0.052792,
+      "costUsdWithThinking": 0.094624
+    },
+    {
+      "id": "rp-2-pr1",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v (throwaway test: truncate(strings.Repeat(\"a\",499)+\"é tail\",500)) -> \"valid=false tail=\\\"aaaa\\\\xc3...\\\"\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/apify.go",
+        "symbol": "truncate",
+        "input": "truncate(\"世界\", 1)",
+        "expected": "valid UTF-8 string",
+        "actual": "invalid UTF-8 string"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"testing\"\n\t\"unicode/utf8\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := truncate(\"世界\", 1)\n\tif !utf8.ValidString(got) {\n\t\tt.Fatalf(\"truncate(\\\"世界\\\", 1) = %q, want valid UTF-8\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:11: truncate(\"世界\", 1) = \"\\xe4...\", want valid UTF-8\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.006s\n",
+      "usage": {
+        "inputTokens": 24860,
+        "outputTokens": 250,
+        "thinkingTokens": 5351,
+        "cachedTokens": 0,
+        "costUsd": 0.05272,
+        "costUsdWithThinking": 0.116932,
+        "latencyMs": 46160
+      },
+      "costUsd": 0.05272,
+      "costUsdWithThinking": 0.116932
+    },
+    {
+      "id": "rp-21-pr29",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v (extractSalary(\"\",\"Pay: $100 - 150K per year\")) -> \"range=\\\"\\\" got={Min:100 Max:100 Period:hour Raw:$100/hr}\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/extract.go",
+        "symbol": "extractSalary",
+        "input": "extractSalary(\"\", \"$100 - 150K\")",
+        "expected": "ParsedSalary with Max=150000 and Period=\"year\"",
+        "actual": "ParsedSalary with Max=100 and Period=\"hour\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := extractSalary(\"\", \"$100 - 150K\")\n\tif got.Max != 150000 || got.Period != \"year\" {\n\t\tt.Fatalf(`extractSalary(\"\", \"$100 - 150K\") = %+v, want Max=150000, Period=\"year\"`, got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: extractSalary(\"\", \"$100 - 150K\") = {Min:100 Max:100 Period:hour Raw:$100/hr}, want Max=150000, Period=\"year\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.006s\n",
+      "usage": {
+        "inputTokens": 50459,
+        "outputTokens": 299,
+        "thinkingTokens": 5299,
+        "cachedTokens": 0,
+        "costUsd": 0.10450599999999999,
+        "costUsdWithThinking": 0.168094,
+        "latencyMs": 42984
+      },
+      "costUsd": 0.10450599999999999,
+      "costUsdWithThinking": 0.168094
+    },
+    {
+      "id": "rp-21-pr29",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v (extractSalary(\"\",\"Pay: $100 - 150K per year\")) -> \"range=\\\"\\\" got={Min:100 Max:100 Period:hour Raw:$100/hr}\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/extract.go",
+        "symbol": "extractSalary",
+        "input": "extractSalary(\"\", \"$100 - 150K\")",
+        "expected": "Max 150000, Period \"year\"",
+        "actual": "Max 100, Period \"hour\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := extractSalary(\"\", \"$100 - 150K\")\n\tif got.Max != 150000 || got.Period != \"year\" {\n\t\tt.Fatalf(\"extractSalary(\\\"\\\", \\\"$100 - 150K\\\") = %+v, want Max 150000 and Period \\\"year\\\"\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: extractSalary(\"\", \"$100 - 150K\") = {Min:100 Max:100 Period:hour Raw:$100/hr}, want Max 150000 and Period \"year\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.005s\n",
+      "usage": {
+        "inputTokens": 50459,
+        "outputTokens": 299,
+        "thinkingTokens": 4541,
+        "cachedTokens": 44974,
+        "costUsd": 0.014558000000000001,
+        "costUsdWithThinking": 0.06905,
+        "latencyMs": 36732
+      },
+      "costUsd": 0.014558000000000001,
+      "costUsdWithThinking": 0.06905
+    },
+    {
+      "id": "rp-21-pr29",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v (extractSalary(\"\",\"Pay: $100 - 150K per year\")) -> \"range=\\\"\\\" got={Min:100 Max:100 Period:hour Raw:$100/hr}\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/extract.go",
+        "symbol": "extractSalary",
+        "input": "extractSalary(\"\", \"$100 - 150K\")",
+        "expected": "ParsedSalary with Max: 150000",
+        "actual": "ParsedSalary with Max: 100 (and Period: \"hour\")"
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := extractSalary(\"\", \"$100 - 150K\")\n\tif got.Max != 150000 {\n\t\tt.Fatalf(`extractSalary(\"\", \"$100 - 150K\").Max = %v, want 150000`, got.Max)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: extractSalary(\"\", \"$100 - 150K\").Max = 100, want 150000\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.004s\n",
+      "usage": {
+        "inputTokens": 50459,
+        "outputTokens": 289,
+        "thinkingTokens": 5055,
+        "cachedTokens": 0,
+        "costUsd": 0.10438599999999999,
+        "costUsdWithThinking": 0.165046,
+        "latencyMs": 39766
+      },
+      "costUsd": 0.10438599999999999,
+      "costUsdWithThinking": 0.165046
+    },
+    {
+      "id": "rp-22-pr29",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestZZLabel -v (throwaway test at 836cdd0): \"150000.99 -> 150,000\"; \"$62.50/hr\" -> raw=\"$62/hr\"; \"$150,000.99 - $180,000/yr\" -> raw=\"$150,000 - $180,000/yr\"",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/extract.go",
+        "symbol": "formatThousands",
+        "input": "formatThousands(150000.99)",
+        "expected": "\"150,001\"",
+        "actual": "\"150,000\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := formatThousands(150000.99)\n\tif got != \"150,001\" {\n\t\tt.Fatalf(\"formatThousands(150000.99) = %q, want %q\", got, \"150,001\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: formatThousands(150000.99) = \"150,000\", want \"150,001\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.005s\n",
+      "usage": {
+        "inputTokens": 50468,
+        "outputTokens": 260,
+        "thinkingTokens": 2068,
+        "cachedTokens": 0,
+        "costUsd": 0.104056,
+        "costUsdWithThinking": 0.128872,
+        "latencyMs": 18816
+      },
+      "costUsd": 0.104056,
+      "costUsdWithThinking": 0.128872
+    },
+    {
+      "id": "rp-22-pr29",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestZZLabel -v (throwaway test at 836cdd0): \"150000.99 -> 150,000\"; \"$62.50/hr\" -> raw=\"$62/hr\"; \"$150,000.99 - $180,000/yr\" -> raw=\"$150,000 - $180,000/yr\"",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/extract.go",
+        "symbol": "formatThousands",
+        "input": "formatThousands(150000.99)",
+        "expected": "\"150,001\"",
+        "actual": "\"150,000\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := formatThousands(150000.99)\n\twant := \"150,001\"\n\tif got != want {\n\t\tt.Fatalf(\"formatThousands(150000.99) = %q, want %q\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: formatThousands(150000.99) = \"150,000\", want \"150,001\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.005s\n",
+      "usage": {
+        "inputTokens": 50468,
+        "outputTokens": 262,
+        "thinkingTokens": 1477,
+        "cachedTokens": 0,
+        "costUsd": 0.10407999999999999,
+        "costUsdWithThinking": 0.121804,
+        "latencyMs": 16687
+      },
+      "costUsd": 0.10407999999999999,
+      "costUsdWithThinking": 0.121804
+    },
+    {
+      "id": "rp-22-pr29",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestZZLabel -v (throwaway test at 836cdd0): \"150000.99 -> 150,000\"; \"$62.50/hr\" -> raw=\"$62/hr\"; \"$150,000.99 - $180,000/yr\" -> raw=\"$150,000 - $180,000/yr\"",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/extract.go",
+        "symbol": "formatThousands",
+        "input": "formatThousands(150000.99)",
+        "expected": "\"150,001\"",
+        "actual": "\"150,000\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := formatThousands(150000.99)\n\twant := \"150,001\"\n\tif got != want {\n\t\tt.Fatalf(\"formatThousands(150000.99) = %q, want %q\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: formatThousands(150000.99) = \"150,000\", want \"150,001\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.004s\n",
+      "usage": {
+        "inputTokens": 50468,
+        "outputTokens": 262,
+        "thinkingTokens": 2411,
+        "cachedTokens": 44974,
+        "costUsd": 0.014131999999999999,
+        "costUsdWithThinking": 0.043064,
+        "latencyMs": 20224
+      },
+      "costUsd": 0.014131999999999999,
+      "costUsdWithThinking": 0.043064
+    },
+    {
+      "id": "rp-25-pr33",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Added a temporary println after line 367, then ran go test ./internal/api -run TestHandleRecruiterContactPatch_TogglesContacted -v (existing test that seeds a contact with no assessments): \"ZZ OtherAssessments = -1 len(Assessments) = 0\" / PASS. grep for OtherAssessments in templates: no matches.",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_preexisting",
+      "outcome": "misattributed_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/recruiter_handlers.go",
+        "symbol": "(*Server).handleRecruiterContactPatch",
+        "input": "HTTP PATCH to /recruiter/contacts for a contact with empty Assessments",
+        "expected": "OtherAssessments >= 0",
+        "actual": "OtherAssessments == -1"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"context\"\n\t\"html/template\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"net/url\"\n\t\"strconv\"\n\t\"strings\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/recruiter\"\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\toldTemplates := templates\n\tdefer func() { templates = oldTemplates }()\n\t// Override the template to just print the field we want to assert on\n\ttemplates = template.Must(template.New(\"\").Parse(`{{define \"recruiterContactRow\"}}{{.OtherAssessments}}{{end}}`))\n\n\tmem := storage.NewMemoryClient()\n\tsrv := &Server{\n\t\tContacts: &recruiter.Store{Storage: mem, Bucket: \"test-bucket\"},\n\t}\n\n\tctx := context.Background()\n\t_, err := srv.Contacts.Mutate(ctx, \"https://linkedin.com/in/nobody\", func(c recruiter.Contact) recruiter.Contact {\n\t\tc.ProfileURL = \"https://linkedin.com/in/nobody\"\n\t\t// Deliberately empty Assessments map\n\t\treturn c\n\t})\n\tif err != nil {\n\t\tt.Skip(\"gsr-setup: failed to seed contact: \" + err.Error())\n\t}\n\n\tform := url.Values{\n\t\t\"profileUrl\": {\"https://linkedin.com/in/nobody\"},\n\t\t\"field\":      {\"contacted\"},\n\t\t\"value\":      {\"true\"},\n\t}\n\treq := httptest.NewRequest(http.MethodPatch, \"/recruiter/contacts\", strings.NewReader(form.Encode()))\n\treq.Header.Set(\"Content-Type\", \"application/x-www-form-urlencoded\")\n\tw := httptest.NewRecorder()\n\n\tsrv.handleRecruiterContactPatch(w, req)\n\n\tif w.Code != http.StatusOK {\n\t\tt.Fatalf(\"handleRecruiterContactPatch returned %d, want 200\", w.Code)\n\t}\n\n\tgot := strings.TrimSpace(w.Body.String())\n\tval, err := strconv.Atoi(got)\n\tif err != nil {\n\t\tt.Fatalf(\"unexpected template output: %q (err: %v)\", got, err)\n\t}\n\n\tif val < 0 {\n\t\tt.Fatalf(\"OtherAssessments = %d, want >= 0\", val)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:60: OtherAssessments = -1, want >= 0\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/api\t0.011s\n",
+      "usage": {
+        "inputTokens": 48963,
+        "outputTokens": 853,
+        "thinkingTokens": 9278,
+        "cachedTokens": 0,
+        "costUsd": 0.108162,
+        "costUsdWithThinking": 0.219498,
+        "latencyMs": 74693
+      },
+      "costUsd": 0.108162,
+      "costUsdWithThinking": 0.219498
+    },
+    {
+      "id": "rp-25-pr33",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Added a temporary println after line 367, then ran go test ./internal/api -run TestHandleRecruiterContactPatch_TogglesContacted -v (existing test that seeds a contact with no assessments): \"ZZ OtherAssessments = -1 len(Assessments) = 0\" / PASS. grep for OtherAssessments in templates: no matches.",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/recruiter_handlers.go",
+        "symbol": "(*Server).handleRecruiterContactPatch",
+        "input": "contact with empty Assessments map",
+        "expected": "\"0\"",
+        "actual": "\"-1\""
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"context\"\n\t\"html/template\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"net/url\"\n\t\"strings\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/recruiter\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\t// Intercept the template execution to inspect the rendered struct field directly.\n\torig := templates\n\tdefer func() { templates = orig }()\n\ttemplates = template.Must(template.New(\"recruiterContactRow\").Parse(`{{.OtherAssessments}}`))\n\n\tsrv, h, _ := newTestRecruiterServer(t)\n\tctx := context.Background()\n\n\t// Setup a contact with an uninitialized/empty Assessments map.\n\t_, err := srv.Contacts.Mutate(ctx, \"https://linkedin.com/in/test\", func(c recruiter.Contact) recruiter.Contact {\n\t\tc.Name = \"Test\"\n\t\tc.Assessments = nil // empty\n\t\treturn c\n\t})\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: failed to setup contact: %v\", err)\n\t}\n\n\tform := url.Values{\n\t\t\"profileUrl\": {\"https://linkedin.com/in/test\"},\n\t\t\"field\":      {\"contacted\"},\n\t\t\"value\":      {\"true\"},\n\t}\n\treq := httptest.NewRequest(http.MethodPatch, \"/recruiter/contacts\", strings.NewReader(form.Encode()))\n\treq.Header.Set(\"Content-Type\", \"application/x-www-form-urlencoded\")\n\tw := httptest.NewRecorder()\n\n\th.ServeHTTP(w, req)\n\n\tif w.Code != http.StatusOK {\n\t\tt.Skipf(\"gsr-setup: expected 200, got %d: %s\", w.Code, w.Body.String())\n\t}\n\n\tgot := strings.TrimSpace(w.Body.String())\n\tif got != \"0\" {\n\t\tt.Fatalf(\"handleRecruiterContactPatch(empty assessments) OtherAssessments = %q, want %q\", got, \"0\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:51: handleRecruiterContactPatch(empty assessments) OtherAssessments = \"-1\", want \"0\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/api\t0.010s\n",
+      "usage": {
+        "inputTokens": 48963,
+        "outputTokens": 741,
+        "thinkingTokens": 12694,
+        "cachedTokens": 0,
+        "costUsd": 0.106818,
+        "costUsdWithThinking": 0.259146,
+        "latencyMs": 99370
+      },
+      "costUsd": 0.106818,
+      "costUsdWithThinking": 0.259146
+    },
+    {
+      "id": "rp-25-pr33",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Added a temporary println after line 367, then ran go test ./internal/api -run TestHandleRecruiterContactPatch_TogglesContacted -v (existing test that seeds a contact with no assessments): \"ZZ OtherAssessments = -1 len(Assessments) = 0\" / PASS. grep for OtherAssessments in templates: no matches.",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/recruiter_handlers.go",
+        "symbol": "handleRecruiterContactPatch",
+        "input": "HTTP PATCH with an empty contact.Assessments map",
+        "expected": "OtherAssessments >= 0",
+        "actual": "OtherAssessments = -1"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"context\"\n\t\"html/template\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"net/url\"\n\t\"strings\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/recruiter\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\t// Intercept the template to output exactly what was passed as OtherAssessments\n\toldTemplates := templates\n\tdefer func() { templates = oldTemplates }()\n\n\ttemplates = template.Must(template.New(\"recruiterContactRow\").Parse(`{{.OtherAssessments}}`))\n\n\tsrv, h, _ := newTestRecruiterServer(t)\n\tctx := context.Background()\n\t\n\t// Seed a contact with an explicitly empty Assessments map\n\tif _, err := srv.Contacts.Mutate(ctx, \"https://linkedin.com/in/empty\", func(c recruiter.Contact) recruiter.Contact {\n\t\tc.Name = \"Empty\"\n\t\tc.Assessments = nil // empty map\n\t\treturn c\n\t}); err != nil {\n\t\tt.Skip(\"gsr-setup: seeding contact failed:\", err)\n\t}\n\n\tform := url.Values{\"profileUrl\": {\"https://linkedin.com/in/empty\"}, \"field\": {\"contacted\"}, \"value\": {\"true\"}}\n\treq := httptest.NewRequest(http.MethodPatch, \"/recruiter/contacts\", strings.NewReader(form.Encode()))\n\treq.Header.Set(\"Content-Type\", \"application/x-www-form-urlencoded\")\n\t\n\tw := httptest.NewRecorder()\n\th.ServeHTTP(w, req)\n\n\tif w.Code != http.StatusOK {\n\t\tt.Skip(\"gsr-setup: handler returned non-200:\", w.Code, w.Body.String())\n\t}\n\n\t// Check the evaluated value passed to the template\n\tgot := strings.TrimSpace(w.Body.String())\n\tif got == \"-1\" {\n\t\tt.Fatalf(\"handleRecruiterContactPatch with empty assessments rendered OtherAssessments = %q, want >= 0\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:48: handleRecruiterContactPatch with empty assessments rendered OtherAssessments = \"-1\", want >= 0\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/api\t0.009s\n",
+      "usage": {
+        "inputTokens": 48963,
+        "outputTokens": 742,
+        "thinkingTokens": 7849,
+        "cachedTokens": 44971,
+        "costUsd": 0.016888,
+        "costUsdWithThinking": 0.11107600000000001,
+        "latencyMs": 62191
+      },
+      "costUsd": 0.016888,
+      "costUsdWithThinking": 0.11107600000000001
+    },
+    {
+      "id": "rp-3-pr2",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/api -run ZZ -v (POST /ingest with status.json = invalid JSON, log output captured) -> \"GetAll err=true; code=200 ingest-ok=true oob-results=false NewCo-in-body=false logbytes=0\"",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "opinion",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding requests adding a log statement for developer debugging when an error occurs, which is a design preference for observability rather than a user-observable behavioral change to the HTTP response.",
+        "language": "go",
+        "file": "internal/api/server.go",
+        "symbol": "handleIngest",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 21988,
+        "outputTokens": 121,
+        "thinkingTokens": 5049,
+        "cachedTokens": 0,
+        "costUsd": 0.045428,
+        "costUsdWithThinking": 0.106016,
+        "latencyMs": 47343
+      },
+      "costUsd": 0.045428,
+      "costUsdWithThinking": 0.106016
+    },
+    {
+      "id": "rp-3-pr2",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/api -run ZZ -v (POST /ingest with status.json = invalid JSON, log output captured) -> \"GetAll err=true; code=200 ingest-ok=true oob-results=false NewCo-in-body=false logbytes=0\"",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "insufficient_context",
+        "notTestableReason": "Triggering a failure in readJobs or GetAll specifically during the out-of-band refresh phase (without failing the earlier pipeline.Run) requires a test double for storage.Client or status.Store, but status.Store is a concrete struct and the full interface signature of storage.Client is not visible in the provided code.",
+        "language": "go",
+        "file": "internal/api/server.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 21988,
+        "outputTokens": 161,
+        "thinkingTokens": 4639,
+        "cachedTokens": 0,
+        "costUsd": 0.045908000000000004,
+        "costUsdWithThinking": 0.101576,
+        "latencyMs": 42861
+      },
+      "costUsd": 0.045908000000000004,
+      "costUsdWithThinking": 0.101576
+    },
+    {
+      "id": "rp-3-pr2",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/api -run ZZ -v (POST /ingest with status.json = invalid JSON, log output captured) -> \"GetAll err=true; code=200 ingest-ok=true oob-results=false NewCo-in-body=false logbytes=0\"",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/server.go",
+        "symbol": "(*Server).handleIngest",
+        "input": "an HTTP request where readJobs fails during the out-of-band refresh phase",
+        "expected": "logs the error",
+        "actual": "silently returns without any logs"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"bytes\"\n\t\"io\"\n\t\"log\"\n\t\"net/http/httptest\"\n\t\"strings\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/ingest\"\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n\t\"github.com/weitzer-org/job_tracker/internal/status\"\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrWitnessReader struct {\n\tsrv    *Server\n\treader io.Reader\n}\n\nfunc (r *gsrWitnessReader) Read(p []byte) (n int, err error) {\n\t// Mutate the bucket *after* pipeline.Run completes.\n\t// In handleIngest, the only thing that reads the request body is r.ParseForm(),\n\t// which executes exactly between pipeline.Run and readJobs.\n\tr.srv.StorageBucket = \"bad-bucket\"\n\treturn r.reader.Read(p)\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\torig := log.Writer()\n\tdefer log.SetOutput(orig)\n\n\tvar logBuf bytes.Buffer\n\tlog.SetOutput(&logBuf)\n\n\tmem := storage.NewMemoryClient()\n\tctx := t.Context()\n\n\t// 1. Setup valid initial bucket so pipeline.Run succeeds\n\tvalidBuckets := []byte(`[{\"name\":\"Bucket A\",\"searches\":[{\"label\":\"Bucket A (NYC)\",\"url\":\"https://nyc\"}]}]`)\n\tif err := mem.WriteFile(ctx, \"test-bucket\", bucketsObjectKey, validBuckets, storage.IfNotExists); err != nil {\n\t\tt.Skip(\"gsr-setup: valid buckets:\", err)\n\t}\n\tvalidJobs := []byte(`[]`)\n\tif err := mem.WriteFile(ctx, \"test-bucket\", jobsObjectKey, validJobs, storage.IfNotExists); err != nil {\n\t\tt.Skip(\"gsr-setup: valid jobs:\", err)\n\t}\n\n\t// 2. Setup bad bucket to break readJobs during out-of-band refresh\n\tif err := mem.WriteFile(ctx, \"bad-bucket\", jobsObjectKey, []byte(`{invalid}`), storage.IfNotExists); err != nil {\n\t\tt.Skip(\"gsr-setup: bad bucket:\", err)\n\t}\n\n\tprovider, err := scoring.New(scoring.Config{MockMode: true, Model: \"mock-model\"})\n\tif err != nil {\n\t\tt.Skip(\"gsr-setup: scoring:\", err)\n\t}\n\n\tsrv := &Server{\n\t\tStorage:       mem,\n\t\tStorageBucket: \"test-bucket\",\n\t\tStatus:        &status.Store{Storage: mem, Bucket: \"test-bucket\"},\n\t\tApify: &ingest.MockApifyClient{Listings: []ingest.RawListing{\n\t\t\t{JobID: \"new-1\", JobTitle: \"PM\", CompanyName: \"X\", JobURL: \"http://x\", Location: \"NY\", JobDescription: \"y\"},\n\t\t}},\n\t\tScoringProvider: provider,\n\t\tProfile:         scoring.Profile{Text: \"profile\", Version: \"v1\"},\n\t}\n\n\tbody := &gsrWitnessReader{\n\t\tsrv:    srv,\n\t\treader: strings.NewReader(\"showStale=1\"),\n\t}\n\n\treq := httptest.NewRequest(\"POST\", \"/ingest\", body)\n\treq.Header.Set(\"Content-Type\", \"application/x-www-form-urlencoded\")\n\tw := httptest.NewRecorder()\n\n\tsrv.handleIngest(w, req)\n\n\tif logBuf.Len() == 0 {\n\t\tt.Fatalf(\"handleIngest() with failing readJobs logged nothing, want logged error\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:83: handleIngest() with failing readJobs logged nothing, want logged error\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/api\t0.006s\n",
+      "usage": {
+        "inputTokens": 21988,
+        "outputTokens": 1172,
+        "thinkingTokens": 19685,
+        "cachedTokens": 0,
+        "costUsd": 0.05804,
+        "costUsdWithThinking": 0.29426,
+        "latencyMs": 162514
+      },
+      "costUsd": 0.05804,
+      "costUsdWithThinking": 0.29426
+    },
+    {
+      "id": "rp-33-pr50",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at 14750cb: MemoryClient seeded with '{not json' at apify-run-cache.json, then writeEntry: \"writeEntry err=storage: object was modified concurrently (ETag mismatch) ...; blob after=\\\"{not json\\\"\" after 5 decode-failure log lines (all retries exhausted).",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/cache.go",
+        "symbol": "(*CachingApifyClient).writeEntry",
+        "input": "c.writeEntry(ctx, \"my-key\", cacheEntry{}) with corrupted JSON in storage",
+        "expected": "nil error",
+        "actual": "storage.ErrETagMismatch"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrWitnessFakeStorage struct {\n\tstorage.Client\n\tdata []byte\n\tetag string\n}\n\nfunc (f *gsrWitnessFakeStorage) ReadFile(ctx context.Context, bucket, key string) ([]byte, string, error) {\n\tif f.data == nil {\n\t\treturn nil, \"\", storage.ErrNotFound\n\t}\n\treturn f.data, f.etag, nil\n}\n\nfunc (f *gsrWitnessFakeStorage) WriteFile(ctx context.Context, bucket, key string, data []byte, ifMatch string) error {\n\tif ifMatch == storage.IfNotExists {\n\t\tif f.data != nil {\n\t\t\treturn storage.ErrETagMismatch\n\t\t}\n\t} else if ifMatch != f.etag {\n\t\treturn storage.ErrETagMismatch\n\t}\n\tf.data = append([]byte(nil), data...)\n\tf.etag = f.etag + \"-updated\"\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tst := &gsrWitnessFakeStorage{\n\t\tdata: []byte(\"this is definitely not valid JSON\"),\n\t\tetag: \"v1\",\n\t}\n\tc := &CachingApifyClient{\n\t\tStorage: st,\n\t\tBucket:  \"test-bucket\",\n\t}\n\n\terr := c.writeEntry(context.Background(), \"my-key\", cacheEntry{})\n\tif err != nil {\n\t\tt.Fatalf(\"writeEntry(...) = %v, want nil error\", err)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "11:03 ingest: apify cache: decoding apify-run-cache.json: invalid character 'h' in literal true (expecting 'r'); treating as empty\n2026/10/07 21:11:03 ingest: apify cache: decoding apify-run-cache.json: invalid character 'h' in literal true (expecting 'r'); treating as empty\n    zz_gsr_witness_test.go:48: writeEntry(...) = storage: object was modified concurrently (ETag mismatch), want nil error\n--- FAIL: TestGSRWitness (0.16s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.172s\n",
+      "usage": {
+        "inputTokens": 46041,
+        "outputTokens": 608,
+        "thinkingTokens": 4427,
+        "cachedTokens": 0,
+        "costUsd": 0.099378,
+        "costUsdWithThinking": 0.152502,
+        "latencyMs": 35064
+      },
+      "costUsd": 0.099378,
+      "costUsdWithThinking": 0.152502
+    },
+    {
+      "id": "rp-33-pr50",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at 14750cb: MemoryClient seeded with '{not json' at apify-run-cache.json, then writeEntry: \"writeEntry err=storage: object was modified concurrently (ETag mismatch) ...; blob after=\\\"{not json\\\"\" after 5 decode-failure log lines (all retries exhausted).",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/cache.go",
+        "symbol": "(*CachingApifyClient).writeEntry",
+        "input": "client.writeEntry(context.Background(), \"test-key\", cacheEntry{}) with a corrupted cache file existing in storage",
+        "expected": "nil",
+        "actual": "storage.ErrETagMismatch"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrFakeStorage struct {\n\tstorage.Client\n\tdata []byte\n\tetag string\n}\n\nfunc (f *gsrFakeStorage) ReadFile(ctx context.Context, bucket, key string) ([]byte, string, error) {\n\tif f.data == nil {\n\t\treturn nil, \"\", storage.ErrNotFound\n\t}\n\treturn f.data, f.etag, nil\n}\n\nfunc (f *gsrFakeStorage) WriteFile(ctx context.Context, bucket, key string, data []byte, ifMatch string) error {\n\tif ifMatch == storage.IfNotExists {\n\t\tif f.data != nil {\n\t\t\treturn storage.ErrETagMismatch\n\t\t}\n\t} else if ifMatch != f.etag {\n\t\treturn storage.ErrETagMismatch\n\t}\n\tf.data = append([]byte(nil), data...)\n\tf.etag = \"new_etag\"\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tst := &gsrFakeStorage{\n\t\tdata: []byte(\"corrupt json\"),\n\t\tetag: \"etag123\",\n\t}\n\tclient := &CachingApifyClient{\n\t\tStorage: st,\n\t\tBucket:  \"test-bucket\",\n\t}\n\n\terr := client.writeEntry(context.Background(), \"test-key\", cacheEntry{})\n\tif err != nil {\n\t\tt.Fatalf(\"client.writeEntry() = %v, want nil\", err)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": " 21:11:46 ingest: apify cache: decoding apify-run-cache.json: invalid character 'c' looking for beginning of value; treating as empty\n2026/10/07 21:11:46 ingest: apify cache: decoding apify-run-cache.json: invalid character 'c' looking for beginning of value; treating as empty\n    zz_gsr_witness_test.go:48: client.writeEntry() = storage: object was modified concurrently (ETag mismatch), want nil\n--- FAIL: TestGSRWitness (0.24s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.246s\n",
+      "usage": {
+        "inputTokens": 46041,
+        "outputTokens": 624,
+        "thinkingTokens": 9273,
+        "cachedTokens": 0,
+        "costUsd": 0.09956999999999999,
+        "costUsdWithThinking": 0.21084599999999998,
+        "latencyMs": 74285
+      },
+      "costUsd": 0.09956999999999999,
+      "costUsdWithThinking": 0.21084599999999998
+    },
+    {
+      "id": "rp-33-pr50",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at 14750cb: MemoryClient seeded with '{not json' at apify-run-cache.json, then writeEntry: \"writeEntry err=storage: object was modified concurrently (ETag mismatch) ...; blob after=\\\"{not json\\\"\" after 5 decode-failure log lines (all retries exhausted).",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/cache.go",
+        "symbol": "(*CachingApifyClient).writeEntry",
+        "input": "c.writeEntry(ctx, key, entry) when the existing cache JSON is corrupt",
+        "expected": "nil error",
+        "actual": "non-nil error (storage.ErrETagMismatch)"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrFakeStorage struct {\n\tstorage.Client\n\tdata []byte\n\tetag string\n}\n\nfunc (f *gsrFakeStorage) ReadFile(ctx context.Context, bucket, key string) ([]byte, string, error) {\n\tif f.data == nil {\n\t\treturn nil, \"\", storage.ErrNotFound\n\t}\n\treturn f.data, f.etag, nil\n}\n\nfunc (f *gsrFakeStorage) WriteFile(ctx context.Context, bucket, key string, data []byte, ifMatch string) error {\n\tif f.data != nil && ifMatch == storage.IfNotExists {\n\t\treturn storage.ErrETagMismatch\n\t}\n\tif ifMatch != storage.IfNotExists && ifMatch != f.etag {\n\t\treturn storage.ErrETagMismatch\n\t}\n\tf.data = data\n\tf.etag = \"new-etag\"\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tfs := &gsrFakeStorage{\n\t\tdata: []byte(\"invalid-json\"),\n\t\tetag: \"etag-123\",\n\t}\n\tc := &CachingApifyClient{\n\t\tStorage: fs,\n\t\tBucket:  \"test-bucket\",\n\t}\n\n\terr := c.writeEntry(context.Background(), \"test-key\", cacheEntry{})\n\tif err != nil {\n\t\tt.Fatalf(\"writeEntry() = %v, want nil\", err)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "6/10/07 21:11:29 ingest: apify cache: decoding apify-run-cache.json: invalid character 'i' looking for beginning of value; treating as empty\n2026/10/07 21:11:29 ingest: apify cache: decoding apify-run-cache.json: invalid character 'i' looking for beginning of value; treating as empty\n    zz_gsr_witness_test.go:47: writeEntry() = storage: object was modified concurrently (ETag mismatch), want nil\n--- FAIL: TestGSRWitness (0.19s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.195s\n",
+      "usage": {
+        "inputTokens": 46041,
+        "outputTokens": 610,
+        "thinkingTokens": 6418,
+        "cachedTokens": 0,
+        "costUsd": 0.09940199999999999,
+        "costUsdWithThinking": 0.176418,
+        "latencyMs": 53420
+      },
+      "costUsd": 0.09940199999999999,
+      "costUsdWithThinking": 0.176418
+    },
+    {
+      "id": "rp-34-pr52",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "opinion",
+        "why": "go test ./internal/api -run TestHandleIngest_TTLOverrideUsesCustomTTLApify -v at 1a1aec3: \"--- PASS\". This existing test includes ttlOverrideHours=notanumber and asserts fallback to the normal client with TTLOverrideApify not called.",
+        "weak": true
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding critiques the fragility of the switch statement's structure for future modifications, explicitly acknowledging that the code currently works as intended because this happens to be the last case.",
+        "language": "go",
+        "file": "internal/api/server.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 57089,
+        "outputTokens": 126,
+        "thinkingTokens": 5171,
+        "cachedTokens": 0,
+        "costUsd": 0.11569,
+        "costUsdWithThinking": 0.177742,
+        "latencyMs": 47207
+      },
+      "costUsd": 0.11569,
+      "costUsdWithThinking": 0.177742
+    },
+    {
+      "id": "rp-34-pr52",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "opinion",
+        "why": "go test ./internal/api -run TestHandleIngest_TTLOverrideUsesCustomTTLApify -v at 1a1aec3: \"--- PASS\". This existing test includes ttlOverrideHours=notanumber and asserts fallback to the normal client with TTLOverrideApify not called.",
+        "weak": true
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding points out a potential maintainability issue with the switch statement's structure, explicitly acknowledging that it does not cause a bug in the current code since it is the last case.",
+        "language": "go",
+        "file": "internal/api/server.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 57089,
+        "outputTokens": 129,
+        "thinkingTokens": 1812,
+        "cachedTokens": 0,
+        "costUsd": 0.115726,
+        "costUsdWithThinking": 0.13747,
+        "latencyMs": 21170
+      },
+      "costUsd": 0.115726,
+      "costUsdWithThinking": 0.13747
+    },
+    {
+      "id": "rp-34-pr52",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "opinion",
+        "why": "go test ./internal/api -run TestHandleIngest_TTLOverrideUsesCustomTTLApify -v at 1a1aec3: \"--- PASS\". This existing test includes ttlOverrideHours=notanumber and asserts fallback to the normal client with TTLOverrideApify not called.",
+        "weak": true
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding points out a structural fragility (a trap if future cases are added) rather than an observable behavioral bug, explicitly acknowledging that it happens to be the last case right now so no existing fallback is actually prevented.",
+        "language": "go",
+        "file": "internal/api/server.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 57089,
+        "outputTokens": 135,
+        "thinkingTokens": 3404,
+        "cachedTokens": 53162,
+        "costUsd": 0.009474,
+        "costUsdWithThinking": 0.050322,
+        "latencyMs": 28786
+      },
+      "costUsd": 0.009474,
+      "costUsdWithThinking": 0.050322
+    },
+    {
+      "id": "rp-35-pr55",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at eab0715 calling classifyNYCFit: \"Camden, NJ\" -> \"\"; \"Camden, New Jersey\" -> \"NYC Metro\"; \"Washington Township, New Jersey\" -> \"NYC Metro\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "classifyNYCFit",
+        "input": "classifyNYCFit(\"camden, new jersey\")",
+        "expected": "\"\"",
+        "actual": "\"NYC Metro\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := classifyNYCFit(\"camden, new jersey\")\n\tif got != \"\" {\n\t\tt.Fatalf(\"classifyNYCFit(\\\"camden, new jersey\\\") = %q, want \\\"\\\"\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: classifyNYCFit(\"camden, new jersey\") = \"NYC Metro\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.010s\n",
+      "usage": {
+        "inputTokens": 44717,
+        "outputTokens": 240,
+        "thinkingTokens": 2074,
+        "cachedTokens": 0,
+        "costUsd": 0.092314,
+        "costUsdWithThinking": 0.117202,
+        "latencyMs": 17709
+      },
+      "costUsd": 0.092314,
+      "costUsdWithThinking": 0.117202
+    },
+    {
+      "id": "rp-35-pr55",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at eab0715 calling classifyNYCFit: \"Camden, NJ\" -> \"\"; \"Camden, New Jersey\" -> \"NYC Metro\"; \"Washington Township, New Jersey\" -> \"NYC Metro\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "classifyNYCFit",
+        "input": "classifyNYCFit(\"camden, new jersey\")",
+        "expected": "\"\"",
+        "actual": "\"NYC Metro\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := classifyNYCFit(\"camden, new jersey\")\n\tif got != \"\" {\n\t\tt.Fatalf(\"classifyNYCFit(\\\"camden, new jersey\\\") = %q, want \\\"\\\"\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: classifyNYCFit(\"camden, new jersey\") = \"NYC Metro\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.011s\n",
+      "usage": {
+        "inputTokens": 44717,
+        "outputTokens": 240,
+        "thinkingTokens": 1932,
+        "cachedTokens": 0,
+        "costUsd": 0.092314,
+        "costUsdWithThinking": 0.115498,
+        "latencyMs": 17818
+      },
+      "costUsd": 0.092314,
+      "costUsdWithThinking": 0.115498
+    },
+    {
+      "id": "rp-35-pr55",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at eab0715 calling classifyNYCFit: \"Camden, NJ\" -> \"\"; \"Camden, New Jersey\" -> \"NYC Metro\"; \"Washington Township, New Jersey\" -> \"NYC Metro\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "classifyNYCFit",
+        "input": "classifyNYCFit(\"camden, new jersey\")",
+        "expected": "\"\"",
+        "actual": "\"NYC Metro\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := classifyNYCFit(\"camden, new jersey\")\n\tif got != \"\" {\n\t\tt.Fatalf(\"classifyNYCFit(\\\"camden, new jersey\\\") = %q, want %q\", got, \"\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: classifyNYCFit(\"camden, new jersey\") = \"NYC Metro\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.010s\n",
+      "usage": {
+        "inputTokens": 44717,
+        "outputTokens": 241,
+        "thinkingTokens": 1359,
+        "cachedTokens": 40875,
+        "costUsd": 0.010576,
+        "costUsdWithThinking": 0.026883999999999998,
+        "latencyMs": 12571
+      },
+      "costUsd": 0.010576,
+      "costUsdWithThinking": 0.026883999999999998
+    },
+    {
+      "id": "rp-36-pr61",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at bd31625 (httptest get-run server, CostSettleDelay=50ms, settleRunCost): \"server clock ahead by 0s ... waited 50ms\"; \"server clock ahead by 2s, configured delay 50ms -> waited 2.05s\"",
+        "attribution": "regression"
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "needs_environment",
+        "notTestableReason": "Proving that the goroutine stalls requires asserting the duration of a time.After sleep, which relies on real clocks and timing that cannot be tested deterministically without flakiness.",
+        "language": "go",
+        "file": "internal/ingest/apify.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 49396,
+        "outputTokens": 132,
+        "thinkingTokens": 9839,
+        "cachedTokens": 0,
+        "costUsd": 0.100376,
+        "costUsdWithThinking": 0.218444,
+        "latencyMs": 83273
+      },
+      "costUsd": 0.100376,
+      "costUsdWithThinking": 0.218444
+    },
+    {
+      "id": "rp-36-pr61",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at bd31625 (httptest get-run server, CostSettleDelay=50ms, settleRunCost): \"server clock ahead by 0s ... waited 50ms\"; \"server clock ahead by 2s, configured delay 50ms -> waited 2.05s\"",
+        "attribution": "regression"
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "needs_environment",
+        "notTestableReason": "Proving the goroutine stall requires measuring elapsed time, using a real timer (like context.WithTimeout), or observing a test hang, all of which depend on real clocks and timing that violate the deterministic test rules.",
+        "language": "go",
+        "file": "internal/ingest/apify.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 49396,
+        "outputTokens": 140,
+        "thinkingTokens": 7867,
+        "cachedTokens": 0,
+        "costUsd": 0.100472,
+        "costUsdWithThinking": 0.194876,
+        "latencyMs": 71487
+      },
+      "costUsd": 0.100472,
+      "costUsdWithThinking": 0.194876
+    },
+    {
+      "id": "rp-36-pr61",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at bd31625 (httptest get-run server, CostSettleDelay=50ms, settleRunCost): \"server clock ahead by 0s ... waited 50ms\"; \"server clock ahead by 2s, configured delay 50ms -> waited 2.05s\"",
+        "attribution": "regression"
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "needs_environment",
+        "notTestableReason": "Showing the clock skew effect requires observing a real sleep difference via a timeout, because settleRunCost uses time.After and time.Since directly without an injectable clock.",
+        "language": "go",
+        "file": "internal/ingest/apify.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 49396,
+        "outputTokens": 129,
+        "thinkingTokens": 10287,
+        "cachedTokens": 44972,
+        "costUsd": 0.010395999999999999,
+        "costUsdWithThinking": 0.13384000000000001,
+        "latencyMs": 84715
+      },
+      "costUsd": 0.010395999999999999,
+      "costUsdWithThinking": 0.13384000000000001
+    },
+    {
+      "id": "rp-37-pr61",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at f60c26a (httptest Apify server; RunObserver captures stats; counts settle GETs without waitForFinish): \"final=FAILED err!=nil:true settleReads=0 observed CostSettled=false\" vs \"final=SUCCEEDED ... settleReads=1 observed CostSettled=true\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/apify.go",
+        "symbol": "(*ApifyRESTClient).RunActor",
+        "input": "client.RunActor(ctx, actorID, urls)",
+        "expected": "CostSettled == true",
+        "actual": "CostSettled == false"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"strings\"\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tif r.Method == http.MethodPost && strings.Contains(r.URL.Path, \"/runs\") {\n\t\t\tw.WriteHeader(http.StatusCreated)\n\t\t\tw.Write([]byte(`{\"data\":{\"id\":\"run-123\",\"status\":\"READY\"}}`))\n\t\t\treturn\n\t\t}\n\t\tif r.Method == http.MethodGet && strings.Contains(r.URL.Path, \"/actor-runs/\") {\n\t\t\tw.WriteHeader(http.StatusOK)\n\t\t\tw.Write([]byte(`{\"data\":{\"id\":\"run-123\",\"status\":\"FAILED\",\"defaultDatasetId\":\"dataset-123\",\"usageTotalUsd\":0.01}}`))\n\t\t\treturn\n\t\t}\n\t\tif r.Method == http.MethodGet && strings.Contains(r.URL.Path, \"/datasets/\") {\n\t\t\tw.WriteHeader(http.StatusOK)\n\t\t\tw.Write([]byte(`[]`))\n\t\t\treturn\n\t\t}\n\t\tw.WriteHeader(http.StatusNotFound)\n\t}))\n\tdefer srv.Close()\n\n\tvar obs ApifyRunStats\n\tclient := &ApifyRESTClient{\n\t\tToken:             \"dummy\",\n\t\tHTTPClient:        srv.Client(),\n\t\tBaseURL:           srv.URL,\n\t\tCostSettleDelay:   1 * time.Millisecond,\n\t\tPollFallbackDelay: 1 * time.Millisecond,\n\t\tRunObserver: ApifyRunObserverFunc(func(ctx context.Context, stats ApifyRunStats) {\n\t\t\tobs = stats\n\t\t}),\n\t}\n\n\t// Trigger a failed run where waitForRun returns an error due to the FAILED status.\n\t_, _ = client.RunActor(context.Background(), \"my-actor\", []string{\"http://example.com\"})\n\n\tif !obs.CostSettled {\n\t\tt.Fatalf(\"obs.CostSettled = %v, want true for failed runs (settleRunCost was bypassed)\", obs.CostSettled)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:49: obs.CostSettled = false, want true for failed runs (settleRunCost was bypassed)\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.015s\n",
+      "usage": {
+        "inputTokens": 49757,
+        "outputTokens": 816,
+        "thinkingTokens": 9166,
+        "cachedTokens": 0,
+        "costUsd": 0.109306,
+        "costUsdWithThinking": 0.219298,
+        "latencyMs": 73141
+      },
+      "costUsd": 0.109306,
+      "costUsdWithThinking": 0.219298
+    },
+    {
+      "id": "rp-37-pr61",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at f60c26a (httptest Apify server; RunObserver captures stats; counts settle GETs without waitForFinish): \"final=FAILED err!=nil:true settleReads=0 observed CostSettled=false\" vs \"final=SUCCEEDED ... settleReads=1 observed CostSettled=true\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/apify.go",
+        "symbol": "(*ApifyRESTClient).RunActor",
+        "input": "client.RunActor() where the underlying Apify run ends with a FAILED status",
+        "expected": "CostSettled = true (settleRunCost is called to re-read the settled cost)",
+        "actual": "CostSettled = false (c.settleRunCost is bypassed by the early error return)"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"testing\"\n\t\"time\"\n)\n\ntype gsrWitnessObserver struct {\n\tstats ApifyRunStats\n}\n\nfunc (o *gsrWitnessObserver) ObserveApifyRun(ctx context.Context, stats ApifyRunStats) {\n\to.stats = stats\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tmux := http.NewServeMux()\n\t// Mock startRun\n\tmux.HandleFunc(\"/v2/acts/my-actor/runs\", func(w http.ResponseWriter, r *http.Request) {\n\t\tw.WriteHeader(http.StatusCreated)\n\t\tw.Write([]byte(`{\"data\":{\"id\":\"run-1\",\"status\":\"READY\"}}`))\n\t})\n\t// Mock waitForRun (polling) and getRun (cost settlement)\n\tmux.HandleFunc(\"/v2/actor-runs/run-1\", func(w http.ResponseWriter, r *http.Request) {\n\t\tw.WriteHeader(http.StatusOK)\n\t\tw.Write([]byte(`{\"data\":{\"id\":\"run-1\",\"status\":\"FAILED\",\"usageTotalUsd\":0.01}}`))\n\t})\n\t// Catch-all mock for fetchDatasetItems in case the fixed code attempts to call it regardless\n\tmux.HandleFunc(\"/\", func(w http.ResponseWriter, r *http.Request) {\n\t\tw.WriteHeader(http.StatusOK)\n\t\tw.Write([]byte(`[]`))\n\t})\n\n\tsrv := httptest.NewServer(mux)\n\tdefer srv.Close()\n\n\tobs := &gsrWitnessObserver{}\n\tclient := &ApifyRESTClient{\n\t\tToken:             \"dummy-token\",\n\t\tBaseURL:           srv.URL,\n\t\tRunObserver:       obs,\n\t\tCostSettleDelay:   1 * time.Millisecond,\n\t\tPollFallbackDelay: 1 * time.Millisecond,\n\t}\n\n\t_, _ = client.RunActor(context.Background(), \"my-actor\", []string{\"http://example.com\"})\n\n\tif !obs.stats.CostSettled {\n\t\tt.Fatalf(\"RunActor() for a failed run recorded CostSettled = false, want true (cost settlement was bypassed)\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:52: RunActor() for a failed run recorded CostSettled = false, want true (cost settlement was bypassed)\n--- FAIL: TestGSRWitness (0.01s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.016s\n",
+      "usage": {
+        "inputTokens": 49757,
+        "outputTokens": 796,
+        "thinkingTokens": 7703,
+        "cachedTokens": 0,
+        "costUsd": 0.10906600000000001,
+        "costUsdWithThinking": 0.20150200000000001,
+        "latencyMs": 62452
+      },
+      "costUsd": 0.10906600000000001,
+      "costUsdWithThinking": 0.20150200000000001
+    },
+    {
+      "id": "rp-37-pr61",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at f60c26a (httptest Apify server; RunObserver captures stats; counts settle GETs without waitForFinish): \"final=FAILED err!=nil:true settleReads=0 observed CostSettled=false\" vs \"final=SUCCEEDED ... settleReads=1 observed CostSettled=true\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/apify.go",
+        "symbol": "(*ApifyRESTClient).RunActor",
+        "input": "RunActor() on an Apify client where the run terminates with a FAILED status",
+        "expected": "the observer receives an ApifyRunStats with CostSettled == true",
+        "actual": "the observer receives an ApifyRunStats with CostSettled == false"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"strings\"\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\t// 1. startRun (POST) returns READY\n\t\tif r.Method == http.MethodPost && strings.Contains(r.URL.Path, \"/runs\") {\n\t\t\tw.Write([]byte(`{\"data\":{\"id\":\"test-run-1\",\"status\":\"READY\"}}`))\n\t\t\treturn\n\t\t}\n\t\t// 2. waitForRun (GET) or settleRunCost (GET) return FAILED\n\t\tif r.Method == http.MethodGet && strings.Contains(r.URL.Path, \"test-run-1\") {\n\t\t\tw.Write([]byte(`{\"data\":{\"id\":\"test-run-1\",\"status\":\"FAILED\",\"defaultDatasetId\":\"dataset-1\",\"usageTotalUsd\":1.23}}`))\n\t\t\treturn\n\t\t}\n\t\t// 3. fetchDatasetItems (GET) in case fixed code reaches it safely\n\t\tif r.Method == http.MethodGet && strings.Contains(r.URL.Path, \"dataset-1/items\") {\n\t\t\tw.Write([]byte(`[]`))\n\t\t\treturn\n\t\t}\n\t\tw.WriteHeader(http.StatusNotFound)\n\t}))\n\tdefer srv.Close()\n\n\tvar recordedStats ApifyRunStats\n\n\tc := NewApifyRESTClient(\"test-token\")\n\tc.BaseURL = srv.URL\n\tc.CostSettleDelay = 1 * time.Microsecond\n\tc.PollFallbackDelay = 1 * time.Microsecond\n\tc.RunObserver = ApifyRunObserverFunc(func(ctx context.Context, stats ApifyRunStats) {\n\t\trecordedStats = stats\n\t})\n\n\t// RunActor will fail due to the FAILED status, returning (nil, err).\n\t_, _ = c.RunActor(context.Background(), \"my-actor\", []string{\"http://example.com\"})\n\n\tif !recordedStats.CostSettled {\n\t\tt.Fatalf(\"RunActor on FAILED run -> observer received CostSettled = %v, want true (cost should be settled even for failed runs)\", recordedStats.CostSettled)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:47: RunActor on FAILED run -> observer received CostSettled = false, want true (cost should be settled even for failed runs)\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.014s\n",
+      "usage": {
+        "inputTokens": 49757,
+        "outputTokens": 842,
+        "thinkingTokens": 6798,
+        "cachedTokens": 0,
+        "costUsd": 0.10961800000000001,
+        "costUsdWithThinking": 0.191194,
+        "latencyMs": 56641
+      },
+      "costUsd": 0.10961800000000001,
+      "costUsdWithThinking": 0.191194
+    },
+    {
+      "id": "rp-38-pr65",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at 3ca23ae: CompressMiddleware(http.FileServerFS(MapFS app.css 1600B)), Range: bytes=0-15, Accept-Encoding: gzip -> \"status=206 Content-Encoding=\\\"gzip\\\" Content-Range=\\\"bytes 0-15/1600\\\" bodyLen=40 bodyPrefix=1f8b0800\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/compress.go",
+        "symbol": "CompressMiddleware",
+        "input": "An HTTP response with status 206 Partial Content and a compressible Content-Type",
+        "expected": "uncompressed response (empty Content-Encoding)",
+        "actual": "compressed response (Content-Encoding: \"gzip\")"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\thandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tw.Header().Set(\"Content-Type\", \"text/plain\")\n\t\tw.WriteHeader(http.StatusPartialContent)\n\t\tw.Write([]byte(\"partial content body\"))\n\t})\n\n\treq := httptest.NewRequest(http.MethodGet, \"/\", nil)\n\treq.Header.Set(\"Accept-Encoding\", \"gzip\")\n\tw := httptest.NewRecorder()\n\n\tCompressMiddleware(handler).ServeHTTP(w, req)\n\n\tif got := w.Header().Get(\"Content-Encoding\"); got != \"\" {\n\t\tt.Fatalf(\"CompressMiddleware(206 Partial Content) Content-Encoding = %q, want %q\", got, \"\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:23: CompressMiddleware(206 Partial Content) Content-Encoding = \"gzip\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/api\t0.011s\n",
+      "usage": {
+        "inputTokens": 43769,
+        "outputTokens": 430,
+        "thinkingTokens": 2710,
+        "cachedTokens": 0,
+        "costUsd": 0.092698,
+        "costUsdWithThinking": 0.125218,
+        "latencyMs": 26022
+      },
+      "costUsd": 0.092698,
+      "costUsdWithThinking": 0.125218
+    },
+    {
+      "id": "rp-38-pr65",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at 3ca23ae: CompressMiddleware(http.FileServerFS(MapFS app.css 1600B)), Range: bytes=0-15, Accept-Encoding: gzip -> \"status=206 Content-Encoding=\\\"gzip\\\" Content-Range=\\\"bytes 0-15/1600\\\" bodyLen=40 bodyPrefix=1f8b0800\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/compress.go",
+        "symbol": "CompressMiddleware",
+        "input": "CompressMiddleware wrapping a handler that returns HTTP 206 Partial Content",
+        "expected": "\"\"",
+        "actual": "\"gzip\""
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\thandler := CompressMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tw.Header().Set(\"Content-Type\", \"text/plain\")\n\t\tw.WriteHeader(http.StatusPartialContent)\n\t\tw.Write([]byte(\"partial body content\"))\n\t}))\n\n\treq := httptest.NewRequest(\"GET\", \"/\", nil)\n\treq.Header.Set(\"Accept-Encoding\", \"gzip\")\n\tw := httptest.NewRecorder()\n\n\thandler.ServeHTTP(w, req)\n\n\tgot := w.Header().Get(\"Content-Encoding\")\n\tif got != \"\" {\n\t\tt.Fatalf(\"w.Header().Get(\\\"Content-Encoding\\\") = %q, want %q\", got, \"\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:24: w.Header().Get(\"Content-Encoding\") = \"gzip\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/api\t0.012s\n",
+      "usage": {
+        "inputTokens": 43769,
+        "outputTokens": 412,
+        "thinkingTokens": 2405,
+        "cachedTokens": 40874,
+        "costUsd": 0.010734,
+        "costUsdWithThinking": 0.039594000000000004,
+        "latencyMs": 21008
+      },
+      "costUsd": 0.010734,
+      "costUsdWithThinking": 0.039594000000000004
+    },
+    {
+      "id": "rp-38-pr65",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "Throwaway test at 3ca23ae: CompressMiddleware(http.FileServerFS(MapFS app.css 1600B)), Range: bytes=0-15, Accept-Encoding: gzip -> \"status=206 Content-Encoding=\\\"gzip\\\" Content-Range=\\\"bytes 0-15/1600\\\" bodyLen=40 bodyPrefix=1f8b0800\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/compress.go",
+        "symbol": "CompressMiddleware",
+        "input": "HTTP 206 response with text/plain and Accept-Encoding: gzip",
+        "expected": "uncompressed response (no Content-Encoding: gzip)",
+        "actual": "compressed response (Content-Encoding: gzip)"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\thandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tw.Header().Set(\"Content-Type\", \"text/plain\")\n\t\tw.WriteHeader(http.StatusPartialContent)\n\t\tw.Write([]byte(\"partial data\"))\n\t})\n\n\treq := httptest.NewRequest(http.MethodGet, \"/\", nil)\n\treq.Header.Set(\"Accept-Encoding\", \"gzip\")\n\trec := httptest.NewRecorder()\n\n\tCompressMiddleware(handler).ServeHTTP(rec, req)\n\n\tif got := rec.Header().Get(\"Content-Encoding\"); got == \"gzip\" {\n\t\tt.Fatalf(\"CompressMiddleware() set Content-Encoding = %q for 206 Partial Content, want \\\"\\\"\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:23: CompressMiddleware() set Content-Encoding = \"gzip\" for 206 Partial Content, want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/api\t0.014s\n",
+      "usage": {
+        "inputTokens": 43769,
+        "outputTokens": 430,
+        "thinkingTokens": 2004,
+        "cachedTokens": 0,
+        "costUsd": 0.092698,
+        "costUsdWithThinking": 0.116746,
+        "latencyMs": 22143
+      },
+      "costUsd": 0.092698,
+      "costUsdWithThinking": 0.116746
+    },
+    {
+      "id": "rp-39-pr65",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/api -run TestLabel39 -v (throwaway test calling parseFilters(url.Values{offset:...}) then rowsData): `offset=-5 -> f.Offset=0 jobs=3`; `offset=-9223372036854775808 -> f.Offset=0 jobs=3`; direct rowsData(filters{Offset:-1}) -> `recovered=runtime error: slice bounds out of range [-1",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "wrong_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/server.go",
+        "symbol": "(*Server).rowsData",
+        "input": "s.rowsData(rows, filters{Offset: -1}, nil)",
+        "expected": "valid rowsData without panic",
+        "actual": "panic: runtime error: slice bounds out of range"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\tt.Fatalf(\"s.rowsData(rows, filters{Offset: -1}, nil) = panic %v, want valid rowsData\", r)\n\t\t}\n\t}()\n\n\ts := &Server{}\n\trows := []jobRow{{}}\n\tf := filters{Offset: -1}\n\n\tgot := s.rowsData(rows, f, nil)\n\tif len(got.Jobs) != 1 {\n\t\tt.Fatalf(\"len(s.rowsData(...).Jobs) = %v, want 1\", len(got.Jobs))\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:10: s.rowsData(rows, filters{Offset: -1}, nil) = panic runtime error: slice bounds out of range [-1:], want valid rowsData\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/api\t0.011s\n",
+      "usage": {
+        "inputTokens": 61397,
+        "outputTokens": 363,
+        "thinkingTokens": 4091,
+        "cachedTokens": 0,
+        "costUsd": 0.12715,
+        "costUsdWithThinking": 0.176242,
+        "latencyMs": 34778
+      },
+      "costUsd": 0.12715,
+      "costUsdWithThinking": 0.176242
+    },
+    {
+      "id": "rp-39-pr65",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/api -run TestLabel39 -v (throwaway test calling parseFilters(url.Values{offset:...}) then rowsData): `offset=-5 -> f.Offset=0 jobs=3`; `offset=-9223372036854775808 -> f.Offset=0 jobs=3`; direct rowsData(filters{Offset:-1}) -> `recovered=runtime error: slice bounds out of range [-1",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "wrong_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/server.go",
+        "symbol": "(*Server).rowsData",
+        "input": "s.rowsData(make([]jobRow, 5), filters{Offset: -1}, url.Values{})",
+        "expected": "returns valid rowsData (clamped to start at 0)",
+        "actual": "panics with slice bounds out of range"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"net/url\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\tt.Fatalf(\"s.rowsData(make([]jobRow, 5), filters{Offset: -1}, url.Values{}) panicked: %v, want valid rowsData\", r)\n\t\t}\n\t}()\n\n\ts := &Server{}\n\trows := make([]jobRow, 5)\n\tf := filters{Offset: -1}\n\tq := url.Values{}\n\n\tgot := s.rowsData(rows, f, q)\n\n\t// If correctly clamped to 0, it should return all 5 rows (since pageSize is 200).\n\tif len(got.Jobs) != 5 {\n\t\tt.Fatalf(\"len(got.Jobs) = %v, want %v\", len(got.Jobs), 5)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:11: s.rowsData(make([]jobRow, 5), filters{Offset: -1}, url.Values{}) panicked: runtime error: slice bounds out of range [-1:], want valid rowsData\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/api\t0.011s\n",
+      "usage": {
+        "inputTokens": 61397,
+        "outputTokens": 433,
+        "thinkingTokens": 3325,
+        "cachedTokens": 0,
+        "costUsd": 0.12799,
+        "costUsdWithThinking": 0.16788999999999998,
+        "latencyMs": 28141
+      },
+      "costUsd": 0.12799,
+      "costUsdWithThinking": 0.16788999999999998
+    },
+    {
+      "id": "rp-39-pr65",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/api -run TestLabel39 -v (throwaway test calling parseFilters(url.Values{offset:...}) then rowsData): `offset=-5 -> f.Offset=0 jobs=3`; `offset=-9223372036854775808 -> f.Offset=0 jobs=3`; direct rowsData(filters{Offset:-1}) -> `recovered=runtime error: slice bounds out of range [-1",
+        "weak": true
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/server.go",
+        "symbol": "(*Server).rowsData",
+        "input": "s.rowsData(rows, parseFilters(url.Values{\"offset\": {\"-5\"}}), q)",
+        "expected": "safely bounds the offset at 0 and returns the first page of rows without panicking",
+        "actual": "bypasses the min check and triggers a slice bounds out of range runtime panic"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"net/url\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tq := url.Values{\"offset\": {\"-5\"}}\n\tf := parseFilters(q)\n\n\ts := &Server{}\n\trows := make([]jobRow, 5)\n\n\t// The claim asserts that an untrusted negative offset query parameter\n\t// bypasses protections and causes a slice bounds out of range panic in rowsData.\n\t// If true, this call will panic and the test will fail.\n\tdata := s.rowsData(rows, f, q)\n\n\tif len(data.Jobs) != 5 {\n\t\tt.Fatalf(\"rowsData(..., parseFilters({offset: -5})) = %d jobs, want 5\", len(data.Jobs))\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/api\t0.011s\n",
+      "usage": {
+        "inputTokens": 61397,
+        "outputTokens": 403,
+        "thinkingTokens": 8636,
+        "cachedTokens": 0,
+        "costUsd": 0.12763,
+        "costUsdWithThinking": 0.231262,
+        "latencyMs": 75579
+      },
+      "costUsd": 0.12763,
+      "costUsdWithThinking": 0.231262
+    },
+    {
+      "id": "rp-41-pr69",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/ingest -run TestL41 -v: `\"you can work from anywhere in the us\" all=true`; `\"we are a distributed team\" all=true`; `\"we are remote-first\" all=true withoutRemoteFirst=true onlyRemoteFirst=true`",
+        "weak": true
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "TagLocationFit",
+        "input": "TagLocationFit(\"\", \"work from anywhere\")",
+        "expected": "slice containing \"Remote-flagged\"",
+        "actual": "slice omitting \"Remote-flagged\" (e.g. [\"Other\"])"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"slices\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := TagLocationFit(\"\", \"work from anywhere\")\n\tif !slices.Contains(got, \"Remote-flagged\") {\n\t\tt.Fatalf(\"TagLocationFit(\\\"\\\", \\\"work from anywhere\\\") = %q, want containing \\\"Remote-flagged\\\"\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.009s\n",
+      "usage": {
+        "inputTokens": 43287,
+        "outputTokens": 285,
+        "thinkingTokens": 2177,
+        "cachedTokens": 0,
+        "costUsd": 0.089994,
+        "costUsdWithThinking": 0.116118,
+        "latencyMs": 21189
+      },
+      "costUsd": 0.089994,
+      "costUsdWithThinking": 0.116118
+    },
+    {
+      "id": "rp-41-pr69",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/ingest -run TestL41 -v: `\"you can work from anywhere in the us\" all=true`; `\"we are a distributed team\" all=true`; `\"we are remote-first\" all=true withoutRemoteFirst=true onlyRemoteFirst=true`",
+        "weak": true
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "TagLocationFit",
+        "input": "TagLocationFit(\"\", \"work from anywhere\")",
+        "expected": "[]string{\"Remote-flagged\"}",
+        "actual": "[]string{\"Other\"}"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"slices\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := TagLocationFit(\"\", \"work from anywhere\")\n\twant := []string{\"Remote-flagged\"}\n\tif !slices.Equal(got, want) {\n\t\tt.Fatalf(\"TagLocationFit(\\\"\\\", \\\"work from anywhere\\\") = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.009s\n",
+      "usage": {
+        "inputTokens": 43287,
+        "outputTokens": 279,
+        "thinkingTokens": 3523,
+        "cachedTokens": 0,
+        "costUsd": 0.089922,
+        "costUsdWithThinking": 0.13219799999999998,
+        "latencyMs": 36104
+      },
+      "costUsd": 0.089922,
+      "costUsdWithThinking": 0.13219799999999998
+    },
+    {
+      "id": "rp-41-pr69",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/ingest -run TestL41 -v: `\"you can work from anywhere in the us\" all=true`; `\"we are a distributed team\" all=true`; `\"we are remote-first\" all=true withoutRemoteFirst=true onlyRemoteFirst=true`",
+        "weak": true
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "TagLocationFit",
+        "input": "TagLocationFit(\"\", \"work from anywhere\")",
+        "expected": "[]string{\"Remote-flagged\"}",
+        "actual": "[]string{\"Other\"}"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := TagLocationFit(\"\", \"work from anywhere\")\n\twant := []string{\"Remote-flagged\"}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"TagLocationFit(\\\"\\\", \\\"work from anywhere\\\") = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.010s\n",
+      "usage": {
+        "inputTokens": 43287,
+        "outputTokens": 280,
+        "thinkingTokens": 2829,
+        "cachedTokens": 40873,
+        "costUsd": 0.008188,
+        "costUsdWithThinking": 0.042136,
+        "latencyMs": 23811
+      },
+      "costUsd": 0.008188,
+      "costUsdWithThinking": 0.042136
+    },
+    {
+      "id": "rp-42-pr69",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL42 -v: `stripped=\"our s collaborate\" signal=false`; `after 'hybrid team' only: \"our s collaborate\"; 'hybrid teams' still present=false`",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "hasHybridWorkArrangementSignal",
+        "input": "hasHybridWorkArrangementSignal(\"hybhybrid teamsrid\")",
+        "expected": "true",
+        "actual": "false"
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tinput := \"hybhybrid teamsrid\"\n\tgot := hasHybridWorkArrangementSignal(input)\n\tif !got {\n\t\tt.Fatalf(\"hasHybridWorkArrangementSignal(%q) = %v, want true\", input, got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: hasHybridWorkArrangementSignal(\"hybhybrid teamsrid\") = false, want true\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.011s\n",
+      "usage": {
+        "inputTokens": 45967,
+        "outputTokens": 244,
+        "thinkingTokens": 10452,
+        "cachedTokens": 0,
+        "costUsd": 0.094862,
+        "costUsdWithThinking": 0.22028599999999998,
+        "latencyMs": 85977
+      },
+      "costUsd": 0.094862,
+      "costUsdWithThinking": 0.22028599999999998
+    },
+    {
+      "id": "rp-42-pr69",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL42 -v: `stripped=\"our s collaborate\" signal=false`; `after 'hybrid team' only: \"our s collaborate\"; 'hybrid teams' still present=false`",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "opinion",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding identifies an unreachable array element and an intermediate orphaned character, but this internal state does not change the observable boolean output of hasHybridWorkArrangementSignal for any natural input, making it an unobservable implementation detail rather than a testable behavioral bug.",
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 45967,
+        "outputTokens": 145,
+        "thinkingTokens": 6345,
+        "cachedTokens": 40878,
+        "costUsd": 0.011918,
+        "costUsdWithThinking": 0.088058,
+        "latencyMs": 53834
+      },
+      "costUsd": 0.011918,
+      "costUsdWithThinking": 0.088058
+    },
+    {
+      "id": "rp-42-pr69",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL42 -v: `stripped=\"our s collaborate\" signal=false`; `after 'hybrid team' only: \"our s collaborate\"; 'hybrid teams' still present=false`",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "opinion",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding describes an internal string replacement artifact (an orphaned 's' in a local variable and an unreachable array entry) that never alters the function's observable boolean return value, making it an implementation detail rather than a testable behavioral bug.",
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 45967,
+        "outputTokens": 143,
+        "thinkingTokens": 3881,
+        "cachedTokens": 0,
+        "costUsd": 0.09365,
+        "costUsdWithThinking": 0.140222,
+        "latencyMs": 36010
+      },
+      "costUsd": 0.09365,
+      "costUsdWithThinking": 0.140222
+    },
+    {
+      "id": "rp-43-pr72",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL43 -v on TagLocationFit(\"Austin, TX\",\"PM\",desc): single space -> `[Other]`; `work remotely\\nfor up to 4 weeks per year` -> `[Remote-flagged]`; double space -> `[Remote-flagged]`",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "stripRemoteExclusions",
+        "input": "stripRemoteExclusions(\"work\\nfrom\\thome up to 4 weeks a year\")",
+        "expected": "\"\"",
+        "actual": "\"work\\nfrom\\thome up to 4 weeks a year\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tinput := \"work\\nfrom\\thome up to 4 weeks a year\"\n\tgot := stripRemoteExclusions(input)\n\twant := \"\"\n\tif got != want {\n\t\tt.Fatalf(\"stripRemoteExclusions(%q) = %q, want %q\", input, got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:10: stripRemoteExclusions(\"work\\nfrom\\thome up to 4 weeks a year\") = \"work\\nfrom\\thome up to 4 weeks a year\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.011s\n",
+      "usage": {
+        "inputTokens": 49855,
+        "outputTokens": 278,
+        "thinkingTokens": 5120,
+        "cachedTokens": 0,
+        "costUsd": 0.103046,
+        "costUsdWithThinking": 0.164486,
+        "latencyMs": 40620
+      },
+      "costUsd": 0.103046,
+      "costUsdWithThinking": 0.164486
+    },
+    {
+      "id": "rp-43-pr72",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL43 -v on TagLocationFit(\"Austin, TX\",\"PM\",desc): single space -> `[Other]`; `work remotely\\nfor up to 4 weeks per year` -> `[Remote-flagged]`; double space -> `[Remote-flagged]`",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "stripRemoteExclusions",
+        "input": "stripRemoteExclusions(\"work\\nfrom\\thome up to 4 weeks a year\")",
+        "expected": "\"\"",
+        "actual": "\"work\\nfrom\\thome up to 4 weeks a year\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tinput := \"work\\nfrom\\thome up to 4 weeks a year\"\n\tgot := stripRemoteExclusions(input)\n\tif got != \"\" {\n\t\tt.Fatalf(\"stripRemoteExclusions(%q) = %q, want %q\", input, got, \"\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: stripRemoteExclusions(\"work\\nfrom\\thome up to 4 weeks a year\") = \"work\\nfrom\\thome up to 4 weeks a year\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.010s\n",
+      "usage": {
+        "inputTokens": 49855,
+        "outputTokens": 273,
+        "thinkingTokens": 5149,
+        "cachedTokens": 0,
+        "costUsd": 0.102986,
+        "costUsdWithThinking": 0.16477399999999998,
+        "latencyMs": 41598
+      },
+      "costUsd": 0.102986,
+      "costUsdWithThinking": 0.16477399999999998
+    },
+    {
+      "id": "rp-43-pr72",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL43 -v on TagLocationFit(\"Austin, TX\",\"PM\",desc): single space -> `[Other]`; `work remotely\\nfor up to 4 weeks per year` -> `[Remote-flagged]`; double space -> `[Remote-flagged]`",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "stripRemoteExclusions",
+        "input": "stripRemoteExclusions(\"work\\nfrom\\thome up to 4 weeks a year\")",
+        "expected": "\"\"",
+        "actual": "\"work\\nfrom\\thome up to 4 weeks a year\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tinput := \"work\\nfrom\\thome up to 4 weeks a year\"\n\tgot := stripRemoteExclusions(input)\n\twant := \"\"\n\tif got != want {\n\t\tt.Fatalf(\"stripRemoteExclusions(%q) = %q, want %q\", input, got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:10: stripRemoteExclusions(\"work\\nfrom\\thome up to 4 weeks a year\") = \"work\\nfrom\\thome up to 4 weeks a year\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.012s\n",
+      "usage": {
+        "inputTokens": 49855,
+        "outputTokens": 278,
+        "thinkingTokens": 4379,
+        "cachedTokens": 44973,
+        "costUsd": 0.0131,
+        "costUsdWithThinking": 0.065648,
+        "latencyMs": 35873
+      },
+      "costUsd": 0.0131,
+      "costUsdWithThinking": 0.065648
+    },
+    {
+      "id": "rp-44-pr72",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL44 -v: `\"beforefor remote roles:after\" -> \"beforeafter\"`; TagLocationFit(...,\"telefor remote roles:commute\") -> `[Remote-flagged]`; but the claim's own example `\"work from anywhere for up to 20 days per year today\" -> \" today\"` (no merge)",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "refuted",
+      "outcome": "false_refutation",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "stripRemoteExclusions",
+        "input": "stripRemoteExclusions(\"is not fully remote today\")",
+        "expected": "\"is  today\"",
+        "actual": "\"istoday\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tinput := \"is not fully remote today\"\n\tgot := stripRemoteExclusions(input)\n\twant := \"is  today\"\n\tif got != want {\n\t\tt.Fatalf(\"stripRemoteExclusions(%q) = %q, want %q\", input, got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.010s\n",
+      "usage": {
+        "inputTokens": 49848,
+        "outputTokens": 236,
+        "thinkingTokens": 6409,
+        "cachedTokens": 0,
+        "costUsd": 0.10252800000000001,
+        "costUsdWithThinking": 0.179436,
+        "latencyMs": 52771
+      },
+      "costUsd": 0.10252800000000001,
+      "costUsdWithThinking": 0.179436
+    },
+    {
+      "id": "rp-44-pr72",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL44 -v: `\"beforefor remote roles:after\" -> \"beforeafter\"`; TagLocationFit(...,\"telefor remote roles:commute\") -> `[Remote-flagged]`; but the claim's own example `\"work from anywhere for up to 20 days per year today\" -> \" today\"` (no merge)",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "TagLocationFit",
+        "input": "TagLocationFit(\"Austin, TX\", \"\", \"telework from anywhere up to 1 days a yearcommute\")",
+        "expected": "[]string{\"Other\"}",
+        "actual": "[]string{\"Remote-flagged\"}"
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := TagLocationFit(\"Austin, TX\", \"\", \"telework from anywhere up to 1 days a yearcommute\")\n\tif len(got) != 1 || got[0] != \"Other\" {\n\t\tt.Fatalf(`TagLocationFit(...) = %v, want [\"Other\"]`, got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: TagLocationFit(...) = [Remote-flagged], want [\"Other\"]\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.011s\n",
+      "usage": {
+        "inputTokens": 49848,
+        "outputTokens": 262,
+        "thinkingTokens": 20509,
+        "cachedTokens": 0,
+        "costUsd": 0.10284,
+        "costUsdWithThinking": 0.34894800000000004,
+        "latencyMs": 156990
+      },
+      "costUsd": 0.10284,
+      "costUsdWithThinking": 0.34894800000000004
+    },
+    {
+      "id": "rp-44-pr72",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL44 -v: `\"beforefor remote roles:after\" -> \"beforeafter\"`; TagLocationFit(...,\"telefor remote roles:commute\") -> `[Remote-flagged]`; but the claim's own example `\"work from anywhere for up to 20 days per year today\" -> \" today\"` (no merge)",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "refuted",
+      "outcome": "false_refutation",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/locationfit.go",
+        "symbol": "stripRemoteExclusions",
+        "input": "stripRemoteExclusions(\"hybrid work from anywhere up to 4 weeks a year policy\")",
+        "expected": "\"hybrid  policy\"",
+        "actual": "\"hybridpolicy\""
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tinput := \"hybrid work from anywhere up to 4 weeks a year policy\"\n\tgot := stripRemoteExclusions(input)\n\twant := \"hybrid  policy\"\n\tif got != want {\n\t\tt.Fatalf(\"stripRemoteExclusions(%q) = %q, want %q\", input, got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.008s\n",
+      "usage": {
+        "inputTokens": 49848,
+        "outputTokens": 268,
+        "thinkingTokens": 18873,
+        "cachedTokens": 44973,
+        "costUsd": 0.012966,
+        "costUsdWithThinking": 0.23944200000000002,
+        "latencyMs": 153217
+      },
+      "costUsd": 0.012966,
+      "costUsdWithThinking": 0.23944200000000002
+    },
+    {
+      "id": "rp-45-pr76",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL45 -v (existing job with no FirstSeenAt, IngestedAt = 24h ago, re-seen now): `FirstSeenAt=2026-08-24T12:00:00Z age=24h0m0s within48h=true`",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/reconcile.go",
+        "symbol": "Reconcile",
+        "input": "Reconcile([]Job{{JobID: \"123\", IngestedAt: \"2023-10-01T12:00:00Z\", FirstSeenAt: \"\"}}, []Job{{JobID: \"123\", IngestedAt: \"2023-10-02T12:00:00Z\"}}, time.Now(), StalePolicy{})",
+        "expected": "\"\"",
+        "actual": "\"2023-10-01T12:00:00Z\""
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tnow := time.Now()\n\texisting := []Job{\n\t\t{\n\t\t\tJobID:       \"123\",\n\t\t\tIngestedAt:  \"2023-10-01T12:00:00Z\",\n\t\t\tFirstSeenAt: \"\",\n\t\t},\n\t}\n\tincoming := []Job{\n\t\t{\n\t\t\tJobID:      \"123\",\n\t\t\tIngestedAt: \"2023-10-02T12:00:00Z\",\n\t\t},\n\t}\n\n\tmerged, _, _ := Reconcile(existing, incoming, now, StalePolicy{})\n\tif len(merged) != 1 {\n\t\tt.Skip(\"gsr-setup: expected 1 merged job\")\n\t}\n\n\tgot := merged[0].FirstSeenAt\n\tif got != \"\" {\n\t\tt.Fatalf(\"Reconcile() FirstSeenAt = %q, want %q\", got, \"\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:31: Reconcile() FirstSeenAt = \"2023-10-01T12:00:00Z\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.009s\n",
+      "usage": {
+        "inputTokens": 41792,
+        "outputTokens": 576,
+        "thinkingTokens": 7984,
+        "cachedTokens": 0,
+        "costUsd": 0.09049600000000001,
+        "costUsdWithThinking": 0.18630400000000003,
+        "latencyMs": 66436
+      },
+      "costUsd": 0.09049600000000001,
+      "costUsdWithThinking": 0.18630400000000003
+    },
+    {
+      "id": "rp-45-pr76",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL45 -v (existing job with no FirstSeenAt, IngestedAt = 24h ago, re-seen now): `FirstSeenAt=2026-08-24T12:00:00Z age=24h0m0s within48h=true`",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/reconcile.go",
+        "symbol": "Reconcile",
+        "input": "existing job with FirstSeenAt empty and IngestedAt set, reconciled with an incoming job of the same JobID",
+        "expected": "\"\"",
+        "actual": "the existing job's IngestedAt string"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\texisting := []Job{{\n\t\tJobID:       \"test-job-1\",\n\t\tIngestedAt:  \"2023-10-10T10:00:00Z\",\n\t\tFirstSeenAt: \"\",\n\t}}\n\tincoming := []Job{{\n\t\tJobID: \"test-job-1\",\n\t}}\n\t\n\tmerged, _, _ := Reconcile(existing, incoming, time.Now(), StalePolicy{})\n\t\n\tif len(merged) != 1 {\n\t\tt.Skip(\"gsr-setup: expected exactly 1 merged job\")\n\t}\n\n\tgot := merged[0].FirstSeenAt\n\twant := \"\"\n\n\tif got != want {\n\t\tt.Fatalf(\"Reconcile() FirstSeenAt = %q, want %q\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:28: Reconcile() FirstSeenAt = \"2023-10-10T10:00:00Z\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.009s\n",
+      "usage": {
+        "inputTokens": 41792,
+        "outputTokens": 440,
+        "thinkingTokens": 4187,
+        "cachedTokens": 36783,
+        "costUsd": 0.015298,
+        "costUsdWithThinking": 0.065542,
+        "latencyMs": 33472
+      },
+      "costUsd": 0.015298,
+      "costUsdWithThinking": 0.065542
+    },
+    {
+      "id": "rp-45-pr76",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL45 -v (existing job with no FirstSeenAt, IngestedAt = 24h ago, re-seen now): `FirstSeenAt=2026-08-24T12:00:00Z age=24h0m0s within48h=true`",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/reconcile.go",
+        "symbol": "Reconcile",
+        "input": "Reconcile([]Job{{JobID: \"1\", IngestedAt: \"2024-01-01T12:00:00Z\", FirstSeenAt: \"\"}}, []Job{{JobID: \"1\", IngestedAt: \"2024-01-02T12:00:00Z\"}}, time.Now(), StalePolicy{})",
+        "expected": "\"\"",
+        "actual": "\"2024-01-01T12:00:00Z\""
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tex := []Job{{\n\t\tJobID:       \"1\",\n\t\tIngestedAt:  \"2024-01-01T12:00:00Z\",\n\t\tFirstSeenAt: \"\",\n\t}}\n\tin := []Job{{\n\t\tJobID:      \"1\",\n\t\tIngestedAt: \"2024-01-02T12:00:00Z\",\n\t}}\n\n\tmerged, _, _ := Reconcile(ex, in, time.Now(), StalePolicy{})\n\tif len(merged) != 1 {\n\t\tt.Skip(\"gsr-setup: expected exactly 1 merged job\")\n\t}\n\n\tgot := merged[0].FirstSeenAt\n\tif got != \"\" {\n\t\tt.Fatalf(\"merged[0].FirstSeenAt = %q, want %q\", got, \"\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:26: merged[0].FirstSeenAt = \"2024-01-01T12:00:00Z\", want \"\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.010s\n",
+      "usage": {
+        "inputTokens": 41792,
+        "outputTokens": 522,
+        "thinkingTokens": 4217,
+        "cachedTokens": 36783,
+        "costUsd": 0.016282,
+        "costUsdWithThinking": 0.066886,
+        "latencyMs": 37900
+      },
+      "costUsd": 0.016282,
+      "costUsdWithThinking": 0.066886
+    },
+    {
+      "id": "rp-46-pr76",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/api -run TestL46 -v: postedAgeSeconds(now-3h in RFC3339, now) -> `age=10800`"
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/view.go",
+        "symbol": "postedAgeSeconds",
+        "input": "postedAgeSeconds(\"2024-01-01T12:00:00Z\", time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC))",
+        "expected": "86400",
+        "actual": "math.MaxInt64"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tnow := time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC)\n\tts := \"2024-01-01T12:00:00Z\"\n\tgot := postedAgeSeconds(ts, now)\n\twant := int64(86400)\n\tif got != want {\n\t\tt.Fatalf(\"postedAgeSeconds(%q, now) = %v, want %v\", ts, got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/api\t0.010s\n",
+      "usage": {
+        "inputTokens": 49058,
+        "outputTokens": 371,
+        "thinkingTokens": 2646,
+        "cachedTokens": 0,
+        "costUsd": 0.10256799999999999,
+        "costUsdWithThinking": 0.13432,
+        "latencyMs": 24521
+      },
+      "costUsd": 0.10256799999999999,
+      "costUsdWithThinking": 0.13432
+    },
+    {
+      "id": "rp-46-pr76",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/api -run TestL46 -v: postedAgeSeconds(now-3h in RFC3339, now) -> `age=10800`"
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/view.go",
+        "symbol": "postedAgeSeconds",
+        "input": "postedAgeSeconds(\"2023-10-01T12:00:00Z\", time.Date(2023, 10, 2, 12, 0, 0, 0, time.UTC))",
+        "expected": "86400",
+        "actual": "math.MaxInt64"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tnow := time.Date(2023, 10, 2, 12, 0, 0, 0, time.UTC)\n\tgot := postedAgeSeconds(\"2023-10-01T12:00:00Z\", now)\n\twant := int64(86400)\n\tif got != want {\n\t\tt.Fatalf(\"postedAgeSeconds(\\\"2023-10-01T12:00:00Z\\\", now) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/api\t0.011s\n",
+      "usage": {
+        "inputTokens": 49058,
+        "outputTokens": 386,
+        "thinkingTokens": 3670,
+        "cachedTokens": 0,
+        "costUsd": 0.10274799999999999,
+        "costUsdWithThinking": 0.146788,
+        "latencyMs": 30968
+      },
+      "costUsd": 0.10274799999999999,
+      "costUsdWithThinking": 0.146788
+    },
+    {
+      "id": "rp-46-pr76",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "false",
+        "why": "go test ./internal/api -run TestL46 -v: postedAgeSeconds(now-3h in RFC3339, now) -> `age=10800`"
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/api/view.go",
+        "symbol": "postedAgeSeconds",
+        "input": "postedAgeSeconds(\"2023-01-01T10:00:00Z\", time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC))",
+        "expected": "7200",
+        "actual": "math.MaxInt64"
+      },
+      "witnessSource": "package api\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tnow := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)\n\tinput := \"2023-01-01T10:00:00Z\"\n\t\n\tgot := postedAgeSeconds(input, now)\n\twant := int64(7200)\n\t\n\tif got != want {\n\t\tt.Fatalf(\"postedAgeSeconds(%q, now) = %v, want %v\", input, got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/api\t0.010s\n",
+      "usage": {
+        "inputTokens": 49058,
+        "outputTokens": 378,
+        "thinkingTokens": 1939,
+        "cachedTokens": 44971,
+        "costUsd": 0.01271,
+        "costUsdWithThinking": 0.035977999999999996,
+        "latencyMs": 22548
+      },
+      "costUsd": 0.01271,
+      "costUsdWithThinking": 0.035977999999999996
+    },
+    {
+      "id": "rp-47-pr81",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL47 -v: parseKeywordGroups(`\"product manager\" NOT \"intern\"`) -> `groups=[{All:[product manager intern]}]`; `no-intern job passes=false; intern job passes=true`",
+        "attribution": "regression"
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "insufficient_context",
+        "notTestableReason": "Proving the correct parsing of the NOT operator requires a field to represent exclusions, but the current phraseGroup struct only holds required phrases, making it impossible to assert the correct parsed state without guessing at unseen API changes.",
+        "language": "go",
+        "file": "internal/ingest/relevance.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 45696,
+        "outputTokens": 140,
+        "thinkingTokens": 3685,
+        "cachedTokens": 0,
+        "costUsd": 0.093072,
+        "costUsdWithThinking": 0.137292,
+        "latencyMs": 57695
+      },
+      "costUsd": 0.093072,
+      "costUsdWithThinking": 0.137292
+    },
+    {
+      "id": "rp-47-pr81",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL47 -v: parseKeywordGroups(`\"product manager\" NOT \"intern\"`) -> `groups=[{All:[product manager intern]}]`; `no-intern job passes=false; intern job passes=true`",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/relevance.go",
+        "symbol": "parseKeywordGroups",
+        "input": "`NOT \"manager\"`",
+        "expected": "job complying with the exclusion passes CheckRelevance",
+        "actual": "job complying with the exclusion fails CheckRelevance"
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgroups := parseKeywordGroups(`NOT \"manager\"`)\n\trel := BucketRelevance{Groups: groups}\n\tjob := Job{Title: \"Software Engineer\", Description: \"Writing code.\"}\n\tverdict := CheckRelevance(rel, job)\n\tif !verdict.Passes() {\n\t\tt.Fatalf(\"CheckRelevance with NOT \\\"manager\\\" = %v, want job complying with exclusion to pass\", verdict.Misses)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:11: CheckRelevance with NOT \"manager\" = [missing \"manager\"], want job complying with exclusion to pass\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.010s\n",
+      "usage": {
+        "inputTokens": 45696,
+        "outputTokens": 296,
+        "thinkingTokens": 7202,
+        "cachedTokens": 0,
+        "costUsd": 0.094944,
+        "costUsdWithThinking": 0.181368,
+        "latencyMs": 59553
+      },
+      "costUsd": 0.094944,
+      "costUsdWithThinking": 0.181368
+    },
+    {
+      "id": "rp-47-pr81",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run TestL47 -v: parseKeywordGroups(`\"product manager\" NOT \"intern\"`) -> `groups=[{All:[product manager intern]}]`; `no-intern job passes=false; intern job passes=true`",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/relevance.go",
+        "symbol": "CheckRelevance",
+        "input": "CheckRelevance(parseBucketRelevance(Bucket with query `NOT \"manager\"`), Job without \"manager\")",
+        "expected": "passes = true (search intent is respected, so job complying with exclusion passes)",
+        "actual": "passes = false (NOT is dropped, transforming the exclusion into a required phrase)"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\trel := parseBucketRelevance(Bucket{\n\t\tName: \"TestBucket\",\n\t\tSearches: []Search{\n\t\t\t{URL: \"https://linkedin.com/jobs/search?keywords=NOT+%22manager%22\"},\n\t\t},\n\t})\n\n\tjob := Job{\n\t\tTitle:       \"developer\",\n\t\tDescription: \"writes code\",\n\t}\n\n\tverdict := CheckRelevance(rel, job)\n\tif !verdict.Passes() {\n\t\tt.Fatalf(\"CheckRelevance() misses = %v, want passes = true for job complying with NOT \\\"manager\\\" exclusion\", verdict.Misses)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:22: CheckRelevance() misses = [missing \"manager\"], want passes = true for job complying with NOT \"manager\" exclusion\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.009s\n",
+      "usage": {
+        "inputTokens": 45696,
+        "outputTokens": 405,
+        "thinkingTokens": 11597,
+        "cachedTokens": 0,
+        "costUsd": 0.096252,
+        "costUsdWithThinking": 0.23541600000000001,
+        "latencyMs": 82821
+      },
+      "costUsd": 0.096252,
+      "costUsdWithThinking": 0.23541600000000001
+    },
+    {
+      "id": "rp-48-pr81",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "At 3c18cb7, go test ./internal/ingest -run 'TestPipeline_FlushUpgrades_KeepsScoreWhenFilteredMidFlight|TestL48' -v: Reconcile(pending, in.LowRelevance) -> `ScoredByProvider=\"filtered\"`; flushUpgrades -> `ScoredByProvider = \"filtered\", want the real provider` (FAIL)",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/pipeline.go",
+        "symbol": "(*Pipeline).flushUpgrades",
+        "input": "flushUpgrades for a job whose ScoredByProvider is ScoreStatusFiltered",
+        "expected": "update is applied (MatchScore modified)",
+        "actual": "update is discarded via concurrency check (MatchScore unmodified)"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n)\n\ntype gsrWitnessJobsStore struct {\n\tjobs []Job\n}\n\nfunc (f *gsrWitnessJobsStore) ReadForUpdate(ctx context.Context) ([]Job, string, bool, error) {\n\treturn f.jobs, \"etag\", true, nil\n}\n\nfunc (f *gsrWitnessJobsStore) Write(ctx context.Context, jobs []Job, ifMatch string) error {\n\tf.jobs = jobs\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tstore := &gsrWitnessJobsStore{\n\t\tjobs: []Job{\n\t\t\t{\n\t\t\t\tJobID:            \"job1\",\n\t\t\t\tScoredByProvider: ScoreStatusFiltered,\n\t\t\t\tMatchScore:       10, // baseline unmodified score\n\t\t\t},\n\t\t},\n\t}\n\n\tp := &Pipeline{\n\t\tJobs: store,\n\t}\n\n\tupdates := []upgradeResult{\n\t\t{\n\t\t\tjobID: \"job1\",\n\t\t\tscore: scoring.Score{MatchScore: 50},\n\t\t},\n\t}\n\n\tp.flushUpgrades(context.Background(), updates, nil)\n\n\tif store.jobs[0].MatchScore == 10 {\n\t\tt.Fatalf(\"flushUpgrades() discarded the LLM score for a job with ScoredByProvider == %q, want it to be applied\", ScoreStatusFiltered)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n2026/10/07 21:23:53 ingest: flushUpgrades: applying 0/1 scores (0 missing, 1 already re-scored)\n    zz_gsr_witness_test.go:48: flushUpgrades() discarded the LLM score for a job with ScoredByProvider == \"filtered\", want it to be applied\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.009s\n",
+      "usage": {
+        "inputTokens": 51152,
+        "outputTokens": 612,
+        "thinkingTokens": 8459,
+        "cachedTokens": 0,
+        "costUsd": 0.10964800000000001,
+        "costUsdWithThinking": 0.211156,
+        "latencyMs": 60475
+      },
+      "costUsd": 0.10964800000000001,
+      "costUsdWithThinking": 0.211156
+    },
+    {
+      "id": "rp-48-pr81",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "At 3c18cb7, go test ./internal/ingest -run 'TestPipeline_FlushUpgrades_KeepsScoreWhenFilteredMidFlight|TestL48' -v: Reconcile(pending, in.LowRelevance) -> `ScoredByProvider=\"filtered\"`; flushUpgrades -> `ScoredByProvider = \"filtered\", want the real provider` (FAIL)",
+        "attribution": "regression"
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/pipeline.go",
+        "symbol": "(*Pipeline).flushUpgrades",
+        "input": "an upgradeResult for a job that is currently marked ScoreStatusFiltered in the store",
+        "expected": "updates the job's score and ScoredByProvider with the new LLM score",
+        "actual": "discards the score and leaves ScoredByProvider as ScoreStatusFiltered"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n)\n\ntype gsrWitnessStore struct {\n\tjobs []Job\n}\n\nfunc (s *gsrWitnessStore) ReadForUpdate(ctx context.Context) ([]Job, string, bool, error) {\n\t// Return a copy so in-place mutations don't leak unless Write is called.\n\tjobsCopy := append([]Job(nil), s.jobs...)\n\treturn jobsCopy, \"etag\", true, nil\n}\n\nfunc (s *gsrWitnessStore) Write(ctx context.Context, jobs []Job, ifMatch string) error {\n\ts.jobs = jobs\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tflushRetryBackoff = func(attempt int) {}\n\n\tstore := &gsrWitnessStore{\n\t\tjobs: []Job{\n\t\t\t{\n\t\t\t\tJobID:            \"job-1\",\n\t\t\t\tScoredByProvider: ScoreStatusFiltered,\n\t\t\t},\n\t\t},\n\t}\n\n\tp := &Pipeline{\n\t\tJobs: store,\n\t}\n\n\tupdates := []upgradeResult{\n\t\t{\n\t\t\tjobID: \"job-1\",\n\t\t\tscore: scoring.Score{\n\t\t\t\tMatchScore: 85,\n\t\t\t\tMeta: scoring.ScoreMeta{\n\t\t\t\t\tProvider: \"openai\",\n\t\t\t\t},\n\t\t\t},\n\t\t},\n\t}\n\n\tp.flushUpgrades(context.Background(), updates, nil)\n\n\tgot := store.jobs[0].ScoredByProvider\n\twant := \"openai\"\n\tif got != want {\n\t\tt.Fatalf(\"flushUpgrades(...) left ScoredByProvider = %q, want %q\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "# github.com/weitzer-org/job_tracker/internal/ingest [github.com/weitzer-org/job_tracker/internal/ingest.test]\ninternal/ingest/zz_gsr_witness_test.go:46:19: undefined: scoring.ScoreMeta\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest [build failed]\n",
+      "usage": {
+        "inputTokens": 51152,
+        "outputTokens": 722,
+        "thinkingTokens": 5870,
+        "cachedTokens": 0,
+        "costUsd": 0.11096800000000001,
+        "costUsdWithThinking": 0.181408,
+        "latencyMs": 72488
+      },
+      "costUsd": 0.11096800000000001,
+      "costUsdWithThinking": 0.181408
+    },
+    {
+      "id": "rp-48-pr81",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "At 3c18cb7, go test ./internal/ingest -run 'TestPipeline_FlushUpgrades_KeepsScoreWhenFilteredMidFlight|TestL48' -v: Reconcile(pending, in.LowRelevance) -> `ScoredByProvider=\"filtered\"`; flushUpgrades -> `ScoredByProvider = \"filtered\", want the real provider` (FAIL)",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/pipeline.go",
+        "symbol": "(*Pipeline).flushUpgrades",
+        "input": "p.flushUpgrades(ctx, []upgradeResult{{jobID: \"job-1\", score: scoring.Score{MatchScore: 50}}}, nil) for a job currently having ScoredByProvider = ScoreStatusFiltered and MatchScore = 10",
+        "expected": "updates the job, resulting in MatchScore = 62 (50 + 12 for NYC location)",
+        "actual": "rejects the update, leaving MatchScore = 10"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n)\n\ntype gsrWitnessFakeJobsStore struct {\n\tjobs []Job\n}\n\nfunc (s *gsrWitnessFakeJobsStore) ReadForUpdate(ctx context.Context) ([]Job, string, bool, error) {\n\tcopied := make([]Job, len(s.jobs))\n\tcopy(copied, s.jobs)\n\treturn copied, \"etag\", true, nil\n}\n\nfunc (s *gsrWitnessFakeJobsStore) Write(ctx context.Context, jobs []Job, ifMatch string) error {\n\ts.jobs = jobs\n\treturn nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tstore := &gsrWitnessFakeJobsStore{\n\t\tjobs: []Job{\n\t\t\t{\n\t\t\t\tJobID:            \"job-1\",\n\t\t\t\tScoredByProvider: ScoreStatusFiltered,\n\t\t\t\tMatchScore:       10,\n\t\t\t\tLocationFit:      []string{\"NYC\"}, // guarantees a +12 location adjustment\n\t\t\t},\n\t\t},\n\t}\n\tp := &Pipeline{\n\t\tJobs: store,\n\t\tNow:  func() time.Time { return time.Now() },\n\t}\n\n\tupdates := []upgradeResult{\n\t\t{\n\t\t\tjobID: \"job-1\",\n\t\t\tscore: scoring.Score{\n\t\t\t\tMatchScore: 50,\n\t\t\t},\n\t\t},\n\t}\n\n\tp.flushUpgrades(context.Background(), updates, nil)\n\n\tif len(store.jobs) != 1 {\n\t\tt.Fatalf(\"len(store.jobs) = %d, want 1\", len(store.jobs))\n\t}\n\n\t// If the correct behavior applies, MatchScore becomes 50 + 12 (NYC adjustment) = 62.\n\t// If the buggy behavior applies, it skips the update and MatchScore remains 10.\n\tif store.jobs[0].MatchScore != 62 {\n\t\tt.Fatalf(\"flushUpgrades() MatchScore = %v, want 62\", store.jobs[0].MatchScore)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n2026/10/07 21:25:24 ingest: flushUpgrades: applying 0/1 scores (0 missing, 1 already re-scored)\n    zz_gsr_witness_test.go:60: flushUpgrades() MatchScore = 10, want 62\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.010s\n",
+      "usage": {
+        "inputTokens": 51152,
+        "outputTokens": 856,
+        "thinkingTokens": 12465,
+        "cachedTokens": 0,
+        "costUsd": 0.11257600000000001,
+        "costUsdWithThinking": 0.262156,
+        "latencyMs": 94955
+      },
+      "costUsd": 0.11257600000000001,
+      "costUsdWithThinking": 0.262156
+    },
+    {
+      "id": "rp-8-pr12",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v (Run() then UpgradeScores() with a provider that records JobInput.Description; listing description \"AI agent platform work.\") -> \"needsScore=[1001] descsSeenByProvider=[\\\"\\\"]\"",
+        "attribution": "regression"
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/pipeline.go",
+        "symbol": "(*Pipeline).UpgradeScores",
+        "input": "UpgradeScores(context.Background(), []string{\"1001\"})",
+        "expected": "description passed to ScoreJob is \"Detailed description.\"",
+        "actual": "description passed to ScoreJob is \"\""
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrWitnessCaptureProvider struct {\n\tscoring.Provider\n\tgotDesc string\n}\n\nfunc (c *gsrWitnessCaptureProvider) ScoreJob(ctx context.Context, input scoring.JobInput, profile scoring.Profile) (scoring.Score, error) {\n\tc.gotDesc = input.Description\n\treturn scoring.Score{}, nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tmem := storage.NewMemoryClient()\n\tprov := &gsrWitnessCaptureProvider{}\n\n\tp := &Pipeline{\n\t\tStorage:       mem,\n\t\tStorageBucket: \"test-bucket\",\n\t\tProvider:      prov,\n\t\tNow:           func() time.Time { return time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC) },\n\t}\n\n\tjob := Job{\n\t\tJobID:       \"1001\",\n\t\tdescription: \"Detailed description.\",\n\t}\n\tdata, err := json.Marshal([]Job{job})\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: Marshal error: %v\", err)\n\t}\n\n\terr = p.Storage.WriteFile(context.Background(), p.StorageBucket, jobsObjectKey, data, storage.IfNotExists)\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: WriteFile error: %v\", err)\n\t}\n\n\t// Trigger UpgradeScores which reads from storage and invokes ScoreJob\n\tp.UpgradeScores(context.Background(), []string{\"1001\"})\n\n\tgot := prov.gotDesc\n\twant := \"Detailed description.\"\n\tif got != want {\n\t\tt.Fatalf(\"ScoreJob received description = %q, want %q\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:54: ScoreJob received description = \"\", want \"Detailed description.\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.006s\n",
+      "usage": {
+        "inputTokens": 36404,
+        "outputTokens": 729,
+        "thinkingTokens": 14694,
+        "cachedTokens": 0,
+        "costUsd": 0.081556,
+        "costUsdWithThinking": 0.257884,
+        "latencyMs": 108201
+      },
+      "costUsd": 0.081556,
+      "costUsdWithThinking": 0.257884
+    },
+    {
+      "id": "rp-8-pr12",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v (Run() then UpgradeScores() with a provider that records JobInput.Description; listing description \"AI agent platform work.\") -> \"needsScore=[1001] descsSeenByProvider=[\\\"\\\"]\"",
+        "attribution": "regression"
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/pipeline.go",
+        "symbol": "(*Pipeline).UpgradeScores",
+        "input": "UpgradeScores(ctx, []string{\"1\"})",
+        "expected": "\"some description\"",
+        "actual": "\"\""
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"sync\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrWitnessProvider struct {\n\tmu      sync.Mutex\n\tgotDesc string\n}\n\nfunc (w *gsrWitnessProvider) ScoreJob(ctx context.Context, input scoring.JobInput, profile scoring.Profile) (scoring.Score, error) {\n\tif err := ctx.Err(); err != nil {\n\t\treturn scoring.Score{}, err\n\t}\n\tw.mu.Lock()\n\tdefer w.mu.Unlock()\n\tw.gotDesc = input.Description\n\treturn scoring.Score{}, nil\n}\n\nfunc (w *gsrWitnessProvider) getDesc() string {\n\tw.mu.Lock()\n\tdefer w.mu.Unlock()\n\treturn w.gotDesc\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tmem := storage.NewMemoryClient()\n\tprov := &gsrWitnessProvider{}\n\tp := &Pipeline{\n\t\tStorage:       mem,\n\t\tStorageBucket: \"test-bucket\",\n\t\tProvider:      prov,\n\t\tNow:           time.Now,\n\t}\n\n\trawJSON := []byte(`[{\"jobId\":\"1\", \"title\":\"PM\", \"description\":\"some description\"}]`)\n\tif err := mem.WriteFile(context.Background(), \"test-bucket\", jobsObjectKey, rawJSON, storage.IfNotExists); err != nil {\n\t\tt.Skipf(\"gsr-setup: %v\", err)\n\t}\n\n\tp.UpgradeScores(context.Background(), []string{\"1\"})\n\n\tgot := prov.getDesc()\n\twant := \"some description\"\n\tif got != want {\n\t\tt.Fatalf(\"ScoreJob received Description = %q, want %q\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "# github.com/weitzer-org/job_tracker/internal/ingest [github.com/weitzer-org/job_tracker/internal/ingest.test]\ninternal/ingest/zz_gsr_witness_test.go:40:18: cannot use prov (variable of type *gsrWitnessProvider) as scoring.Provider value in struct literal: *gsrWitnessProvider does not implement scoring.Provider (missing method ParseJD)\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest [build failed]\n",
+      "usage": {
+        "inputTokens": 36404,
+        "outputTokens": 672,
+        "thinkingTokens": 17667,
+        "cachedTokens": 0,
+        "costUsd": 0.080872,
+        "costUsdWithThinking": 0.292876,
+        "latencyMs": 144491
+      },
+      "costUsd": 0.080872,
+      "costUsdWithThinking": 0.292876
+    },
+    {
+      "id": "rp-8-pr12",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v (Run() then UpgradeScores() with a provider that records JobInput.Description; listing description \"AI agent platform work.\") -> \"needsScore=[1001] descsSeenByProvider=[\\\"\\\"]\"",
+        "attribution": "regression"
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/pipeline.go",
+        "symbol": "(*Pipeline).UpgradeScores",
+        "input": "p.UpgradeScores(ctx, []string{\"1001\"})",
+        "expected": "\"This is a detailed description.\"",
+        "actual": "\"\""
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrWitnessProvider struct {\n\tgotDesc string\n}\n\nfunc (c *gsrWitnessProvider) ScoreJob(ctx context.Context, input scoring.JobInput, profile scoring.Profile) (scoring.Score, error) {\n\tc.gotDesc = input.Description\n\treturn scoring.Score{}, nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tmem := storage.NewMemoryClient()\n\n\tapify := &MockApifyClient{Listings: []RawListing{\n\t\t{\n\t\t\tJobID:          \"1001\",\n\t\t\tJobTitle:       \"Product Manager\",\n\t\t\tJobDescription: \"This is a detailed description.\",\n\t\t\tJobURL:         \"https://x\",\n\t\t},\n\t}}\n\n\tprov := &gsrWitnessProvider{}\n\tp := &Pipeline{\n\t\tStorage:       mem,\n\t\tStorageBucket: \"test-bucket\",\n\t\tApify:         apify,\n\t\tBuckets:       []Bucket{{Name: \"B\", Searches: []Search{{Label: \"B\", URL: \"https://x\"}}}},\n\t\tProvider:      prov,\n\t\tProfile:       scoring.Profile{},\n\t\tNow:           func() time.Time { return time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC) },\n\t}\n\n\t_, needsScore, err := p.Run(context.Background())\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: Run failed: %v\", err)\n\t}\n\tif len(needsScore) == 0 {\n\t\tt.Skip(\"gsr-setup: no jobs needed scoring\")\n\t}\n\n\tp.UpgradeScores(context.Background(), needsScore)\n\n\tif prov.gotDesc == \"\" {\n\t\tt.Fatalf(\"ScoreJob description = %q, want %q\", prov.gotDesc, \"This is a detailed description.\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "# github.com/weitzer-org/job_tracker/internal/ingest [github.com/weitzer-org/job_tracker/internal/ingest.test]\ninternal/ingest/zz_gsr_witness_test.go:39:18: cannot use prov (variable of type *gsrWitnessProvider) as scoring.Provider value in struct literal: *gsrWitnessProvider does not implement scoring.Provider (missing method ParseJD)\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest [build failed]\n",
+      "usage": {
+        "inputTokens": 36404,
+        "outputTokens": 768,
+        "thinkingTokens": 7360,
+        "cachedTokens": 34359,
+        "costUsd": 0.013306,
+        "costUsdWithThinking": 0.101626,
+        "latencyMs": 54213
+      },
+      "costUsd": 0.013306,
+      "costUsdWithThinking": 0.101626
+    },
+    {
+      "id": "rp-9-pr13",
+      "set": "realpr",
+      "rep": 0,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v -count=1 (ctx-respecting storage wrapper; 20 fast jobs + job a + job b blocking on ctx; first write sleeps 30ms; cancel at 10ms; 200 runs) -> \"runs=200 computedScoreForJobA_lost=19\". Simple variant without busy main loop: 0/2000 lost.",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "needs_environment",
+        "notTestableReason": "Proving that the !ok block handles pending updates with a cancelled context relies on a select statement pseudo-randomly choosing the closed results channel over the ready ctx.Done() channel, which is inherently non-deterministic and cannot be isolated without a flaky test.",
+        "language": "go",
+        "file": "internal/ingest/pipeline.go",
+        "symbol": "UpgradeScores",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 36403,
+        "outputTokens": 140,
+        "thinkingTokens": 10416,
+        "cachedTokens": 0,
+        "costUsd": 0.074486,
+        "costUsdWithThinking": 0.199478,
+        "latencyMs": 86343
+      },
+      "costUsd": 0.074486,
+      "costUsdWithThinking": 0.199478
+    },
+    {
+      "id": "rp-9-pr13",
+      "set": "realpr",
+      "rep": 1,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v -count=1 (ctx-respecting storage wrapper; 20 fast jobs + job a + job b blocking on ctx; first write sleeps 30ms; cancel at 10ms; 200 runs) -> \"runs=200 computedScoreForJobA_lost=19\". Simple variant without busy main loop: 0/2000 lost.",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/pipeline.go",
+        "symbol": "(*Pipeline).UpgradeScores",
+        "input": "p.UpgradeScores(ctx, jobs) with a context that is cancelled during the final flush",
+        "expected": "true (write succeeds because context should be detached)",
+        "actual": "false (write fails because context is cancelled)"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrWitnessFakeStorage struct {\n\tstorage.Client\n\tcancel  context.CancelFunc\n\twritten bool\n}\n\nfunc (s *gsrWitnessFakeStorage) ReadFile(ctx context.Context, bucket, key string) ([]byte, string, error) {\n\tif s.cancel != nil {\n\t\ts.cancel()\n\t}\n\t// Use context.Background() to ensure the read itself doesn't fail due to our cancellation.\n\t// This ensures we reach the WriteFile call where the bug manifests.\n\treturn s.Client.ReadFile(context.Background(), bucket, key)\n}\n\nfunc (s *gsrWitnessFakeStorage) WriteFile(ctx context.Context, bucket, key string, data []byte, ifMatch string) error {\n\tif err := ctx.Err(); err != nil {\n\t\treturn err\n\t}\n\terr := s.Client.WriteFile(ctx, bucket, key, data, ifMatch)\n\tif err == nil {\n\t\ts.written = true\n\t}\n\treturn err\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tdefer cancel()\n\n\tmem := storage.NewMemoryClient()\n\t// Pre-populate so it actually has a job to update.\n\terr := mem.WriteFile(context.Background(), \"test-bucket\", jobsObjectKey, []byte(`[{\"jobId\":\"gsr-job-1\",\"title\":\"Witness PM\"}]`), \"\")\n\tif err != nil {\n\t\tt.Skip(\"gsr-setup: failed to seed memory client\")\n\t}\n\n\tfs := &gsrWitnessFakeStorage{\n\t\tClient: mem,\n\t\tcancel: cancel,\n\t}\n\n\tp := &Pipeline{\n\t\tStorage:       fs,\n\t\tStorageBucket: \"test-bucket\",\n\t\tProvider:      mustProvider(t),\n\t\tNow:           time.Now,\n\t}\n\n\tjobs := []Job{\n\t\t{JobID: \"gsr-job-1\", Title: \"Witness PM\"},\n\t}\n\n\t// This call processes the job successfully, hits the `if !ok` block when the channel closes,\n\t// and calls flushUpgrades. Our fake cancels the context midway during the read, which verifies\n\t// whether UpgradeScores detached the context for the final flush as it should have.\n\tp.UpgradeScores(ctx, jobs)\n\n\tif !fs.written {\n\t\tt.Fatalf(\"fs.written = %v, want %v\", fs.written, true)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n2026/10/07 21:05:48 ingest: flushUpgrades write error: context canceled\n    zz_gsr_witness_test.go:70: fs.written = false, want true\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.006s\n",
+      "usage": {
+        "inputTokens": 36403,
+        "outputTokens": 869,
+        "thinkingTokens": 27636,
+        "cachedTokens": 0,
+        "costUsd": 0.083234,
+        "costUsdWithThinking": 0.41486599999999996,
+        "latencyMs": 220917
+      },
+      "costUsd": 0.083234,
+      "costUsdWithThinking": 0.41486599999999996
+    },
+    {
+      "id": "rp-9-pr13",
+      "set": "realpr",
+      "rep": 2,
+      "prompt": "v2",
+      "truth": {
+        "truth": "true",
+        "why": "go test ./internal/ingest -run ZZ -v -count=1 (ctx-respecting storage wrapper; 20 fast jobs + job a + job b blocking on ctx; first write sleeps 30ms; cancel at 10ms; 200 runs) -> \"runs=200 computedScoreForJobA_lost=19\". Simple variant without busy main loop: 0/2000 lost.",
+        "attribution": "regression",
+        "weak": true
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/pipeline.go",
+        "symbol": "(*Pipeline).UpgradeScores",
+        "input": "UpgradeScores processes a successful job, but the context is cancelled when the final flush happens in the !ok block",
+        "expected": "the flush uses a context protected from cancellation and the job score is successfully saved",
+        "actual": "the flush uses the already-cancelled context, immediately failing the write and losing the score"
+      },
+      "witnessSource": "package ingest\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/scoring\"\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrWitnessMockStorage struct {\n\tstorage.Client\n\tcancel context.CancelFunc\n\tdata   []byte\n}\n\nfunc (m *gsrWitnessMockStorage) ReadFile(ctx context.Context, bucket, key string) ([]byte, string, error) {\n\t// Cancel the parent context exactly when the storage read begins.\n\t// This deterministically exposes whether flushUpgrades was passed the raw context (which will now fail)\n\t// or a protected context via context.WithoutCancel (which will succeed).\n\tif m.cancel != nil {\n\t\tm.cancel()\n\t}\n\tif err := ctx.Err(); err != nil {\n\t\treturn nil, \"\", err\n\t}\n\tif m.data == nil {\n\t\treturn nil, \"\", storage.ErrNotFound\n\t}\n\treturn m.data, \"etag\", nil\n}\n\nfunc (m *gsrWitnessMockStorage) WriteFile(ctx context.Context, bucket, key string, data []byte, ifMatch string) error {\n\tif err := ctx.Err(); err != nil {\n\t\treturn err\n\t}\n\tm.data = data\n\treturn nil\n}\n\ntype gsrWitnessMockProvider struct {\n\tscoring.Provider\n}\n\nfunc (gsrWitnessMockProvider) ScoreJob(ctx context.Context, input scoring.JobInput, profile scoring.Profile) (scoring.Score, error) {\n\treturn scoring.Score{MatchScore: 99}, nil\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tdefer cancel()\n\n\tinitialJobs := []Job{{JobID: \"job-1\", Title: \"Test Job\"}}\n\tdata, err := json.Marshal(initialJobs)\n\tif err != nil {\n\t\tt.Skipf(\"gsr-setup: marshal failed: %v\", err)\n\t}\n\n\tst := &gsrWitnessMockStorage{\n\t\tcancel: cancel,\n\t\tdata:   data,\n\t}\n\n\tp := &Pipeline{\n\t\tStorage:       st,\n\t\tStorageBucket: \"test-bucket\",\n\t\tProvider:      gsrWitnessMockProvider{},\n\t}\n\n\t// UpgradeScores will spin up the worker, process the 1 job, and close the results channel.\n\t// This triggers the !ok block in its select loop, which calls flushUpgrades.\n\tp.UpgradeScores(ctx, initialJobs)\n\n\tvar resultJobs []Job\n\tif err := json.Unmarshal(st.data, &resultJobs); err != nil {\n\t\tt.Fatalf(\"gsr-setup: unmarshal failed: %v\", err)\n\t}\n\n\tif len(resultJobs) == 0 || resultJobs[0].MatchScore != 99 {\n\t\tt.Fatalf(\"UpgradeScores flush = %+v, want job with MatchScore 99 (context cancellation should not abort the final flush)\", resultJobs)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "not_run",
+          "buildFailed": true,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "adeScores flush = [{JobID:job-1 Company: Title:Test Job Location: LocationFit:[] Posted: PostedAt: URL: Salary: MatchScore:0 Reasons:[] WhyItFits: Snippet: Poster: PosterURL: ExperienceLevel: Bucket: Sources:[] DescriptionHash: Stale:false IngestedAt: LastScoredAt: ScoredByProvider: ScoredByModel: description:}], want job with MatchScore 99 (context cancellation should not abort the final flush)\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.008s\n",
+      "usage": {
+        "inputTokens": 36403,
+        "outputTokens": 1024,
+        "thinkingTokens": 18894,
+        "cachedTokens": 32685,
+        "costUsd": 0.019724,
+        "costUsdWithThinking": 0.246452,
+        "latencyMs": 150937
+      },
+      "costUsd": 0.019724,
+      "costUsdWithThinking": 0.246452
+    }
+  ]
+}

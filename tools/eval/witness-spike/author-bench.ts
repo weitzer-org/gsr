@@ -169,22 +169,27 @@ async function main() {
   if (!findings.length) throw new Error('no findings selected');
   for (const f of findings) if (!TRUTH.cases[f.id]) throw new Error(`no ground truth for ${f.id}`);
 
-  const baseCfg: SandboxConfig = {
-    image: process.env.WITNESS_IMAGE || 'witness-go:1.24',
-    goModCacheDir: process.env.GO_MOD_CACHE || execFileSync('go', ['env', 'GOMODCACHE'], { encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } }).trim(),
-    // A fresh unpredictable directory: a fixed /tmp path could be a pre-planted symlink that chmod follows.
-    goBuildCacheDir: process.env.GO_BUILD_CACHE || fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-witness-author-gocache-')),
-    timeoutMs: 120000, memory: '2g', cpus: '2',
-  };
-  const tempCache = !process.env.GO_BUILD_CACHE;
-  fs.mkdirSync(baseCfg.goBuildCacheDir, { recursive: true });
-  fs.chmodSync(baseCfg.goBuildCacheDir, 0o777);
+  const image = process.env.WITNESS_IMAGE || 'witness-go:1.24';
   // A dead daemon makes every Go run come back `not_run`, which scores as an
   // inconclusive verdict and would silently corrupt the measurement. Fail loudly instead.
   if (findings.some((f) => f.language === 'go')) {
-    try { execFileSync('docker', ['image', 'inspect', baseCfg.image], { stdio: 'ignore' }); }
-    catch { throw new Error(`Docker is not reachable or image ${baseCfg.image} is missing; start dockerd and run build-go-image.sh`); }
+    try { execFileSync('docker', ['image', 'inspect', image], { stdio: 'ignore' }); }
+    catch { throw new Error(`Docker is not reachable or image ${image} is missing; start dockerd and run build-go-image.sh`); }
   }
+  // Default cache: a private 0700 directory (mkdtemp, so unpredictable and not a pre-planted symlink)
+  // holding a 0777 child the container's non-root user can write. Other local users cannot traverse the
+  // parent. A user-supplied GO_BUILD_CACHE is used as given and never chmod'ed: it must already be
+  // writable by the sandbox user, because this script will not loosen permissions on a directory it did not create.
+  const tempCache = !process.env.GO_BUILD_CACHE;
+  const cacheRoot = tempCache ? fs.mkdtempSync(path.join(os.tmpdir(), 'gsr-witness-author-gocache-')) : '';
+  const baseCfg: SandboxConfig = {
+    image,
+    goModCacheDir: process.env.GO_MOD_CACHE || execFileSync('go', ['env', 'GOMODCACHE'], { encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } }).trim(),
+    goBuildCacheDir: tempCache ? path.join(cacheRoot, 'cache') : (process.env.GO_BUILD_CACHE as string),
+    timeoutMs: 120000, memory: '2g', cpus: '2',
+  };
+  fs.mkdirSync(baseCfg.goBuildCacheDir, { recursive: true });
+  if (tempCache) fs.chmodSync(baseCfg.goBuildCacheDir, 0o777);
   const jest = { jestBin: path.join(HERE, '..', 'node_modules', '.bin', 'jest') };
 
   const jobs = findings.flatMap((f) => Array.from({ length: n }, (_, rep) => ({ f, rep })));
@@ -240,8 +245,8 @@ async function main() {
   // The default cache is per-run and about 300 MB, so remove it. Best effort: a non-root user may not
   // own the container-written files, in which case say so instead of failing a finished run.
   if (tempCache) {
-    try { fs.rmSync(baseCfg.goBuildCacheDir, { recursive: true, force: true }); }
-    catch (e) { console.warn(`could not remove ${baseCfg.goBuildCacheDir}: ${(e as Error).message}`); }
+    try { fs.rmSync(cacheRoot, { recursive: true, force: true }); }
+    catch (e) { console.warn(`could not remove ${cacheRoot}: ${(e as Error).message}`); }
   }
 }
 

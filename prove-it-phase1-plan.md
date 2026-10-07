@@ -140,3 +140,13 @@ Opus review with execution (witness-go:1.24, go1.24.7): verified the
 cache behaviour. Refuted two draft claims (no Docker in the container; host
 test2json makes the stream trusted). Runner-source facts come from reading
 actions/runner source, not from a live runner.
+
+## 9. Findings from the real-PR set (see witness-spike/AUTHOR-RESULTS.md)
+
+- Attribution: a base run that fails to build or fails on setup must give attribution `unknown`
+  (show "proven"), never `proven_regression` / `proven_preexisting`. Needs the base run's failure reason
+  captured, not just `buildFailed`. This changes the decision table row in `types.ts` / `verdict.ts`.
+- New failure class: witnesses driving unexported code with inputs no caller produces. Needs a prompt rule
+  plus call sites in the bundle; unvalidated.
+- Do not ship user-visible "proven" badges on a single sample. Either multi-sample agreement (3x cost) or
+  `observe` mode until a rule is validated on a fresh set.

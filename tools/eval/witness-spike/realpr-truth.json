@@ -1,0 +1,141 @@
+{
+ "note": "Frozen before any author run. Source: fixtures/witness-realpr/labels-*.json (execution-verified).",
+ "cases": {
+  "rp-2-pr1": {
+   "truth": "true",
+   "why": "go test ./internal/ingest -run ZZ -v (throwaway test: truncate(strings.Repeat(\"a\",499)+\"\u00e9 tail\",500)) -> \"valid=false tail=\\\"aaaa\\\\xc3...\\\"\"",
+   "attribution": "regression"
+  },
+  "rp-3-pr2": {
+   "truth": "true",
+   "why": "go test ./internal/api -run ZZ -v (POST /ingest with status.json = invalid JSON, log output captured) -> \"GetAll err=true; code=200 ingest-ok=true oob-results=false NewCo-in-body=false logbytes=0\"",
+   "attribution": "regression",
+   "weak": true
+  },
+  "rp-8-pr12": {
+   "truth": "true",
+   "why": "go test ./internal/ingest -run ZZ -v (Run() then UpgradeScores() with a provider that records JobInput.Description; listing description \"AI agent platform work.\") -> \"needsScore=[1001] descsSeenByProvider=[\\\"\\\"]\"",
+   "attribution": "regression"
+  },
+  "rp-9-pr13": {
+   "truth": "true",
+   "why": "go test ./internal/ingest -run ZZ -v -count=1 (ctx-respecting storage wrapper; 20 fast jobs + job a + job b blocking on ctx; first write sleeps 30ms; cancel at 10ms; 200 runs) -> \"runs=200 computedScoreForJobA_lost=19\". Simple variant without busy main loop: 0/2000 lost.",
+   "attribution": "regression",
+   "weak": true
+  },
+  "rp-12-pr14": {
+   "truth": "true",
+   "why": "go test ./internal/eval -run ZZ -v (truncate(strings.Repeat(\"a\",119)+\"\u65e5\u672c\u8a9e\",120)) -> \"valid=false tail=\\\"aaaa\\\\xe6\u2026\\\"\"",
+   "attribution": "regression"
+  },
+  "rp-17-pr23": {
+   "truth": "false",
+   "why": "go test ./internal/eval -run ZZ -v (RunTarget with job1 failing every rep, with judge) -> \"no panic; job1 reps=0 job2 reps=3 failed=3 judgeCalls=1\"; representativeRep(nil) directly -> \"index out of range [0] with length 0\"",
+   "weak": true
+  },
+  "rp-18-pr25": {
+   "truth": "false",
+   "why": "go test ./internal/scoring/anthropic -run ZZ -v (httptest server returning usage output_tokens=1000, output_tokens_details.thinking_tokens=600, model claude-opus-4-8) -> \"OutputTokens=1000 ThinkingTokens=0 CostUSD=0.0250 (... with thinking added separately = 0.0400)\"",
+   "weak": true
+  },
+  "rp-19-pr25": {
+   "truth": "true",
+   "why": "go test ./internal/scoring/gemini -run ZZ -v (mock RoundTripper captures request body) -> \"MaxTokens=1024 ... sent=[\\\"maxOutputTokens\\\":1024 \\\"thinkingBudget\\\":1024]\" vs \"MaxTokens=1023 ... sent=[\\\"maxOutputTokens\\\":1023 \\\"thinkingBudget\\\":511]\"",
+   "attribution": "preexisting"
+  },
+  "rp-21-pr29": {
+   "truth": "true",
+   "why": "go test ./internal/ingest -run ZZ -v (extractSalary(\"\",\"Pay: $100 - 150K per year\")) -> \"range=\\\"\\\" got={Min:100 Max:100 Period:hour Raw:$100/hr}\"",
+   "attribution": "regression"
+  },
+  "rp-22-pr29": {
+   "truth": "true",
+   "why": "go test ./internal/ingest -run TestZZLabel -v (throwaway test at 836cdd0): \"150000.99 -> 150,000\"; \"$62.50/hr\" -> raw=\"$62/hr\"; \"$150,000.99 - $180,000/yr\" -> raw=\"$150,000 - $180,000/yr\"",
+   "attribution": "regression",
+   "weak": true
+  },
+  "rp-25-pr33": {
+   "truth": "true",
+   "why": "Added a temporary println after line 367, then ran go test ./internal/api -run TestHandleRecruiterContactPatch_TogglesContacted -v (existing test that seeds a contact with no assessments): \"ZZ OtherAssessments = -1 len(Assessments) = 0\" / PASS. grep for OtherAssessments in templates: no matches.",
+   "attribution": "regression",
+   "weak": true
+  },
+  "rp-33-pr50": {
+   "truth": "true",
+   "why": "Throwaway test at 14750cb: MemoryClient seeded with '{not json' at apify-run-cache.json, then writeEntry: \"writeEntry err=storage: object was modified concurrently (ETag mismatch) ...; blob after=\\\"{not json\\\"\" after 5 decode-failure log lines (all retries exhausted).",
+   "attribution": "regression"
+  },
+  "rp-34-pr52": {
+   "truth": "opinion",
+   "why": "go test ./internal/api -run TestHandleIngest_TTLOverrideUsesCustomTTLApify -v at 1a1aec3: \"--- PASS\". This existing test includes ttlOverrideHours=notanumber and asserts fallback to the normal client with TTLOverrideApify not called.",
+   "weak": true
+  },
+  "rp-35-pr55": {
+   "truth": "true",
+   "why": "Throwaway test at eab0715 calling classifyNYCFit: \"Camden, NJ\" -> \"\"; \"Camden, New Jersey\" -> \"NYC Metro\"; \"Washington Township, New Jersey\" -> \"NYC Metro\"",
+   "attribution": "regression"
+  },
+  "rp-36-pr61": {
+   "truth": "true",
+   "why": "Throwaway test at bd31625 (httptest get-run server, CostSettleDelay=50ms, settleRunCost): \"server clock ahead by 0s ... waited 50ms\"; \"server clock ahead by 2s, configured delay 50ms -> waited 2.05s\"",
+   "attribution": "regression"
+  },
+  "rp-37-pr61": {
+   "truth": "true",
+   "why": "Throwaway test at f60c26a (httptest Apify server; RunObserver captures stats; counts settle GETs without waitForFinish): \"final=FAILED err!=nil:true settleReads=0 observed CostSettled=false\" vs \"final=SUCCEEDED ... settleReads=1 observed CostSettled=true\"",
+   "attribution": "regression"
+  },
+  "rp-38-pr65": {
+   "truth": "true",
+   "why": "Throwaway test at 3ca23ae: CompressMiddleware(http.FileServerFS(MapFS app.css 1600B)), Range: bytes=0-15, Accept-Encoding: gzip -> \"status=206 Content-Encoding=\\\"gzip\\\" Content-Range=\\\"bytes 0-15/1600\\\" bodyLen=40 bodyPrefix=1f8b0800\"",
+   "attribution": "regression"
+  },
+  "rp-39-pr65": {
+   "truth": "false",
+   "why": "go test ./internal/api -run TestLabel39 -v (throwaway test calling parseFilters(url.Values{offset:...}) then rowsData): `offset=-5 -> f.Offset=0 jobs=3`; `offset=-9223372036854775808 -> f.Offset=0 jobs=3`; direct rowsData(filters{Offset:-1}) -> `recovered=runtime error: slice bounds out of range [-1",
+   "weak": true
+  },
+  "rp-41-pr69": {
+   "truth": "false",
+   "why": "go test ./internal/ingest -run TestL41 -v: `\"you can work from anywhere in the us\" all=true`; `\"we are a distributed team\" all=true`; `\"we are remote-first\" all=true withoutRemoteFirst=true onlyRemoteFirst=true`",
+   "weak": true
+  },
+  "rp-42-pr69": {
+   "truth": "true",
+   "why": "go test ./internal/ingest -run TestL42 -v: `stripped=\"our s collaborate\" signal=false`; `after 'hybrid team' only: \"our s collaborate\"; 'hybrid teams' still present=false`",
+   "attribution": "regression",
+   "weak": true
+  },
+  "rp-43-pr72": {
+   "truth": "true",
+   "why": "go test ./internal/ingest -run TestL43 -v on TagLocationFit(\"Austin, TX\",\"PM\",desc): single space -> `[Other]`; `work remotely\\nfor up to 4 weeks per year` -> `[Remote-flagged]`; double space -> `[Remote-flagged]`",
+   "attribution": "regression",
+   "weak": true
+  },
+  "rp-44-pr72": {
+   "truth": "true",
+   "why": "go test ./internal/ingest -run TestL44 -v: `\"beforefor remote roles:after\" -> \"beforeafter\"`; TagLocationFit(...,\"telefor remote roles:commute\") -> `[Remote-flagged]`; but the claim's own example `\"work from anywhere for up to 20 days per year today\" -> \" today\"` (no merge)",
+   "attribution": "regression",
+   "weak": true
+  },
+  "rp-45-pr76": {
+   "truth": "true",
+   "why": "go test ./internal/ingest -run TestL45 -v (existing job with no FirstSeenAt, IngestedAt = 24h ago, re-seen now): `FirstSeenAt=2026-08-24T12:00:00Z age=24h0m0s within48h=true`",
+   "attribution": "regression"
+  },
+  "rp-46-pr76": {
+   "truth": "false",
+   "why": "go test ./internal/api -run TestL46 -v: postedAgeSeconds(now-3h in RFC3339, now) -> `age=10800`"
+  },
+  "rp-47-pr81": {
+   "truth": "true",
+   "why": "go test ./internal/ingest -run TestL47 -v: parseKeywordGroups(`\"product manager\" NOT \"intern\"`) -> `groups=[{All:[product manager intern]}]`; `no-intern job passes=false; intern job passes=true`",
+   "attribution": "regression"
+  },
+  "rp-48-pr81": {
+   "truth": "true",
+   "why": "At 3c18cb7, go test ./internal/ingest -run 'TestPipeline_FlushUpgrades_KeepsScoreWhenFilteredMidFlight|TestL48' -v: Reconcile(pending, in.LowRelevance) -> `ScoredByProvider=\"filtered\"`; flushUpgrades -> `ScoredByProvider = \"filtered\", want the real provider` (FAIL)",
+   "attribution": "regression"
+  }
+ }
+}

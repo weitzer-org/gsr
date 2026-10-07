@@ -5,7 +5,7 @@
     "file": "memo/memo.go",
     "line": 11,
     "severity": "MEDIUM",
-    "summary": "Cache.Get calls load twice for the same key: two Gets of \"k\" invoke load two times instead of once."
+    "summary": "Memoizer.Get calls load twice for the same key: two Gets of \"k\" invoke load two times instead of once."
   },
   "expectedVerdict": "refuted",
   "notes": "A FALSE finding that a failing loader appears to confirm; errors are documented as not cached. witness.loose.json uses a failing loader and is wrongly proven.",

@@ -4,14 +4,14 @@
     "language": "go",
     "file": "merge/merge.go",
     "symbol": "Merge",
-    "input": "Merge(unsortedLister{[b a]}, unsortedLister{[c]})",
-    "expected": "[a b c]",
-    "actual": "[b a c]"
+    "input": "Merge(dupLister{[a a]}, dupLister{[a]})",
+    "expected": "[a]",
+    "actual": "[a a]"
   },
   "witness": {
     "path": "merge/zz_gsr_witness_test.go",
     "language": "go",
     "framework": "go-test",
-    "source": "package merge\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\ntype gsrWitnessLister []string\n\nfunc (l gsrWitnessLister) List() []string { return []string(l) }\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Merge(gsrWitnessLister{\"b\", \"a\"}, gsrWitnessLister{\"c\"})\n\twant := []string{\"a\", \"b\", \"c\"}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Merge = %v, want %v\", got, want)\n\t}\n}\n"
+    "source": "package merge\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\ntype gsrWitnessLister []string\n\nfunc (l gsrWitnessLister) List() []string { return []string(l) }\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Merge(gsrWitnessLister{\"a\", \"a\"}, gsrWitnessLister{\"a\"})\n\twant := []string{\"a\"}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Merge = %v, want %v\", got, want)\n\t}\n}\n"
   }
 }

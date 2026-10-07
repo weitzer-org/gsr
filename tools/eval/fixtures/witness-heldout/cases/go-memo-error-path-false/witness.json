@@ -3,7 +3,7 @@
     "testable": true,
     "language": "go",
     "file": "memo/memo.go",
-    "symbol": "(*Cache).Get",
+    "symbol": "(*Memoizer).Get",
     "input": "c.Get(\"k\", successfulLoad) twice",
     "expected": "1 load call",
     "actual": "2 load calls"

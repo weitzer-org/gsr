@@ -4,14 +4,14 @@
     "language": "go",
     "file": "merge/merge.go",
     "symbol": "Merge",
-    "input": "Merge(StaticLister{[b a]}, StaticLister{[c]})",
-    "expected": "[a b c]",
-    "actual": "[b a c]"
+    "input": "Merge(StaticLister{[a]}, StaticLister{[a]})",
+    "expected": "[a]",
+    "actual": "[a a]"
   },
   "witness": {
     "path": "merge/zz_gsr_witness_test.go",
     "language": "go",
     "framework": "go-test",
-    "source": "package merge\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Merge(StaticLister{Names: []string{\"b\", \"a\"}}, StaticLister{Names: []string{\"c\"}})\n\twant := []string{\"a\", \"b\", \"c\"}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Merge = %v, want %v\", got, want)\n\t}\n}\n"
+    "source": "package merge\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Merge(StaticLister{Names: []string{\"a\"}}, StaticLister{Names: []string{\"a\"}})\n\twant := []string{\"a\"}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Merge = %v, want %v\", got, want)\n\t}\n}\n"
   }
 }

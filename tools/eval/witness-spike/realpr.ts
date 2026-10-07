@@ -14,7 +14,7 @@ const WORK = process.env.REALPR_WORK_DIR || '/tmp/gsr-witness-realpr';
 const GO_DIRECTIVE = '1.24'; // the sandbox image's toolchain; applied identically to head and base
 
 interface Candidate {
-  pr: number; file: string; line: number; severity: string;
+  pr: number; file: string; line: number; severity: string | null;
   claim_summary: string; claim_full_excerpt: string;
   reviewed_commit_sha: string; pr_base_sha: string;
 }
@@ -52,7 +52,7 @@ export function realprFindings(prepare = true): RealPrFinding[] {
     const baseDir = path.join(WORK, `${id}-base`);
     if (prepare) { ensureWorktree(headDir, c.reviewed_commit_sha); ensureWorktree(baseDir, baseSha); }
     return {
-      id, file: c.file, line: c.line, severity: c.severity.toUpperCase(),
+      id, file: c.file, line: c.line, severity: (c.severity ?? 'MEDIUM').toUpperCase(),
       summary: c.claim_summary, description: c.claim_full_excerpt,
       headDir, baseDir, headSha: c.reviewed_commit_sha, baseSha, truth: truth[id],
     };

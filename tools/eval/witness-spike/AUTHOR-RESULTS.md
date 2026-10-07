@@ -18,7 +18,7 @@ The testbed has 12 cases and 13 reference checks (`go-fake-too-loose` has a seco
 
 Run 1 and 2 of each prompt predate the cache-aware cost fix, so their cost columns are not comparable and are omitted. Run 1 of v1 is the original prompt, before a leaked example symbol was removed; runs 2 and later use the fixed prompt. Runs 3 (v1) and 2 (v2) used the benchmark after the review fixes (cache-aware cost, witness bound to its finding's file and language). An earlier attempt at those two runs was discarded because the Docker daemon had died mid-run and most Go runs returned `not_run`; the harness now refuses to start without Docker.
 
-Cost is per author call; multiply by 3 for a finding at n=3. Gemini's implicit cache served 4.8% of v1 prompt tokens and 35.9% of v2's on those runs (repeat prompts across the n=3 samples). The cost convention (`tools/eval/usage.ts`) treats cached input as free, a lower bound; whether Gemini discounts rather than zeroes cached tokens, and whether thinking tokens bill as output, are unverified. With thinking billed, v1 and v2 cost about the same per call; without it v2 is about 1.5x.
+Cost is per author call; multiply by 3 for a finding at n=3. Gemini's implicit cache served 4.8% of v1 prompt tokens and 35.9% of v2's on those runs (repeat prompts across the n=3 samples). The cost convention (`tools/eval/usage.ts`) treats cached input as free, a lower bound; whether Gemini discounts rather than zeroes cached tokens, and whether thinking tokens bill as output, are unverified. The cost comparison between prompts, with cached tokens billed in full, is in the Follow-up section 2; the 1.5x figure quoted elsewhere used the free-cache convention and understates v2's cost.
 
 Local usage-store writes are not recorded here (no MinIO/R2 or ingest secret in this environment); per-call tokens and cost are in each sample's `usage`.
 
@@ -45,7 +45,7 @@ The ones that move: `go-fake-too-loose` (v1 1-3 of 3 wrongly proven per run; v2 
 
 # Follow-up: which change does the work, and a held-out set
 
-Two questions left open above: v2 changed two things at once (the prompt rule and the whole-package bundle), and the 16 findings were the ones the rule was written against. Reproduce every table below with `ts-node witness-spike/author-report.ts <label=prefix[,prefix]> ...` (it prints the files each arm pooled; check them, because a prefix such as `author-v2` also matches `author-v2-ruleonly-*`).
+Two questions left open above: v2 changed two things at once (the prompt rule and the whole-package bundle), and the 16 findings were the ones the rule was written against. Reproduce every table below with `ts-node witness-spike/author-report.ts <label=prefix[,prefix]> ...` (it prints the files each arm pooled; check them, because a prefix such as `author-v2` also matches `author-v2-ruleonly-*`). The counts and file sets in this section were recomputed independently from the raw samples.
 
 ## 1. Decomposition on the original 16 findings (3 samples per finding per run)
 `--prompt` and `--bundle` are independent in `author-bench.ts`, so each factor was run on its own.
@@ -57,13 +57,31 @@ Two questions left open above: v2 changed two things at once (the prompt rule an
 | rule-only | v2 | single file | 2 | 42 | **0** | 0 |
 | full v2 | v2 | whole package | 2 | 43 | **1** | 0 |
 
-- The prompt rule is what removes the false proofs. With the single-file bundle it gave 0 wrong of 42, and adding the whole-package bundle on top did not help (1 of 43, within noise).
-- The whole-package bundle on its own fixed one of the two failing findings and not the other. `go-fake-too-loose` went to 0 wrong once the author could see the package's context-aware fake, but job_tracker's `Store.Mutate` stayed wrong in 5 of 6 samples: there the only existing double (`storage.MemoryClient`) itself ignores `ctx`, so showing it does not help.
-- Cost per call from the cache-aware runs only (the earlier runs predate the cache fix and are overstated, so they are not compared): v1 $0.0094, rule-only $0.0110, bundle-only $0.0140, full v2 $0.0141. The rule is cheap; most of v2's extra cost is the bundle, which on this evidence buys nothing measurable.
-- Caveat that still applies: the rule was written after seeing v1 fail on these same findings, so 0 of 42 is an in-sample result.
+Only two findings ever produce a wrong proof, in any arm: the testbed case `go-fake-too-loose` (5 in the baseline, 0 elsewhere) and job_tracker `Store.Mutate` (9 in the baseline, 5 in bundle-only, 1 in full v2, 0 in rule-only). One of the 96 bundle-only samples (a true finding) was lost to a Go vet error in the witness, scored as a decline.
 
-## 2. Held-out set (13 cases, never used to tune the prompts)
-The cases live in `fixtures/witness-heldout/cases/` and the labels in `witness-spike/heldout-truth.json`, committed (039a812) before any held-out run. Contents: 6 true findings (a true ctx bug and a true contract bug, both with a contract-honouring package double, plus a nil-map panic, an off-by-one, a bug in code new in the PR, and a JavaScript regression), 6 false findings (3 deliberate traps where a loose double produces a false proof: a package double that ignores `ctx` and says so, a duplicate-free `Lister` contract, and a memoizer whose documented behaviour is that errors are not cached; plus 3 plain false findings, one in JavaScript) and 1 opinion. Every label was checked by running code, then re-derived independently by a second reviewer; that review found one arguable case (`go-contract-sorted-false`: its finding named an input that violates the contract), which was redesigned before any author run. Each trap was confirmed by executing a loose witness through the real pipeline: it is wrongly proven.
+What this supports, and what it does not:
+- On these 16 findings the prompt rule alone removed the false proofs (0 of 42).
+- The whole-package bundle alone fixed only `go-fake-too-loose`, whose package ships a context-aware fake that the bundle now shows the author. It did not fix `Store.Mutate`, where the only existing double (`storage.MemoryClient`) itself ignores `ctx`.
+- **The rule-versus-bundle split rests on one finding.** Both factors fix `go-fake-too-loose`, so only `Store.Mutate` tells them apart, and that is the finding the rule was written against. Rule-only 0 of 42 against full v2 1 of 43 is a single sample on that finding (6 of 6 refuted against 5 of 6) and supports no preference between them.
+- Everything here is in-sample for the rule.
+
+## 2. Cost
+Per call, from the runs that report cached prompt tokens. Gemini's implicit cache served a very different share of each arm's prompts, because the n=3 repeats of one finding resend the same prompt, and the larger bundles repeat the most:
+
+| Arm | Cache hit rate | $/call, cached tokens free | $/call, cached tokens billed in full |
+|---|---|---|---|
+| v1 (run 3) | 4.8% | 0.0094 | 0.0098 |
+| rule-only | 3.1% | 0.0110 | 0.0112 |
+| bundle-only | 31.3% | 0.0140 | 0.0191 |
+| full v2 (run 2) | 35.9% | 0.0141 | 0.0204 |
+
+- Treating cached tokens as free (the `usage.ts` convention) flatters the bundle arms. Billed in full, the whole-package bundle costs about 1.95x v1 and the rule about +14%. The earlier runs, which did not record cached tokens, are not overstated: they are the full-billing figure (v1 $0.0098, full v2 $0.0204).
+- One call per finding in production probably gets far less cache benefit than these repeated samples (unverified assumption), so the full-billing column is the safer planning number.
+- If Gemini bills thinking tokens as output (unverified), the ordering is dominated by thinking and the arms are close; the ratios above are for the convention that does not bill them.
+- On the small held-out packages the cache was never hit and the bundle added about 50 tokens: v1 $0.0086, v2 $0.0098 (+14%), whole package about equal to single. The 1.95x is specific to the in-sample job_tracker findings, whose packages are large.
+
+## 3. Held-out set (13 cases, never used to tune the prompts)
+The cases live in `fixtures/witness-heldout/cases/` and the labels in `witness-spike/heldout-truth.json`, committed (039a812) before any held-out result file existed (the results were added in 226e4e1). Contents: 6 true findings (a true ctx bug and a true contract bug, each with a contract-honouring package double, plus a nil-map panic, an off-by-one, a bug in code new in the PR, and a JavaScript regression), 6 false findings (3 deliberate traps where a loose double produces a false proof: a package double that ignores `ctx` and says so, a duplicate-free `Lister` contract, and a memoizer whose documented behaviour is that errors are not cached; plus 3 plain false findings, one in JavaScript) and 1 opinion. Every label was checked by running code, then re-derived independently by a second reviewer; that review found one arguable case (`go-contract-sorted-false`: its finding named an input that violates the contract), which was redesigned before any author run. Each trap was confirmed by executing a loose witness through the real pipeline: it is wrongly proven.
 
 Metrics were fixed in advance: wrong "proven" on the false/opinion cases and wrongly refuted on the true cases, per case, with no pooled significance claim.
 
@@ -76,14 +94,15 @@ All four arms, 2 runs x 3 samples per finding (78 samples each), 0 author failur
 | v2 rule, single file | 36 | 0 | 0 | 0 |
 | v2 rule, whole package | 36 | 0 | 0 | 0 |
 
-Per case, every arm returned the same verdict in all 6 samples, with two exceptions: `go-memo-error-path-false` under v1 with a single file (4 refuted, 2 declined). The three traps were never fallen into (18 of 18 refuted in every arm), including v1 with the whole package, which was shown the non-compliant `MemStore` and did not reuse it.
+Per case, every arm returned the same verdict in all 6 samples, with one exception: `go-memo-error-path-false` under v1 with a single file (4 refuted, 2 declined). No arm was ever wrongly proven on any of the three traps (0 of 18 in every arm; v1 single file refuted 16 of the 18 and declined 2). v1 with the whole package was shown the non-compliant `MemStore` and did not use it in any of its 6 samples.
 
 **What this establishes, and what it does not.**
-- It closes one open gap: v2's rule does not make the author refute or abandon a TRUE ctx or contract bug (12 of 12 samples of the two such cases proven in each v2 arm, no wrongly refuted finding anywhere).
-- It does not show v2 is better than v1. The set does not discriminate: v1 produced no false proof on it either. So the v1 false proofs are not a general weakness against every contract trap; they showed up where building a faithful double is costly (a storage client with many methods, a struct with several dependencies), and the small synthetic interfaces here made an honest double easy to write. That explanation is a hypothesis; this set was not built to test it.
-- Known limits of the set: the plain cases saturate (every arm gets them right every time), eight cases have an empty base-to-head diff, and the whole set is synthetic. A harder and more realistic held-out set needs real findings from real PRs, with labels from human outcomes, not cases written to fit the failure mode.
+- The set does not discriminate: v1 produced no false proof on it, so it cannot support "v2 is better".
+- No harm was seen from v2's rule on the two true ctx/contract cases: 12 of 12 samples proven in each v2 arm (and in each v1 arm). That is weaker than it sounds: two synthetic cases, saturated in every arm, each with an honest package double and the contract stated in the file under review. It rules out a large, consistent harm in an easy setting and nothing more. The in-sample set has no true ctx bug.
+- These traps were easier than the in-sample failures in one visible way: each states its contract in the file under review ("Implementations MUST honour ctx", "must preserve both properties", "Errors are not cached", and the `MemStore` comment says it does not model cancellation). In `go-fake-too-loose` the contract is only implied ("real implementations pass ctx to their client"), and job_tracker's `Store` states nothing about `ctx` at all. Explicit-versus-implicit contract is one candidate explanation for why v1 failed in-sample and not here; another is how costly a faithful double is to build (it is not for `go-fake-too-loose`, a one-method interface, so that explanation fits worse). Neither was tested by this set.
+- Known limits: the plain cases saturate (every arm gets them right every time), eight cases have an empty base-to-head diff, and the whole set is synthetic.
 
-## 3. Updated recommendation
-- Adopt the v2 prompt rule. It removed the false proofs on every set where v1 produced any, did not cause false refutations or declines on true bugs, and costs about 17% more per call than v1.
-- Do not adopt the whole-package bundle on this evidence. It adds cost, up to 1.5x per call, and did not change any outcome the rule did not already change. Revisit it if a real finding turns out to need a double that is only visible in another file.
-- Before treating either as a measured safety property: build the realistic held-out set from real PRs (the v1 failure appeared on real job_tracker code and did not appear on small synthetic traps), and keep `refuted` collapse-never-drop.
+## 4. Recommendation
+- Adopt the v2 prompt rule. On the in-sample set, where v1 produced false proofs, the rule removed them; on the held-out set no arm produced any; it caused no wrongly refuted or abandoned true finding in the cases we have; and it costs about 14% more per call than v1.
+- Do not adopt the whole-package bundle on this evidence. It adds up to about 2x per call at full billing and changed no outcome the rule did not already change, except on the one testbed case where the rule also fixed it. Revisit it if a real finding needs a double that is visible only in another file.
+- This is not a measured safety property. Two findings produced every false proof, and the rule was written against them. The next measurement that would count is a realistic held-out set built from real PRs, with labels from human outcomes and contracts left as implicit as they are in real code, run with `refuted` kept collapse-never-drop.

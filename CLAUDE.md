@@ -140,6 +140,11 @@ just guessable. Independent gates now cover this:
   `npm test` in `tools/eval` checks their shape offline;
   `npx ts-node witness-spike/testbed.ts` runs them end to end (needs Docker
   and `./witness-spike/build-go-image.sh`).
+  `tools/eval/fixtures/witness-heldout/` is a second, held-out set (13 cases) used to
+  measure the Gemini author without tuning on it; `testbed.ts --heldout` runs its
+  reference witnesses and `witness-spike/author-bench.ts --set heldout` runs the author
+  against it (labels in `witness-spike/heldout-truth.json`, do not edit them after a
+  run). Results and how to regenerate them: `witness-spike/AUTHOR-RESULTS.md`.
 - Node isn't on PATH by default in every shell here — if `node`/`npm` are
   missing, install via `nvm` (`~/.nvm`) and symlink into `~/.local/bin`
   rather than reinstalling from scratch each time.

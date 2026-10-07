@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "upload/upload.go",
+    "symbol": "Upload",
+    "input": "Upload(&RecordingWriter{WriteErr: errBoom}, []string{\"a\"})",
+    "expected": "0 Flush calls",
+    "actual": "1 Flush call"
+  },
+  "witness": {
+    "path": "upload/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package upload\n\nimport (\n\t\"errors\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tw := &RecordingWriter{WriteErr: errors.New(\"boom\")}\n\t_ = Upload(w, []string{\"a\"})\n\tif w.Flushes() != 0 {\n\t\tt.Fatalf(\"Upload flushed %d times after a failed Write, want 0\", w.Flushes())\n\t}\n}\n"
+  }
+}

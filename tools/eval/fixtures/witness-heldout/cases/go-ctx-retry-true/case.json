@@ -1,0 +1,12 @@
+{
+  "id": "go-ctx-retry-true",
+  "language": "go",
+  "finding": {
+    "file": "poll/poll.go",
+    "line": 20,
+    "severity": "HIGH",
+    "summary": "Poll keeps retrying after the context is cancelled: with an already-cancelled context it makes 4 Get calls instead of stopping after the first."
+  },
+  "expectedVerdict": "proven_regression",
+  "notes": "A TRUE ctx bug (the existing in-package double honours ctx): measures false refutation. Passes on base, fails on head."
+}

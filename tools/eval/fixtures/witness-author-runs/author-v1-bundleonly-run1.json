@@ -1,0 +1,2366 @@
+{
+  "prompt": "v1",
+  "bundle": "whole",
+  "model": "gemini-3.1-pro-preview",
+  "n": 3,
+  "set": "all",
+  "findings": [
+    "go-build-failure",
+    "go-fake-too-loose",
+    "go-new-code",
+    "go-opinion",
+    "go-preexisting",
+    "go-refuted-false-finding",
+    "go-regression",
+    "go-setup-skip",
+    "go-timeout",
+    "js-refuted-false-finding",
+    "js-regression",
+    "js-setup-failure",
+    "filters-containsAny-substring-false-positive",
+    "filters-containsAnyWord-boundary-bug",
+    "recruiter-store-mutate-missing-ctx-done",
+    "scoring-fallback-judge-passthrough"
+  ],
+  "summary": {
+    "n": 48,
+    "counts": {
+      "correct_proven": 21,
+      "misattributed_proven": 0,
+      "wrong_proven": 2,
+      "correct_refuted": 13,
+      "false_refutation": 0,
+      "spurious_refuted": 0,
+      "correct_abstain": 6,
+      "no_conclusion": 6,
+      "author_failure": 0
+    },
+    "proven": 23,
+    "wrongProven": 2,
+    "provenPrecision": 0.9130434782608695,
+    "conclusive": 36,
+    "yield": 0.75,
+    "costUsd": 0.75394,
+    "costUsdWithThinking": 2.073352,
+    "costPerFinding": 0.015707083333333333,
+    "costPerCorrectProven": 0.03590190476190477
+  },
+  "samples": [
+    {
+      "id": "filters-containsAny-substring-false-positive",
+      "set": "spike",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "containsAny is strings.Contains; 'tpm' matches inside 'hotpmtools'. File is new in the PR (no base)."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/filters.go",
+        "symbol": "PassesTitleFilter",
+        "input": "PassesTitleFilter(\"Product Manager (SmartPM)\")",
+        "expected": "true",
+        "actual": "false"
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tinput := \"Product Manager (SmartPM)\"\n\tgot := PassesTitleFilter(input)\n\tif got != true {\n\t\tt.Fatalf(\"PassesTitleFilter(%q) = %v, want true\", input, got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: PassesTitleFilter(\"Product Manager (SmartPM)\") = false, want true\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.005s\n",
+      "usage": {
+        "inputTokens": 24218,
+        "outputTokens": 238,
+        "thinkingTokens": 4796,
+        "cachedTokens": 0,
+        "costUsd": 0.051292,
+        "costUsdWithThinking": 0.108844,
+        "latencyMs": 41278
+      },
+      "costUsd": 0.051292,
+      "costUsdWithThinking": 0.108844
+    },
+    {
+      "id": "filters-containsAny-substring-false-positive",
+      "set": "spike",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "containsAny is strings.Contains; 'tpm' matches inside 'hotpmtools'. File is new in the PR (no base)."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/filters.go",
+        "symbol": "PassesTitleFilter",
+        "input": "\"Product Manager, SmartPM\"",
+        "expected": "true",
+        "actual": "false"
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := PassesTitleFilter(\"Product Manager, SmartPM\")\n\tif got != true {\n\t\tt.Fatalf(\"PassesTitleFilter(\\\"Product Manager, SmartPM\\\") = %v, want true\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: PassesTitleFilter(\"Product Manager, SmartPM\") = false, want true\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.004s\n",
+      "usage": {
+        "inputTokens": 24218,
+        "outputTokens": 226,
+        "thinkingTokens": 4253,
+        "cachedTokens": 0,
+        "costUsd": 0.051148,
+        "costUsdWithThinking": 0.102184,
+        "latencyMs": 37557
+      },
+      "costUsd": 0.051148,
+      "costUsdWithThinking": 0.102184
+    },
+    {
+      "id": "filters-containsAny-substring-false-positive",
+      "set": "spike",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "containsAny is strings.Contains; 'tpm' matches inside 'hotpmtools'. File is new in the PR (no base)."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/filters.go",
+        "symbol": "PassesTitleFilter",
+        "input": "PassesTitleFilter(\"PlatformTPM Product Manager\")",
+        "expected": "true",
+        "actual": "false"
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := PassesTitleFilter(\"PlatformTPM Product Manager\")\n\tif !got {\n\t\tt.Fatalf(\"PassesTitleFilter(\\\"PlatformTPM Product Manager\\\") = %v, want true\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: PassesTitleFilter(\"PlatformTPM Product Manager\") = false, want true\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.006s\n",
+      "usage": {
+        "inputTokens": 24218,
+        "outputTokens": 214,
+        "thinkingTokens": 4251,
+        "cachedTokens": 20402,
+        "costUsd": 0.0102,
+        "costUsdWithThinking": 0.061212,
+        "latencyMs": 35303
+      },
+      "costUsd": 0.0102,
+      "costUsdWithThinking": 0.061212
+    },
+    {
+      "id": "filters-containsAnyWord-boundary-bug",
+      "set": "spike",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "weak": true,
+        "why": "WEAK label. Needles are matched against [a-z0-9] runs, so a needle containing punctuation (e.g. 'vice-president') can never match a single-token set. True for such needles; whether any real vpTitleKeywords has one was not checked. Report this row separately if it decides a conclusion."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/filters.go",
+        "symbol": "containsAnyWord",
+        "input": "containsAnyWord(\"v.p.\", []string{\"v.p.\"})",
+        "expected": "true",
+        "actual": "false"
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := containsAnyWord(\"v.p.\", []string{\"v.p.\"})\n\tif !got {\n\t\tt.Fatalf(\"containsAnyWord(\\\"v.p.\\\", []string{\\\"v.p.\\\"}) = %v, want true\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: containsAnyWord(\"v.p.\", []string{\"v.p.\"}) = false, want true\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.004s\n",
+      "usage": {
+        "inputTokens": 24220,
+        "outputTokens": 232,
+        "thinkingTokens": 5019,
+        "cachedTokens": 0,
+        "costUsd": 0.051224,
+        "costUsdWithThinking": 0.111452,
+        "latencyMs": 39313
+      },
+      "costUsd": 0.051224,
+      "costUsdWithThinking": 0.111452
+    },
+    {
+      "id": "filters-containsAnyWord-boundary-bug",
+      "set": "spike",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "weak": true,
+        "why": "WEAK label. Needles are matched against [a-z0-9] runs, so a needle containing punctuation (e.g. 'vice-president') can never match a single-token set. True for such needles; whether any real vpTitleKeywords has one was not checked. Report this row separately if it decides a conclusion."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/filters.go",
+        "symbol": "containsAnyWord",
+        "input": "containsAnyWord(\"avice president\", []string{\"vice president\"})",
+        "expected": "false",
+        "actual": "true"
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := containsAnyWord(\"avice president\", []string{\"vice president\"})\n\tif got != false {\n\t\tt.Fatalf(\"containsAnyWord(\\\"avice president\\\", []string{\\\"vice president\\\"}) = %v, want false\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: containsAnyWord(\"avice president\", []string{\"vice president\"}) = true, want false\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.007s\n",
+      "usage": {
+        "inputTokens": 24220,
+        "outputTokens": 246,
+        "thinkingTokens": 5643,
+        "cachedTokens": 20402,
+        "costUsd": 0.010588,
+        "costUsdWithThinking": 0.078304,
+        "latencyMs": 44150
+      },
+      "costUsd": 0.010588,
+      "costUsdWithThinking": 0.078304
+    },
+    {
+      "id": "filters-containsAnyWord-boundary-bug",
+      "set": "spike",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "weak": true,
+        "why": "WEAK label. Needles are matched against [a-z0-9] runs, so a needle containing punctuation (e.g. 'vice-president') can never match a single-token set. True for such needles; whether any real vpTitleKeywords has one was not checked. Report this row separately if it decides a conclusion."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/ingest/filters.go",
+        "symbol": "containsAnyWord",
+        "input": "containsAnyWord(\"vp-level\", []string{\"vp-level\"})",
+        "expected": "true",
+        "actual": "false"
+      },
+      "witnessSource": "package ingest\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := containsAnyWord(\"vp-level\", []string{\"vp-level\"})\n\tif !got {\n\t\tt.Fatalf(\"containsAnyWord(\\\"vp-level\\\", []string{\\\"vp-level\\\"}) = %v, want true\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: containsAnyWord(\"vp-level\", []string{\"vp-level\"}) = false, want true\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/ingest\t0.005s\n",
+      "usage": {
+        "inputTokens": 24220,
+        "outputTokens": 244,
+        "thinkingTokens": 12921,
+        "cachedTokens": 0,
+        "costUsd": 0.051368,
+        "costUsdWithThinking": 0.20642,
+        "latencyMs": 102788
+      },
+      "costUsd": 0.051368,
+      "costUsdWithThinking": 0.20642
+    },
+    {
+      "id": "go-build-failure",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "finding says Page is wrong for page 1; head is page*size (base was (page-1)*size). Same code as go-regression; only the reference witness is broken."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "Page",
+        "input": "Page([]int{1, 2, 3, 4, 5}, 1, 2)",
+        "expected": "[]int{1, 2}",
+        "actual": "[]int{3, 4}"
+      },
+      "witnessSource": "package pager\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Page([]int{1, 2, 3, 4, 5}, 1, 2)\n\twant := []int{1, 2}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Page([]int{1, 2, 3, 4, 5}, 1, 2) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:12: Page([]int{1, 2, 3, 4, 5}, 1, 2) = [3 4], want [1 2]\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-build-failure/pager\t0.003s\n",
+      "usage": {
+        "inputTokens": 2652,
+        "outputTokens": 305,
+        "thinkingTokens": 1358,
+        "cachedTokens": 0,
+        "costUsd": 0.008964,
+        "costUsdWithThinking": 0.02526,
+        "latencyMs": 12819
+      },
+      "costUsd": 0.008964,
+      "costUsdWithThinking": 0.02526
+    },
+    {
+      "id": "go-build-failure",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "finding says Page is wrong for page 1; head is page*size (base was (page-1)*size). Same code as go-regression; only the reference witness is broken."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "Page",
+        "input": "Page([]int{1, 2, 3, 4, 5}, 1, 2)",
+        "expected": "[]int{1, 2}",
+        "actual": "[]int{3, 4}"
+      },
+      "witnessSource": "package pager\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Page([]int{1, 2, 3, 4, 5}, 1, 2)\n\twant := []int{1, 2}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Page([]int{1, 2, 3, 4, 5}, 1, 2) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:12: Page([]int{1, 2, 3, 4, 5}, 1, 2) = [3 4], want [1 2]\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-build-failure/pager\t0.003s\n",
+      "usage": {
+        "inputTokens": 2652,
+        "outputTokens": 305,
+        "thinkingTokens": 992,
+        "cachedTokens": 0,
+        "costUsd": 0.008964,
+        "costUsdWithThinking": 0.020867999999999998,
+        "latencyMs": 11038
+      },
+      "costUsd": 0.008964,
+      "costUsdWithThinking": 0.020867999999999998
+    },
+    {
+      "id": "go-build-failure",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "finding says Page is wrong for page 1; head is page*size (base was (page-1)*size). Same code as go-regression; only the reference witness is broken."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "Page",
+        "input": "Page([]int{1, 2, 3, 4, 5}, 1, 2)",
+        "expected": "[]int{1, 2}",
+        "actual": "[]int{3, 4}"
+      },
+      "witnessSource": "package pager\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Page([]int{1, 2, 3, 4, 5}, 1, 2)\n\twant := []int{1, 2}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Page([]int{1, 2, 3, 4, 5}, 1, 2) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:12: Page([]int{1, 2, 3, 4, 5}, 1, 2) = [3 4], want [1 2]\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-build-failure/pager\t0.003s\n",
+      "usage": {
+        "inputTokens": 2652,
+        "outputTokens": 305,
+        "thinkingTokens": 1523,
+        "cachedTokens": 0,
+        "costUsd": 0.008964,
+        "costUsdWithThinking": 0.02724,
+        "latencyMs": 13718
+      },
+      "costUsd": 0.008964,
+      "costUsdWithThinking": 0.02724
+    },
+    {
+      "id": "go-fake-too-loose",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "every real Reader (incl. package MemReader) honours ctx, so a cancelled ctx stops after 1 read."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "store/store.go",
+        "symbol": "Fetch",
+        "input": "Fetch(cancelledCtx, &MemReader{Err: ErrRetry}, \"key\")",
+        "expected": "1 read",
+        "actual": "3 reads"
+      },
+      "witnessSource": "package store\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\t\n\tr := &MemReader{Err: ErrRetry}\n\t_, err := Fetch(ctx, r, \"key\")\n\t\n\tif got := r.Reads(); got != 1 {\n\t\tt.Fatalf(\"Fetch(cancelledCtx) reads = %d, want 1\", got)\n\t}\n\tif err != context.Canceled {\n\t\tt.Fatalf(\"Fetch(cancelledCtx) error = %v, want %v\", err, context.Canceled)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-fake-too-loose/store\t0.008s\n",
+      "usage": {
+        "inputTokens": 2884,
+        "outputTokens": 330,
+        "thinkingTokens": 2181,
+        "cachedTokens": 0,
+        "costUsd": 0.009728,
+        "costUsdWithThinking": 0.0359,
+        "latencyMs": 20340
+      },
+      "costUsd": 0.009728,
+      "costUsdWithThinking": 0.0359
+    },
+    {
+      "id": "go-fake-too-loose",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "every real Reader (incl. package MemReader) honours ctx, so a cancelled ctx stops after 1 read."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "store/store.go",
+        "symbol": "Fetch",
+        "input": "Fetch(canceledCtx, &MemReader{Err: ErrRetry}, \"key\")",
+        "expected": "1 read",
+        "actual": "3 reads"
+      },
+      "witnessSource": "package store\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel() // already cancelled\n\n\tr := &MemReader{Err: ErrRetry}\n\t_, err := Fetch(ctx, r, \"key\")\n\tif err != context.Canceled {\n\t\tt.Fatalf(\"Fetch() err = %v, want %v\", err, context.Canceled)\n\t}\n\n\tgot := r.Reads()\n\tif got != 1 {\n\t\tt.Fatalf(\"r.Reads() = %d, want 1\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-fake-too-loose/store\t0.003s\n",
+      "usage": {
+        "inputTokens": 2884,
+        "outputTokens": 328,
+        "thinkingTokens": 2555,
+        "cachedTokens": 0,
+        "costUsd": 0.009704,
+        "costUsdWithThinking": 0.040364000000000004,
+        "latencyMs": 22404
+      },
+      "costUsd": 0.009704,
+      "costUsdWithThinking": 0.040364000000000004
+    },
+    {
+      "id": "go-fake-too-loose",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "every real Reader (incl. package MemReader) honours ctx, so a cancelled ctx stops after 1 read."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "store/store.go",
+        "symbol": "Fetch",
+        "input": "Fetch(cancelledCtx, &MemReader{Err: ErrRetry}, \"key\")",
+        "expected": "1 read before returning the context error",
+        "actual": "3 reads before giving up"
+      },
+      "witnessSource": "package store\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\n\tm := &MemReader{Err: ErrRetry}\n\t_, err := Fetch(ctx, m, \"key\")\n\n\tif !errors.Is(err, context.Canceled) {\n\t\tt.Fatalf(\"Fetch() err = %v, want context.Canceled\", err)\n\t}\n\tif got := m.Reads(); got != 1 {\n\t\tt.Fatalf(\"Reads() = %v, want 1\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-fake-too-loose/store\t0.003s\n",
+      "usage": {
+        "inputTokens": 2884,
+        "outputTokens": 336,
+        "thinkingTokens": 4332,
+        "cachedTokens": 0,
+        "costUsd": 0.0098,
+        "costUsdWithThinking": 0.061784000000000006,
+        "latencyMs": 36387
+      },
+      "costUsd": 0.0098,
+      "costUsdWithThinking": 0.061784000000000006
+    },
+    {
+      "id": "go-new-code",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "file is new in the PR; Slugify does not replace spaces."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "slug/slug.go",
+        "symbol": "Slugify",
+        "input": "Slugify(\"Hello World\")",
+        "expected": "\"hello-world\"",
+        "actual": "\"hello world\""
+      },
+      "witnessSource": "package slug\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Slugify(\"Hello World\")\n\twant := \"hello-world\"\n\tif got != want {\n\t\tt.Fatalf(\"Slugify(%q) = %q, want %q\", \"Hello World\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: Slugify(\"Hello World\") = \"hello world\", want \"hello-world\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-new-code/slug\t0.002s\n",
+      "usage": {
+        "inputTokens": 2591,
+        "outputTokens": 207,
+        "thinkingTokens": 347,
+        "cachedTokens": 0,
+        "costUsd": 0.007666,
+        "costUsdWithThinking": 0.01183,
+        "latencyMs": 5413
+      },
+      "costUsd": 0.007666,
+      "costUsdWithThinking": 0.01183
+    },
+    {
+      "id": "go-new-code",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "file is new in the PR; Slugify does not replace spaces."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "slug/slug.go",
+        "symbol": "Slugify",
+        "input": "Slugify(\"Hello World\")",
+        "expected": "\"hello-world\"",
+        "actual": "\"hello world\""
+      },
+      "witnessSource": "package slug\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Slugify(\"Hello World\")\n\twant := \"hello-world\"\n\tif got != want {\n\t\tt.Fatalf(\"Slugify(%q) = %q, want %q\", \"Hello World\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: Slugify(\"Hello World\") = \"hello world\", want \"hello-world\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-new-code/slug\t0.003s\n",
+      "usage": {
+        "inputTokens": 2591,
+        "outputTokens": 192,
+        "thinkingTokens": 194,
+        "cachedTokens": 0,
+        "costUsd": 0.007486,
+        "costUsdWithThinking": 0.009814,
+        "latencyMs": 4085
+      },
+      "costUsd": 0.007486,
+      "costUsdWithThinking": 0.009814
+    },
+    {
+      "id": "go-new-code",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "file is new in the PR; Slugify does not replace spaces."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "slug/slug.go",
+        "symbol": "Slugify",
+        "input": "Slugify(\"Hello World\")",
+        "expected": "\"hello-world\"",
+        "actual": "\"hello world\""
+      },
+      "witnessSource": "package slug\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Slugify(\"Hello World\")\n\tif got != \"hello-world\" {\n\t\tt.Fatalf(\"Slugify(\\\"Hello World\\\") = %q, want %q\", got, \"hello-world\")\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: Slugify(\"Hello World\") = \"hello world\", want \"hello-world\"\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-new-code/slug\t0.003s\n",
+      "usage": {
+        "inputTokens": 2591,
+        "outputTokens": 190,
+        "thinkingTokens": 179,
+        "cachedTokens": 0,
+        "costUsd": 0.007462,
+        "costUsdWithThinking": 0.00961,
+        "latencyMs": 4315
+      },
+      "costUsd": 0.007462,
+      "costUsdWithThinking": 0.00961
+    },
+    {
+      "id": "go-opinion",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "opinion",
+        "why": "documentation/intent question; the doc comment already says 1-based."
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding is about missing documentation and design intent, not a concrete behavioral claim.",
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 2678,
+        "outputTokens": 106,
+        "thinkingTokens": 455,
+        "cachedTokens": 0,
+        "costUsd": 0.006627999999999999,
+        "costUsdWithThinking": 0.012088,
+        "latencyMs": 13667
+      },
+      "costUsd": 0.006627999999999999,
+      "costUsdWithThinking": 0.012088
+    },
+    {
+      "id": "go-opinion",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "opinion",
+        "why": "documentation/intent question; the doc comment already says 1-based."
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding complains about a missing doc comment and questions the author's intent rather than making a concrete behavioral claim.",
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 2678,
+        "outputTokens": 113,
+        "thinkingTokens": 474,
+        "cachedTokens": 0,
+        "costUsd": 0.006711999999999999,
+        "costUsdWithThinking": 0.0124,
+        "latencyMs": 6142
+      },
+      "costUsd": 0.006711999999999999,
+      "costUsdWithThinking": 0.0124
+    },
+    {
+      "id": "go-opinion",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "opinion",
+        "why": "documentation/intent question; the doc comment already says 1-based."
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding is about missing documentation and unclear intent regarding 0-based vs 1-based pages, not a specific behavioral bug.",
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 2678,
+        "outputTokens": 117,
+        "thinkingTokens": 233,
+        "cachedTokens": 0,
+        "costUsd": 0.0067599999999999995,
+        "costUsdWithThinking": 0.009555999999999999,
+        "latencyMs": 4537
+      },
+      "costUsd": 0.0067599999999999995,
+      "costUsdWithThinking": 0.009555999999999999
+    },
+    {
+      "id": "go-preexisting",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "preexisting",
+        "why": "same bug on base and head."
+      },
+      "verdict": "proven_preexisting",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "mathx/mathx.go",
+        "symbol": "Clamp",
+        "input": "Clamp(15, 0, 10)",
+        "expected": "10",
+        "actual": "0"
+      },
+      "witnessSource": "package mathx\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Clamp(15, 0, 10)\n\tif got != 10 {\n\t\tt.Fatalf(\"Clamp(15, 0, 10) = %v, want 10\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:8: Clamp(15, 0, 10) = 0, want 10\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-preexisting/mathx\t0.004s\n",
+      "usage": {
+        "inputTokens": 2701,
+        "outputTokens": 209,
+        "thinkingTokens": 340,
+        "cachedTokens": 0,
+        "costUsd": 0.00791,
+        "costUsdWithThinking": 0.01199,
+        "latencyMs": 5238
+      },
+      "costUsd": 0.00791,
+      "costUsdWithThinking": 0.01199
+    },
+    {
+      "id": "go-preexisting",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "preexisting",
+        "why": "same bug on base and head."
+      },
+      "verdict": "proven_preexisting",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "mathx/mathx.go",
+        "symbol": "Clamp",
+        "input": "Clamp(15, 0, 10)",
+        "expected": "10",
+        "actual": "0"
+      },
+      "witnessSource": "package mathx\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Clamp(15, 0, 10)\n\twant := 10\n\tif got != want {\n\t\tt.Fatalf(\"Clamp(15, 0, 10) = %d, want %d\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: Clamp(15, 0, 10) = 0, want 10\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-preexisting/mathx\t0.003s\n",
+      "usage": {
+        "inputTokens": 2701,
+        "outputTokens": 239,
+        "thinkingTokens": 364,
+        "cachedTokens": 0,
+        "costUsd": 0.00827,
+        "costUsdWithThinking": 0.012638,
+        "latencyMs": 5664
+      },
+      "costUsd": 0.00827,
+      "costUsdWithThinking": 0.012638
+    },
+    {
+      "id": "go-preexisting",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "preexisting",
+        "why": "same bug on base and head."
+      },
+      "verdict": "proven_preexisting",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "mathx/mathx.go",
+        "symbol": "Clamp",
+        "input": "Clamp(15, 0, 10)",
+        "expected": "10",
+        "actual": "0"
+      },
+      "witnessSource": "package mathx\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Clamp(15, 0, 10)\n\twant := 10\n\tif got != want {\n\t\tt.Fatalf(\"Clamp(15, 0, 10) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:9: Clamp(15, 0, 10) = 0, want 10\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-preexisting/mathx\t0.004s\n",
+      "usage": {
+        "inputTokens": 2701,
+        "outputTokens": 221,
+        "thinkingTokens": 301,
+        "cachedTokens": 0,
+        "costUsd": 0.008053999999999999,
+        "costUsdWithThinking": 0.011666,
+        "latencyMs": 5201
+      },
+      "costUsd": 0.008053999999999999,
+      "costUsdWithThinking": 0.011666
+    },
+    {
+      "id": "go-refuted-false-finding",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "code rounds half up; the claim is wrong."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pct/pct.go",
+        "symbol": "Percent",
+        "input": "Percent(2, 3)",
+        "expected": "67",
+        "actual": "66"
+      },
+      "witnessSource": "package pct\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Percent(2, 3)\n\twant := 67\n\tif got != want {\n\t\tt.Fatalf(\"Percent(2, 3) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-refuted-false-finding/pct\t0.007s\n",
+      "usage": {
+        "inputTokens": 2634,
+        "outputTokens": 221,
+        "thinkingTokens": 929,
+        "cachedTokens": 0,
+        "costUsd": 0.00792,
+        "costUsdWithThinking": 0.019068,
+        "latencyMs": 9463
+      },
+      "costUsd": 0.00792,
+      "costUsdWithThinking": 0.019068
+    },
+    {
+      "id": "go-refuted-false-finding",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "code rounds half up; the claim is wrong."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pct/pct.go",
+        "symbol": "Percent",
+        "input": "Percent(2, 3)",
+        "expected": "67",
+        "actual": "66"
+      },
+      "witnessSource": "package pct\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Percent(2, 3)\n\tif got != 67 {\n\t\tt.Fatalf(\"Percent(2, 3) = %v, want 67\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-refuted-false-finding/pct\t0.003s\n",
+      "usage": {
+        "inputTokens": 2634,
+        "outputTokens": 213,
+        "thinkingTokens": 616,
+        "cachedTokens": 0,
+        "costUsd": 0.007824000000000001,
+        "costUsdWithThinking": 0.015216,
+        "latencyMs": 7447
+      },
+      "costUsd": 0.007824000000000001,
+      "costUsdWithThinking": 0.015216
+    },
+    {
+      "id": "go-refuted-false-finding",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "code rounds half up; the claim is wrong."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pct/pct.go",
+        "symbol": "Percent",
+        "input": "Percent(2, 3)",
+        "expected": "67",
+        "actual": "66"
+      },
+      "witnessSource": "package pct\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Percent(2, 3)\n\twant := 67\n\tif got != want {\n\t\tt.Fatalf(\"Percent(2, 3) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-refuted-false-finding/pct\t0.003s\n",
+      "usage": {
+        "inputTokens": 2634,
+        "outputTokens": 221,
+        "thinkingTokens": 1044,
+        "cachedTokens": 0,
+        "costUsd": 0.00792,
+        "costUsdWithThinking": 0.020448,
+        "latencyMs": 10183
+      },
+      "costUsd": 0.00792,
+      "costUsdWithThinking": 0.020448
+    },
+    {
+      "id": "go-regression",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "head uses page*size for a 1-based page; base used (page-1)*size."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "Page",
+        "input": "Page([]int{1, 2, 3, 4, 5}, 1, 2)",
+        "expected": "[]int{1, 2}",
+        "actual": "[]int{3, 4}"
+      },
+      "witnessSource": "package pager\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\titems := []int{1, 2, 3, 4, 5}\n\tgot := Page(items, 1, 2)\n\twant := []int{1, 2}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Page(items, 1, 2) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:13: Page(items, 1, 2) = [3 4], want [1 2]\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-regression/pager\t0.003s\n",
+      "usage": {
+        "inputTokens": 2715,
+        "outputTokens": 299,
+        "thinkingTokens": 562,
+        "cachedTokens": 0,
+        "costUsd": 0.009018,
+        "costUsdWithThinking": 0.015761999999999998,
+        "latencyMs": 7584
+      },
+      "costUsd": 0.009018,
+      "costUsdWithThinking": 0.015761999999999998
+    },
+    {
+      "id": "go-regression",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "head uses page*size for a 1-based page; base used (page-1)*size."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "Page",
+        "input": "Page([]int{1, 2, 3, 4, 5}, 1, 2)",
+        "expected": "[]int{1, 2}",
+        "actual": "[]int{3, 4}"
+      },
+      "witnessSource": "package pager\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Page([]int{1, 2, 3, 4, 5}, 1, 2)\n\twant := []int{1, 2}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Page([]int{1, 2, 3, 4, 5}, 1, 2) = %v, want %v\", got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:12: Page([]int{1, 2, 3, 4, 5}, 1, 2) = [3 4], want [1 2]\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-regression/pager\t0.003s\n",
+      "usage": {
+        "inputTokens": 2715,
+        "outputTokens": 305,
+        "thinkingTokens": 1116,
+        "cachedTokens": 0,
+        "costUsd": 0.00909,
+        "costUsdWithThinking": 0.022482000000000002,
+        "latencyMs": 11223
+      },
+      "costUsd": 0.00909,
+      "costUsdWithThinking": 0.022482000000000002
+    },
+    {
+      "id": "go-regression",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "head uses page*size for a 1-based page; base used (page-1)*size."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "Page",
+        "input": "Page([]int{1, 2, 3, 4, 5}, 1, 2)",
+        "expected": "[]int{1, 2}",
+        "actual": "[]int{3, 4}"
+      },
+      "witnessSource": "package pager\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\titems := []int{1, 2, 3, 4, 5}\n\tgot := Page(items, 1, 2)\n\twant := []int{1, 2}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Page(%v, 1, 2) = %v, want %v\", items, got, want)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:13: Page([1 2 3 4 5], 1, 2) = [3 4], want [1 2]\n--- FAIL: TestGSRWitness (0.00s)\nFAIL\nFAIL\ttestbed/go-regression/pager\t0.006s\n",
+      "usage": {
+        "inputTokens": 2715,
+        "outputTokens": 301,
+        "thinkingTokens": 1105,
+        "cachedTokens": 0,
+        "costUsd": 0.009042,
+        "costUsdWithThinking": 0.022302000000000002,
+        "latencyMs": 12735
+      },
+      "costUsd": 0.009042,
+      "costUsdWithThinking": 0.022302000000000002
+    },
+    {
+      "id": "go-setup-skip",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "'Page mishandles nil input': Page(nil,..) returns nil via the start>=len guard."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "Page",
+        "input": "Page(nil, 1, 10)",
+        "expected": "nil",
+        "actual": "panics or mishandles nil input"
+      },
+      "witnessSource": "package pager\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Page(nil, 1, 10)\n\tif got != nil {\n\t\tt.Fatalf(\"Page(nil, 1, 10) = %v, want nil\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-setup-skip/pager\t0.002s\n",
+      "usage": {
+        "inputTokens": 2646,
+        "outputTokens": 226,
+        "thinkingTokens": 2743,
+        "cachedTokens": 0,
+        "costUsd": 0.008004,
+        "costUsdWithThinking": 0.04092,
+        "latencyMs": 22740
+      },
+      "costUsd": 0.008004,
+      "costUsdWithThinking": 0.04092
+    },
+    {
+      "id": "go-setup-skip",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "'Page mishandles nil input': Page(nil,..) returns nil via the start>=len guard."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "Page",
+        "input": "Page(nil, 1, 10)",
+        "expected": "nil or empty slice",
+        "actual": "panic or incorrect result"
+      },
+      "witnessSource": "package pager\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Page(nil, 1, 10)\n\t// A correct implementation should gracefully handle nil input by returning an empty or nil slice.\n\tif len(got) != 0 {\n\t\tt.Fatalf(\"Page(nil, 1, 10) = %v, want nil or empty slice\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-setup-skip/pager\t0.004s\n",
+      "usage": {
+        "inputTokens": 2646,
+        "outputTokens": 252,
+        "thinkingTokens": 1622,
+        "cachedTokens": 0,
+        "costUsd": 0.008316,
+        "costUsdWithThinking": 0.02778,
+        "latencyMs": 15085
+      },
+      "costUsd": 0.008316,
+      "costUsdWithThinking": 0.02778
+    },
+    {
+      "id": "go-setup-skip",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "'Page mishandles nil input': Page(nil,..) returns nil via the start>=len guard."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "Page",
+        "input": "Page(nil, 1, 10)",
+        "expected": "nil",
+        "actual": "panic or incorrect result"
+      },
+      "witnessSource": "package pager\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Page(nil, 1, 10)\n\tif got != nil {\n\t\tt.Fatalf(\"Page(nil, 1, 10) = %v, want nil\", got)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.00s)\nPASS\nok  \ttestbed/go-setup-skip/pager\t0.002s\n",
+      "usage": {
+        "inputTokens": 2646,
+        "outputTokens": 222,
+        "thinkingTokens": 2183,
+        "cachedTokens": 0,
+        "costUsd": 0.007956,
+        "costUsdWithThinking": 0.034152,
+        "latencyMs": 20060
+      },
+      "costUsd": 0.007956,
+      "costUsdWithThinking": 0.034152
+    },
+    {
+      "id": "go-timeout",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "'Page can hang': Page has no loops or blocking calls."
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "insufficient_context",
+        "notTestableReason": "The finding claims that Page can hang but does not specify an input that would trigger this behavior, and the function contains no loops or blocking operations to deduce a triggering case.",
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 2640,
+        "outputTokens": 127,
+        "thinkingTokens": 2751,
+        "cachedTokens": 0,
+        "costUsd": 0.006804,
+        "costUsdWithThinking": 0.039816,
+        "latencyMs": 24798
+      },
+      "costUsd": 0.006804,
+      "costUsdWithThinking": 0.039816
+    },
+    {
+      "id": "go-timeout",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "'Page can hang': Page has no loops or blocking calls."
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "needs_environment",
+        "notTestableReason": "Proving that a function hangs or asserting that it terminates requires concurrency and timers to deterministically fail the test without freezing the test runner.",
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "Page",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 2640,
+        "outputTokens": 121,
+        "thinkingTokens": 3649,
+        "cachedTokens": 0,
+        "costUsd": 0.006732,
+        "costUsdWithThinking": 0.05052,
+        "latencyMs": 37949
+      },
+      "costUsd": 0.006732,
+      "costUsdWithThinking": 0.05052
+    },
+    {
+      "id": "go-timeout",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "'Page can hang': Page has no loops or blocking calls."
+      },
+      "verdict": "hypothesis",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "needs_environment",
+        "notTestableReason": "Proving whether a function hangs requires concurrency or timing mechanisms (like goroutines and timeouts), which are prohibited in deterministic witnesses.",
+        "language": "go",
+        "file": "pager/pager.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 2640,
+        "outputTokens": 117,
+        "thinkingTokens": 2416,
+        "cachedTokens": 0,
+        "costUsd": 0.006684,
+        "costUsdWithThinking": 0.035676,
+        "latencyMs": 22428
+      },
+      "costUsd": 0.006684,
+      "costUsdWithThinking": 0.035676
+    },
+    {
+      "id": "js-refuted-false-finding",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "sumPositive filters x>0 before summing."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/sum.js",
+        "symbol": "sumPositive",
+        "input": "sumPositive([1, -5, 2])",
+        "expected": "3",
+        "actual": "-2"
+      },
+      "witnessSource": "const { sumPositive } = require('./sum.js');\n\nif (typeof sumPositive !== 'function') throw new Error('gsr-setup: sumPositive not exported');\n\ntest('gsr witness', () => {\n  expect(sumPositive([1, -5, 2])).toBe(3);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "",
+      "usage": {
+        "inputTokens": 2573,
+        "outputTokens": 209,
+        "thinkingTokens": 570,
+        "cachedTokens": 0,
+        "costUsd": 0.007654,
+        "costUsdWithThinking": 0.014494,
+        "latencyMs": 7171
+      },
+      "costUsd": 0.007654,
+      "costUsdWithThinking": 0.014494
+    },
+    {
+      "id": "js-refuted-false-finding",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "sumPositive filters x>0 before summing."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/sum.js",
+        "symbol": "sumPositive",
+        "input": "sumPositive([1, -5, 2])",
+        "expected": "3",
+        "actual": "-2"
+      },
+      "witnessSource": "const { sumPositive } = require('./sum.js');\n\nif (typeof sumPositive !== 'function') throw new Error('gsr-setup: sumPositive not exported');\n\ntest('gsr witness', () => {\n  expect(sumPositive([1, -5, 2])).toBe(3);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "",
+      "usage": {
+        "inputTokens": 2573,
+        "outputTokens": 187,
+        "thinkingTokens": 373,
+        "cachedTokens": 0,
+        "costUsd": 0.007390000000000001,
+        "costUsdWithThinking": 0.011866000000000002,
+        "latencyMs": 5681
+      },
+      "costUsd": 0.007390000000000001,
+      "costUsdWithThinking": 0.011866000000000002
+    },
+    {
+      "id": "js-refuted-false-finding",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "sumPositive filters x>0 before summing."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/sum.js",
+        "symbol": "sumPositive",
+        "input": "sumPositive([1, -5, 2])",
+        "expected": "3",
+        "actual": "-2"
+      },
+      "witnessSource": "const { sumPositive } = require('./sum.js');\n\nif (typeof sumPositive !== 'function') throw new Error('gsr-setup: sumPositive not exported');\n\ntest('gsr witness', () => {\n  expect(sumPositive([1, -5, 2])).toBe(3);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "",
+      "usage": {
+        "inputTokens": 2573,
+        "outputTokens": 209,
+        "thinkingTokens": 615,
+        "cachedTokens": 0,
+        "costUsd": 0.007654,
+        "costUsdWithThinking": 0.015033999999999999,
+        "latencyMs": 7300
+      },
+      "costUsd": 0.007654,
+      "costUsdWithThinking": 0.015033999999999999
+    },
+    {
+      "id": "js-regression",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "head treats pct as a fraction."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/discount.js",
+        "symbol": "applyDiscount",
+        "input": "applyDiscount(200, 10)",
+        "expected": "180",
+        "actual": "-1800"
+      },
+      "witnessSource": "const { applyDiscount } = require('./discount.js');\n\nif (typeof applyDiscount !== 'function') throw new Error('gsr-setup: applyDiscount not exported');\n\ntest('gsr witness', () => {\n  expect(applyDiscount(200, 10)).toBe(180);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "  ● gsr witness\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: 180\n    Received: -1800\n\n      4 |\n      5 | test('gsr witness', () => {\n    > 6 |   expect(applyDiscount(200, 10)).toBe(180);\n        |                                  ^\n      7 | });\n      8 |\n\n      at Object.toBe (src/discount.gsr-witness.test.js:6:34)\n",
+      "usage": {
+        "inputTokens": 2620,
+        "outputTokens": 178,
+        "thinkingTokens": 287,
+        "cachedTokens": 0,
+        "costUsd": 0.007376,
+        "costUsdWithThinking": 0.01082,
+        "latencyMs": 4786
+      },
+      "costUsd": 0.007376,
+      "costUsdWithThinking": 0.01082
+    },
+    {
+      "id": "js-regression",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "head treats pct as a fraction."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/discount.js",
+        "symbol": "applyDiscount",
+        "input": "applyDiscount(200, 10)",
+        "expected": "180",
+        "actual": "-1800"
+      },
+      "witnessSource": "const { applyDiscount } = require('./discount.js');\n\nif (typeof applyDiscount !== 'function') throw new Error('gsr-setup: applyDiscount not exported');\n\ntest('gsr witness', () => {\n  expect(applyDiscount(200, 10)).toBe(180);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "  ● gsr witness\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: 180\n    Received: -1800\n\n      4 |\n      5 | test('gsr witness', () => {\n    > 6 |   expect(applyDiscount(200, 10)).toBe(180);\n        |                                  ^\n      7 | });\n      8 |\n\n      at Object.toBe (src/discount.gsr-witness.test.js:6:34)\n",
+      "usage": {
+        "inputTokens": 2620,
+        "outputTokens": 215,
+        "thinkingTokens": 528,
+        "cachedTokens": 0,
+        "costUsd": 0.00782,
+        "costUsdWithThinking": 0.014156,
+        "latencyMs": 6705
+      },
+      "costUsd": 0.00782,
+      "costUsdWithThinking": 0.014156
+    },
+    {
+      "id": "js-regression",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "true",
+        "attribution": "regression",
+        "why": "head treats pct as a fraction."
+      },
+      "verdict": "proven_regression",
+      "outcome": "correct_proven",
+      "claim": {
+        "testable": true,
+        "language": "javascript",
+        "file": "src/discount.js",
+        "symbol": "applyDiscount",
+        "input": "applyDiscount(200, 10)",
+        "expected": "180",
+        "actual": "-1800"
+      },
+      "witnessSource": "const { applyDiscount } = require('./discount.js');\n\nif (typeof applyDiscount !== 'function') throw new Error('gsr-setup: applyDiscount not exported');\n\ntest('gsr witness', () => {\n  expect(applyDiscount(200, 10)).toBe(180);\n});\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        }
+      },
+      "headTail": "  ● gsr witness\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: 180\n    Received: -1800\n\n      4 |\n      5 | test('gsr witness', () => {\n    > 6 |   expect(applyDiscount(200, 10)).toBe(180);\n        |                                  ^\n      7 | });\n      8 |\n\n      at Object.toBe (src/discount.gsr-witness.test.js:6:34)\n",
+      "usage": {
+        "inputTokens": 2620,
+        "outputTokens": 215,
+        "thinkingTokens": 677,
+        "cachedTokens": 0,
+        "costUsd": 0.00782,
+        "costUsdWithThinking": 0.015944,
+        "latencyMs": 7224
+      },
+      "costUsd": 0.00782,
+      "costUsdWithThinking": 0.015944
+    },
+    {
+      "id": "js-setup-failure",
+      "set": "testbed",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "'sumPositive is wrong' is vague and the code is correct (adds positives, ignores the rest)."
+      },
+      "verdict": "opinion",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding claims sumPositive is wrong but does not describe any concrete behavioral issue, input, or incorrect output.",
+        "language": "javascript",
+        "file": "src/sum.js",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 2497,
+        "outputTokens": 102,
+        "thinkingTokens": 656,
+        "cachedTokens": 0,
+        "costUsd": 0.0062180000000000004,
+        "costUsdWithThinking": 0.01409,
+        "latencyMs": 7565
+      },
+      "costUsd": 0.0062180000000000004,
+      "costUsdWithThinking": 0.01409
+    },
+    {
+      "id": "js-setup-failure",
+      "set": "testbed",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "'sumPositive is wrong' is vague and the code is correct (adds positives, ignores the rest)."
+      },
+      "verdict": "opinion",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding states the function is wrong but does not specify the incorrect behavior or the expected result, making it impossible to write a specific behavioral test.",
+        "language": "javascript",
+        "file": "src/sum.js",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 2497,
+        "outputTokens": 109,
+        "thinkingTokens": 345,
+        "cachedTokens": 0,
+        "costUsd": 0.006302,
+        "costUsdWithThinking": 0.010442,
+        "latencyMs": 5470
+      },
+      "costUsd": 0.006302,
+      "costUsdWithThinking": 0.010442
+    },
+    {
+      "id": "js-setup-failure",
+      "set": "testbed",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "'sumPositive is wrong' is vague and the code is correct (adds positives, ignores the rest)."
+      },
+      "verdict": "opinion",
+      "outcome": "no_conclusion",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding states that the function is wrong but provides no specific input, expected output, or description of the incorrect behavior to test.",
+        "language": "javascript",
+        "file": "src/sum.js",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 2497,
+        "outputTokens": 116,
+        "thinkingTokens": 690,
+        "cachedTokens": 0,
+        "costUsd": 0.006386,
+        "costUsdWithThinking": 0.014666,
+        "latencyMs": 7775
+      },
+      "costUsd": 0.006386,
+      "costUsdWithThinking": 0.014666
+    },
+    {
+      "id": "recruiter-store-mutate-missing-ctx-done",
+      "set": "spike",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "Phase 0 reproduced that with a ctx-aware client a cancelled context stops after one read and zero writes; only a ctx-ignoring fake shows the 'bug'."
+      },
+      "verdict": "refuted",
+      "outcome": "correct_refuted",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/recruiter/store.go",
+        "symbol": "(*Store).Mutate",
+        "input": "context cancelled during the first retry attempt",
+        "expected": "aborts the retry loop early when the next read catches the context cancellation",
+        "actual": "keeps sleeping and retrying until maxWriteRetries is exhausted"
+      },
+      "witnessSource": "package recruiter\n\nimport (\n\t\"context\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrFakeStorage struct {\n\tstorage.Client\n}\n\nfunc (f *gsrFakeStorage) ReadFile(ctx context.Context, bucket, key string) ([]byte, string, error) {\n\tif err := ctx.Err(); err != nil {\n\t\treturn nil, \"\", err\n\t}\n\treturn []byte(`{}`), \"etag1\", nil\n}\n\nfunc (f *gsrFakeStorage) WriteFile(ctx context.Context, bucket, key string, data []byte, ifMatch string) error {\n\t// Return an ETag mismatch unconditionally so Mutate enters its time.Sleep\n\t// backoff. We bypass ctx.Err() checks here to perfectly simulate the context\n\t// being cancelled concurrently exactly as the sleep starts.\n\treturn storage.ErrETagMismatch\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tdefer cancel()\n\n\ts := &Store{\n\t\tStorage: &gsrFakeStorage{},\n\t\tBucket:  \"test-bucket\",\n\t}\n\n\tattempts := 0\n\t_, _ = s.Mutate(ctx, \"profile-1\", func(c Contact) Contact {\n\t\tattempts++\n\t\tif attempts == 1 {\n\t\t\tcancel() // Cancel the context during the first attempt\n\t\t}\n\t\treturn c\n\t})\n\n\tif attempts >= maxWriteRetries {\n\t\tt.Fatalf(\"Mutate(ctx) exhausted all %d retries despite cancelled context; expected early abort\", attempts)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "head2": {
+          "outcome": "pass",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 0
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n--- PASS: TestGSRWitness (0.05s)\nPASS\nok  \tgithub.com/weitzer-org/job_tracker/internal/recruiter\t0.057s\n",
+      "usage": {
+        "inputTokens": 32525,
+        "outputTokens": 624,
+        "thinkingTokens": 15637,
+        "cachedTokens": 0,
+        "costUsd": 0.07253799999999999,
+        "costUsdWithThinking": 0.260182,
+        "latencyMs": 120577
+      },
+      "costUsd": 0.07253799999999999,
+      "costUsdWithThinking": 0.260182
+    },
+    {
+      "id": "recruiter-store-mutate-missing-ctx-done",
+      "set": "spike",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "Phase 0 reproduced that with a ctx-aware client a cancelled context stops after one read and zero writes; only a ctx-ignoring fake shows the 'bug'."
+      },
+      "verdict": "proven_regression",
+      "outcome": "wrong_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/recruiter/store.go",
+        "symbol": "(*Store).Mutate",
+        "input": "Mutate(canceledCtx, ...)",
+        "expected": "WriteFile calls <= 1 (early abort)",
+        "actual": "WriteFile calls == maxWriteRetries"
+      },
+      "witnessSource": "package recruiter\n\nimport (\n\t\"context\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrFakeStorage struct {\n\tstorage.Client\n\twrites int\n}\n\nfunc (f *gsrFakeStorage) ReadFile(ctx context.Context, bucket, name string) ([]byte, string, error) {\n\treturn []byte(`{}`), \"etag123\", nil\n}\n\nfunc (f *gsrFakeStorage) WriteFile(ctx context.Context, bucket, name string, data []byte, ifMatch string) error {\n\tf.writes++\n\treturn storage.ErrETagMismatch\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel() // cancel immediately\n\n\tfs := &gsrFakeStorage{}\n\tstore := &Store{Storage: fs, Bucket: \"test-bucket\"}\n\n\t_, _ = store.Mutate(ctx, \"https://linkedin.com/in/jane\", func(c Contact) Contact { return c })\n\n\tif fs.writes > 1 {\n\t\tt.Fatalf(\"WriteFile calls = %d, want <= 1\", fs.writes)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:34: WriteFile calls = 5, want <= 1\n--- FAIL: TestGSRWitness (0.21s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/recruiter\t0.214s\n",
+      "usage": {
+        "inputTokens": 32525,
+        "outputTokens": 490,
+        "thinkingTokens": 5252,
+        "cachedTokens": 0,
+        "costUsd": 0.07092999999999999,
+        "costUsdWithThinking": 0.13395400000000002,
+        "latencyMs": 42555
+      },
+      "costUsd": 0.07092999999999999,
+      "costUsdWithThinking": 0.13395400000000002
+    },
+    {
+      "id": "recruiter-store-mutate-missing-ctx-done",
+      "set": "spike",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "false",
+        "why": "Phase 0 reproduced that with a ctx-aware client a cancelled context stops after one read and zero writes; only a ctx-ignoring fake shows the 'bug'."
+      },
+      "verdict": "proven_regression",
+      "outcome": "wrong_proven",
+      "claim": {
+        "testable": true,
+        "language": "go",
+        "file": "internal/recruiter/store.go",
+        "symbol": "(*Store).Mutate",
+        "input": "Store.Mutate with a context that is cancelled precisely during an ETag mismatch conflict",
+        "expected": "aborts the retry loop early and returns an error wrapping context.Canceled",
+        "actual": "ignores the context cancellation during the backoff sleep and retries until maxWriteRetries is exhausted"
+      },
+      "witnessSource": "package recruiter\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"testing\"\n\n\t\"github.com/weitzer-org/job_tracker/internal/storage\"\n)\n\ntype gsrMockStorage struct {\n\tstorage.Client\n\twrites int\n\tcancel context.CancelFunc\n}\n\nfunc (m *gsrMockStorage) ReadFile(ctx context.Context, bucket, objectKey string) ([]byte, string, error) {\n\treturn []byte(`{}`), \"etag\", nil\n}\n\nfunc (m *gsrMockStorage) WriteFile(ctx context.Context, bucket, objectKey string, data []byte, ifMatch string) error {\n\tm.writes++\n\tif m.cancel != nil {\n\t\tm.cancel() // cancel the context during the first conflict write to simulate the race\n\t\tm.cancel = nil\n\t}\n\treturn storage.ErrETagMismatch\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tdefer cancel()\n\n\tm := &gsrMockStorage{cancel: cancel}\n\ts := &Store{\n\t\tStorage: m,\n\t\tBucket:  \"test-bucket\",\n\t}\n\n\t_, err := s.Mutate(ctx, \"profile1\", func(c Contact) Contact { return c })\n\n\tif m.writes == maxWriteRetries {\n\t\tt.Fatalf(\"Store.Mutate ignored context cancellation during ETag mismatch backoff, made all %d attempts\", m.writes)\n\t}\n\tif !errors.Is(err, context.Canceled) {\n\t\tt.Fatalf(\"Store.Mutate err = %v, want context.Canceled\", err)\n\t}\n}\n",
+      "runs": {
+        "head1": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "head2": {
+          "outcome": "fail",
+          "buildFailed": false,
+          "timedOut": false,
+          "exitCode": 1
+        },
+        "base": null
+      },
+      "headTail": "=== RUN   TestGSRWitness\n    zz_gsr_witness_test.go:43: Store.Mutate ignored context cancellation during ETag mismatch backoff, made all 5 attempts\n--- FAIL: TestGSRWitness (0.27s)\nFAIL\nFAIL\tgithub.com/weitzer-org/job_tracker/internal/recruiter\t0.275s\n",
+      "usage": {
+        "inputTokens": 32525,
+        "outputTokens": 639,
+        "thinkingTokens": 8793,
+        "cachedTokens": 28591,
+        "costUsd": 0.015536000000000001,
+        "costUsdWithThinking": 0.121052,
+        "latencyMs": 69926
+      },
+      "costUsd": 0.015536000000000001,
+      "costUsdWithThinking": 0.121052
+    },
+    {
+      "id": "scoring-fallback-judge-passthrough",
+      "set": "spike",
+      "rep": 0,
+      "prompt": "v1",
+      "truth": {
+        "truth": "opinion",
+        "why": "asks whether pass-through was intended and wants a doc comment; not a behavioral claim."
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The reviewer is pointing out a lack of documentation and questioning the author's intention ('unclear whether Judge was meant to...'), rather than asserting that the current behavior is definitively incorrect.",
+        "language": "go",
+        "file": "internal/scoring/fallback.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 17685,
+        "outputTokens": 119,
+        "thinkingTokens": 402,
+        "cachedTokens": 0,
+        "costUsd": 0.036798,
+        "costUsdWithThinking": 0.041622,
+        "latencyMs": 5891
+      },
+      "costUsd": 0.036798,
+      "costUsdWithThinking": 0.041622
+    },
+    {
+      "id": "scoring-fallback-judge-passthrough",
+      "set": "spike",
+      "rep": 1,
+      "prompt": "v1",
+      "truth": {
+        "truth": "opinion",
+        "why": "asks whether pass-through was intended and wants a doc comment; not a behavioral claim."
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding points out missing documentation and raises a question about design intent ('unclear whether Judge was meant to get the same outage-tolerant treatment'), which is not a testable behavioral claim.",
+        "language": "go",
+        "file": "internal/scoring/fallback.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 17685,
+        "outputTokens": 130,
+        "thinkingTokens": 715,
+        "cachedTokens": 0,
+        "costUsd": 0.03693,
+        "costUsdWithThinking": 0.045509999999999995,
+        "latencyMs": 7815
+      },
+      "costUsd": 0.03693,
+      "costUsdWithThinking": 0.045509999999999995
+    },
+    {
+      "id": "scoring-fallback-judge-passthrough",
+      "set": "spike",
+      "rep": 2,
+      "prompt": "v1",
+      "truth": {
+        "truth": "opinion",
+        "why": "asks whether pass-through was intended and wants a doc comment; not a behavioral claim."
+      },
+      "verdict": "opinion",
+      "outcome": "correct_abstain",
+      "claim": {
+        "testable": false,
+        "notTestableKind": "opinion",
+        "notTestableReason": "The finding notes a missing doc comment and questions whether Judge was meant to receive the same fallback treatment as ScoreJob, which is a question of intent and design preference rather than a claim of incorrect behavior.",
+        "language": "go",
+        "file": "internal/scoring/fallback.go",
+        "symbol": "",
+        "input": "",
+        "expected": "",
+        "actual": ""
+      },
+      "usage": {
+        "inputTokens": 17685,
+        "outputTokens": 122,
+        "thinkingTokens": 964,
+        "cachedTokens": 12224,
+        "costUsd": 0.012386,
+        "costUsdWithThinking": 0.023954,
+        "latencyMs": 11478
+      },
+      "costUsd": 0.012386,
+      "costUsdWithThinking": 0.023954
+    }
+  ]
+}

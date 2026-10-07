@@ -1,0 +1,12 @@
+{
+  "id": "go-window-offbyone-true",
+  "language": "go",
+  "finding": {
+    "file": "win/win.go",
+    "line": 8,
+    "severity": "HIGH",
+    "summary": "Last returns n+1 items: Last([1 2 3 4], 2) returns [2 3 4] instead of [3 4]."
+  },
+  "expectedVerdict": "proven_regression",
+  "notes": "A plain TRUE off-by-one regression."
+}

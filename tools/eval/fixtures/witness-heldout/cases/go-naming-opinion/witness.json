@@ -1,0 +1,14 @@
+{
+  "claim": {
+    "testable": false,
+    "notTestableKind": "opinion",
+    "notTestableReason": "Variable naming is a style preference with no behavioural difference.",
+    "language": "go",
+    "file": "naming/naming.go",
+    "symbol": "",
+    "input": "",
+    "expected": "",
+    "actual": ""
+  },
+  "witness": null
+}

@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "poll/poll.go",
+    "symbol": "Poll",
+    "input": "Poll(cancelledCtx, &FakeSource{Err: ErrNotReady}, \"k\")",
+    "expected": "1 Get call",
+    "actual": "4 Get calls"
+  },
+  "witness": {
+    "path": "poll/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package poll\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\tsrc := &FakeSource{Err: ErrNotReady}\n\t_, _ = Poll(ctx, src, \"k\")\n\tif src.Calls() > 1 {\n\t\tt.Fatalf(\"Poll with a cancelled context made %d Get calls, want 1\", src.Calls())\n\t}\n}\n"
+  }
+}

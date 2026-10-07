@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "saver/saver.go",
+    "symbol": "Save",
+    "input": "Save(cancelledCtx, ctxHonouringStore, \"id\", \"a\", \"b\")",
+    "expected": "1 Put call",
+    "actual": "2 Put calls"
+  },
+  "witness": {
+    "path": "saver/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package saver\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\ntype gsrWitnessStore struct{ puts int }\n\nfunc (s *gsrWitnessStore) Put(ctx context.Context, key, value string) error {\n\ts.puts++\n\treturn ctx.Err()\n}\n\nfunc TestGSRWitness(t *testing.T) {\n\tctx, cancel := context.WithCancel(context.Background())\n\tcancel()\n\ts := &gsrWitnessStore{}\n\t_ = Save(ctx, s, \"id\", \"a\", \"b\")\n\tif s.puts != 1 {\n\t\tt.Fatalf(\"Save with a cancelled context made %d Put calls, want 1\", s.puts)\n\t}\n}\n"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "go-ctx-package-double-loose",
+  "language": "go",
+  "finding": {
+    "file": "saver/saver.go",
+    "line": 13,
+    "severity": "HIGH",
+    "summary": "Save ignores cancellation: with an already-cancelled context it still performs both Put calls before returning."
+  },
+  "expectedVerdict": "refuted",
+  "notes": "A FALSE finding whose only \"proof\" comes from the package double that ignores ctx and says so. witness.json uses a contract-compliant store and is refuted; witness.loose.json reuses MemStore and is wrongly proven (base == head, so proven_preexisting).",
+  "alsoCheck": [
+    {
+      "witnessFile": "witness.loose.json",
+      "expectedVerdict": "proven_preexisting",
+      "knownFalseProof": true
+    }
+  ]
+}

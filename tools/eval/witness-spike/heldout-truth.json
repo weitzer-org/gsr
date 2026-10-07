@@ -1,0 +1,63 @@
+{
+  "description": "Ground truth for the held-out set (fixtures/witness-heldout). Written together with the cases and fixed BEFORE any author run, and never edited after seeing author output. Same schema as author-truth.json. These cases were authored after, and deliberately differ from, the findings v2's prompt rule was tuned on: they cover TRUE ctx/contract bugs (to measure false refutation), a package double that itself violates the contract, other contract and error-path traps (non-ctx), and plain true/false/opinion findings. Reference witnesses were executed through the real pipeline to check each label (see tests/witnessHeldout.test.ts and `testbed.ts --heldout`). Labels were then independently re-derived by execution by a second reviewer. That review found go-contract-sorted-false arguable (its finding named an input that violates the Lister contract, and the reference witness refuted a different input), so before any author run the case was redesigned so the finding's stated input is inside the contract; go-memo-error-path-false had its type renamed so its symbol does not coincide with the example symbol in the author prompts. PRE-REGISTERED METRICS (fixed before any held-out run): the headline numbers are wrong_proven on the false and opinion cases and false_refutation on the true cases, reported PER CASE (the set is small, and three cases are traps); yield, correct_refuted and no_conclusion are secondary, and a decline on a false case is neutral, never an error. No pooled significance claim will be made from this set. Known limits: the plain cases (cents, sorted-copy, window, chunk, median, clamp) are easy and will likely saturate, so the signal is in the traps and the two true ctx/contract cases; eight cases have base == head, so attribution is only tested by go-tally-nilmap-true (preexisting) and the regression cases.",
+  "cases": {
+    "go-ctx-retry-true": {
+      "truth": "true",
+      "why": "Head retries on every error including ctx.Err(); base returned on any error other than ErrNotReady. A ctx-honouring Source (the package FakeSource) shows 4 calls vs 1.",
+      "attribution": "regression"
+    },
+    "go-ctx-package-double-loose": {
+      "truth": "false",
+      "why": "Store documents that implementations MUST honour ctx, so with any compliant Store a cancelled ctx stops Save after the first Put. Only the package MemStore (documented as non-compliant) shows 2 calls."
+    },
+    "go-contract-sorted-false": {
+      "truth": "false",
+      "why": "The stated input is within the Lister contract (each lister is sorted and duplicate-free; the same name appears once in each). Merge handles equal heads in its default branch and returns [a]. Only a single Lister that itself lists a name twice, violating its no-duplicates contract, makes Merge return a duplicate."
+    },
+    "go-memo-error-path-false": {
+      "truth": "false",
+      "why": "For a successful load, load runs once per key (second Get is served from the map). Only a FAILING load runs twice, which the doc comment says is intended (errors are not cached)."
+    },
+    "go-window-offbyone-true": {
+      "truth": "true",
+      "why": "Head slices from len-n-1; base sliced from len-n.",
+      "attribution": "regression"
+    },
+    "go-tally-nilmap-true": {
+      "truth": "true",
+      "why": "The map is declared but never made, on base and on head, so any non-empty input panics.",
+      "attribution": "preexisting"
+    },
+    "go-median-new-true": {
+      "truth": "true",
+      "why": "File is new in the PR; the even-length branch returns the lower middle, contradicting its own doc comment.",
+      "attribution": "regression"
+    },
+    "go-cents-round-false": {
+      "truth": "false",
+      "why": "Uses math.Round; 0.29*100 is 28.999999999999996 and rounds to 29."
+    },
+    "go-sorted-copy-false": {
+      "truth": "false",
+      "why": "Sorts a copy made with append([]int(nil), xs...)."
+    },
+    "go-flush-after-error-true": {
+      "truth": "true",
+      "why": "Head flushes inside the error branch; base returned the error without flushing. The package RecordingWriter honours the Writer contract.",
+      "attribution": "regression"
+    },
+    "go-naming-opinion": {
+      "truth": "opinion",
+      "why": "Naming preference, not behaviour."
+    },
+    "js-chunk-partial-true": {
+      "truth": "true",
+      "why": "Head loop condition i + size <= length skips the last short group; base used i < length.",
+      "attribution": "regression"
+    },
+    "js-clamp-false": {
+      "truth": "false",
+      "why": "Math.min(1, ...) caps the value at 1."
+    }
+  }
+}

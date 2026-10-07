@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "memo/memo.go",
+    "symbol": "(*Memoizer).Get",
+    "input": "c.Get(\"k\", failingLoad) twice",
+    "expected": "1 load call",
+    "actual": "2 load calls"
+  },
+  "witness": {
+    "path": "memo/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package memo\n\nimport (\n\t\"errors\"\n\t\"testing\"\n)\n\nfunc TestGSRWitness(t *testing.T) {\n\tc := New()\n\tcalls := 0\n\tload := func(k string) (string, error) {\n\t\tcalls++\n\t\treturn \"\", errors.New(\"boom\")\n\t}\n\t_, _ = c.Get(\"k\", load)\n\t_, _ = c.Get(\"k\", load)\n\tif calls != 1 {\n\t\tt.Fatalf(\"load called %d times for one key, want 1\", calls)\n\t}\n}\n"
+  }
+}

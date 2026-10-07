@@ -512,8 +512,15 @@ const KNOWN_REVIEW_CALL_TYPES = new Set([
   'debug_single',
 ]);
 
+// Call types that count as eval workload: tools/eval's judge calls share the llm_compare prefix, evaluate is the
+// backend's own eval call, and witness_author is the Prove It benchmark (tools/eval/witness-spike/author.ts).
+// No record with callType witness_author existed before it was added here, so no already-cached rollup is stale
+// and CURRENT_SCHEMA_VERSION is deliberately not bumped. Same disjointness invariant as KNOWN_REVIEW_CALL_TYPES.
+const KNOWN_EVAL_CALL_TYPES = new Set(['evaluate', 'witness_author']);
+const EVAL_CALL_PREFIXES = ['llm_compare'];
+
 function workloadOf(rec: UsageRecord): 'eval' | 'review' | 'product' {
-  if (rec.callType === 'evaluate' || rec.callType.startsWith('llm_compare')) return 'eval';
+  if (KNOWN_EVAL_CALL_TYPES.has(rec.callType) || EVAL_CALL_PREFIXES.some((p) => rec.callType.startsWith(p))) return 'eval';
   if (KNOWN_REVIEW_CALL_TYPES.has(rec.callType)) return 'review';
   return 'product';
 }

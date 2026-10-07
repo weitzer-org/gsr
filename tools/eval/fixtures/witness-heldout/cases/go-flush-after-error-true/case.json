@@ -1,0 +1,12 @@
+{
+  "id": "go-flush-after-error-true",
+  "language": "go",
+  "finding": {
+    "file": "upload/upload.go",
+    "line": 13,
+    "severity": "HIGH",
+    "summary": "Upload calls Flush after a failed Write, committing a partial upload."
+  },
+  "expectedVerdict": "proven_regression",
+  "notes": "A TRUE contract bug where the in-package double honours the contract: measures whether the contract rule makes an author refute or give up on a real bug."
+}

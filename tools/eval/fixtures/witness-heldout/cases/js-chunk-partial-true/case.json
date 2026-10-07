@@ -1,0 +1,12 @@
+{
+  "id": "js-chunk-partial-true",
+  "language": "javascript",
+  "finding": {
+    "file": "src/chunk.js",
+    "line": 4,
+    "severity": "HIGH",
+    "summary": "chunk drops the final partial group: chunk([1,2,3], 2) returns [[1,2]] instead of [[1,2],[3]]."
+  },
+  "expectedVerdict": "proven_regression",
+  "notes": "A TRUE JavaScript regression."
+}

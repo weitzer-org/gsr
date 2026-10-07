@@ -1,0 +1,12 @@
+{
+  "id": "go-tally-nilmap-true",
+  "language": "go",
+  "finding": {
+    "file": "tally/tally.go",
+    "line": 6,
+    "severity": "HIGH",
+    "summary": "Tally panics: it writes to a nil map, so Tally([a]) crashes instead of returning map[a:1]."
+  },
+  "expectedVerdict": "proven_preexisting",
+  "notes": "A TRUE bug that panics on both base and head (the PR did not introduce it)."
+}

@@ -3,7 +3,7 @@
 // checks the verdict against the case's expectedVerdict. The cases are tiny
 // synthetic projects, so this runs offline in seconds and needs no model.
 //
-//   ts-node witness-spike/testbed.ts [--only <case-id>] [--list]
+//   ts-node witness-spike/testbed.ts [--only <case-id>] [--list] [--heldout]
 //
 // Go cases need Docker and the witness-go image (see run-probe.sh / the spike
 // report); Jest cases run unsandboxed with tools/eval's own jest and are
@@ -17,6 +17,8 @@ import { evaluateWitness } from './pipeline';
 import { SandboxConfig } from './sandbox';
 
 export const CASES_DIR = path.join(__dirname, '..', 'fixtures', 'witness-testbed', 'cases');
+/** Held-out cases, same layout; written after the author prompt was tuned and never used to tune it. */
+export const HELDOUT_DIR = path.join(__dirname, '..', 'fixtures', 'witness-heldout', 'cases');
 
 export interface AlsoCheck { witnessFile: string; expectedVerdict: WitnessVerdict; knownFalseProof?: boolean }
 export interface TestbedCase {
@@ -29,20 +31,21 @@ export interface TestbedCase {
   alsoCheck?: AlsoCheck[];
 }
 
-export function listCases(): TestbedCase[] {
+export function listCases(casesDir: string = CASES_DIR): TestbedCase[] {
   // Directories only (a stray .DS_Store must not be read as a case), but every
   // directory must have a case.json, so a missing manifest still fails.
-  return fs.readdirSync(CASES_DIR, { withFileTypes: true })
+  return fs.readdirSync(casesDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
     .sort()
-    .map((id) => JSON.parse(fs.readFileSync(path.join(CASES_DIR, id, 'case.json'), 'utf8')));
+    .map((id) => JSON.parse(fs.readFileSync(path.join(casesDir, id, 'case.json'), 'utf8')));
 }
 
 async function main() {
   const args = process.argv.slice(2);
+  const casesDir = args.includes('--heldout') ? HELDOUT_DIR : CASES_DIR;
   if (args.includes('--list')) {
-    for (const c of listCases()) console.log(`${c.id.padEnd(30)} ${c.language.padEnd(11)} expects ${c.expectedVerdict}`);
+    for (const c of listCases(casesDir)) console.log(`${c.id.padEnd(30)} ${c.language.padEnd(11)} expects ${c.expectedVerdict}`);
     return;
   }
   const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : undefined;
@@ -60,8 +63,8 @@ async function main() {
   const jest = { jestBin: path.join(__dirname, '..', 'node_modules', '.bin', 'jest') };
 
   let failures = 0;
-  for (const c of listCases().filter((x) => !only || x.id === only)) {
-    const dir = path.join(CASES_DIR, c.id);
+  for (const c of listCases(casesDir).filter((x) => !only || x.id === only)) {
+    const dir = path.join(casesDir, c.id);
     const head = path.join(dir, 'head');
     const base = fs.existsSync(path.join(dir, 'base')) ? path.join(dir, 'base') : null;
     const cfg = { ...baseCfg, timeoutMs: c.timeoutMs ?? baseCfg.timeoutMs };

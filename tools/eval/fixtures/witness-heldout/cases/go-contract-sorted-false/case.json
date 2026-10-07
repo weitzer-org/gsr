@@ -1,0 +1,19 @@
+{
+  "id": "go-contract-sorted-false",
+  "language": "go",
+  "finding": {
+    "file": "merge/merge.go",
+    "line": 11,
+    "severity": "MEDIUM",
+    "summary": "Merge returns duplicate names: merging two listers that both contain \"a\" yields [a a] instead of [a]."
+  },
+  "expectedVerdict": "refuted",
+  "notes": "A FALSE finding whose stated input is inside the contract. witness.loose.json invents a Lister that lists \"a\" twice (violating the documented no-duplicates contract) and is wrongly proven.",
+  "alsoCheck": [
+    {
+      "witnessFile": "witness.loose.json",
+      "expectedVerdict": "proven_preexisting",
+      "knownFalseProof": true
+    }
+  ]
+}

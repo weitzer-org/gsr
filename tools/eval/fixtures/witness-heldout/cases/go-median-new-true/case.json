@@ -1,0 +1,12 @@
+{
+  "id": "go-median-new-true",
+  "language": "go",
+  "finding": {
+    "file": "stats/stats.go",
+    "line": 6,
+    "severity": "HIGH",
+    "summary": "Median of an even-length slice returns the lower middle value, not the average: Median([1 2 3 4]) is 2, not 2.5."
+  },
+  "expectedVerdict": "proven_regression",
+  "notes": "A TRUE bug in code that is new in the PR (no base file, so base is null)."
+}

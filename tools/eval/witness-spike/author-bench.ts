@@ -4,7 +4,8 @@
 // validate/sandbox/decide pipeline the testbed uses, and scores the verdict
 // against author-truth.json.
 //
-//   ts-node witness-spike/author-bench.ts --prompt v1|v2 [--n 3] [--set all|testbed|spike]
+//   ts-node witness-spike/author-bench.ts --prompt v1|v2 [--n 3] [--set all|testbed|spike|heldout]
+//                                          [--bundle single|whole]
 //                                          [--only <id>] [--out <file>]
 //
 // v1 = adk/prompts/witness/author.md with the Phase 0 bundle.
@@ -30,11 +31,14 @@ import { buildBundle, readPackageFiles } from './bundle';
 import { evaluateWitness } from './pipeline';
 import { SandboxConfig } from './sandbox';
 import { classify, Row, summarize, Truth } from './score';
-import { listCases, CASES_DIR } from './testbed';
+import { listCases, CASES_DIR, HELDOUT_DIR } from './testbed';
 import { bundleFor, entries, worktree } from './run';
 
 const HERE = __dirname;
-const TRUTH: { cases: Record<string, Truth & { why: string }> } = JSON.parse(fs.readFileSync(path.join(HERE, 'author-truth.json'), 'utf8'));
+type TruthFile = { cases: Record<string, Truth & { why: string }> };
+const readTruth = (f: string): TruthFile => JSON.parse(fs.readFileSync(path.join(HERE, f), 'utf8'));
+// Both files together: ids never overlap (the held-out cases have their own ids), so one lookup serves every set.
+const TRUTH: TruthFile = { cases: { ...readTruth('author-truth.json').cases, ...readTruth('heldout-truth.json').cases } };
 const OUT_DIR = path.join(HERE, '..', 'fixtures', 'witness-author-runs');
 
 /** Output that Jest would run unsandboxed: refuse anything reaching outside the process's own data. */
@@ -82,7 +86,7 @@ interface Finding {
   id: string;
   /** Repo-relative file the finding is about; a witness must be for exactly this file. */
   file: string;
-  set: 'testbed' | 'spike';
+  set: 'testbed' | 'spike' | 'heldout';
   language: 'go' | 'javascript';
   headDir: string;
   baseDir: string | null;
@@ -90,15 +94,15 @@ interface Finding {
   bundle(whole: boolean): string;
 }
 
-function testbedFindings(): Finding[] {
-  return listCases().map((c) => {
-    const dir = path.join(CASES_DIR, c.id);
+function testbedFindings(casesDir: string = CASES_DIR, setName: 'testbed' | 'heldout' = 'testbed'): Finding[] {
+  return listCases(casesDir).map((c) => {
+    const dir = path.join(casesDir, c.id);
     const head = path.join(dir, 'head');
     const base = fs.existsSync(path.join(dir, 'base')) ? path.join(dir, 'base') : null;
     const rel = c.finding.file;
     const pkg = path.posix.dirname(rel);
     return {
-      id: c.id, file: rel, set: 'testbed' as const, language: c.language, headDir: head, baseDir: base, timeoutMs: c.timeoutMs,
+      id: c.id, file: rel, set: setName, language: c.language, headDir: head, baseDir: base, timeoutMs: c.timeoutMs,
       bundle: (whole: boolean) => {
         const pkgDir = path.join(head, pkg);
         const listing = fs.existsSync(pkgDir) ? fs.readdirSync(pkgDir).sort() : [];
@@ -159,12 +163,20 @@ async function main() {
   };
   const version = arg('--prompt', 'v1') as string;
   const n = Number(arg('--n', '3'));
-  const set = arg('--set', 'all');
+  const set = arg('--set', 'all') as string;
   const only = arg('--only');
-  const whole = version !== 'v1';
+  // The bundle defaults to the prompt's own (v1 = one file, v2 = whole package); --bundle overrides it, so the
+  // prompt rule and the bundle content can be varied independently (bundle-only and rule-only arms).
+  const bundleMode = arg('--bundle', version === 'v1' ? 'single' : 'whole') as string;
+  if (bundleMode !== 'single' && bundleMode !== 'whole') throw new Error('--bundle must be single or whole');
+  const whole = bundleMode === 'whole';
   const systemPrompt = loadPrompt(version);
 
-  let findings = [...(set === 'spike' ? [] : testbedFindings()), ...(set === 'testbed' ? [] : spikeFindings())];
+  if (!['all', 'testbed', 'spike', 'heldout'].includes(set)) throw new Error('--set must be all, testbed, spike or heldout');
+  // 'all' is the original in-sample set (testbed + spike). The held-out cases are only ever selected by name.
+  let findings = set === 'heldout'
+    ? testbedFindings(HELDOUT_DIR, 'heldout')
+    : [...(set === 'spike' ? [] : testbedFindings()), ...(set === 'testbed' ? [] : spikeFindings())];
   if (only) findings = findings.filter((f) => f.id === only);
   if (!findings.length) throw new Error('no findings selected');
   for (const f of findings) if (!TRUTH.cases[f.id]) throw new Error(`no ground truth for ${f.id}`);
@@ -197,7 +209,7 @@ async function main() {
 
   const jobs = findings.flatMap((f) => Array.from({ length: n }, (_, rep) => ({ f, rep })));
   const samples: Sample[] = [];
-  console.log(`prompt ${version}, model ${AUTHOR_MODEL}, ${findings.length} findings x ${n} samples = ${jobs.length} author calls`);
+  console.log(`prompt ${version}, bundle ${bundleMode}, model ${AUTHOR_MODEL}, ${findings.length} findings x ${n} samples = ${jobs.length} author calls`);
 
   await pool(jobs, 3, async ({ f, rep }) => {
     const truth: Truth = TRUTH.cases[f.id];
@@ -242,8 +254,8 @@ async function main() {
   console.log('\n' + JSON.stringify(summary, null, 2));
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
-  const outFile = arg('--out') ?? path.join(OUT_DIR, `author-${version}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-  fs.writeFileSync(outFile, JSON.stringify({ prompt: version, model: AUTHOR_MODEL, n, set, findings: findings.map((f) => f.id), summary, samples }, null, 2));
+  const outFile = arg('--out') ?? path.join(OUT_DIR, `author-${version}-${bundleMode}-${set}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  fs.writeFileSync(outFile, JSON.stringify({ prompt: version, bundle: bundleMode, model: AUTHOR_MODEL, n, set, findings: findings.map((f) => f.id), summary, samples }, null, 2));
   console.log(`wrote ${outFile}`);
   // The default cache is per-run and about 300 MB, so remove it. Best effort: a non-root user may not
   // own the container-written files, in which case say so instead of failing a finished run.

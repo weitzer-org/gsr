@@ -1,0 +1,12 @@
+{
+  "id": "go-sorted-copy-false",
+  "language": "go",
+  "finding": {
+    "file": "order/order.go",
+    "line": 7,
+    "severity": "MEDIUM",
+    "summary": "Sorted mutates its input: after Sorted(xs) the caller's slice is reordered."
+  },
+  "expectedVerdict": "refuted",
+  "notes": "A FALSE finding about mutation; the code copies."
+}

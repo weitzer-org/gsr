@@ -1,0 +1,12 @@
+{
+  "id": "js-clamp-false",
+  "language": "javascript",
+  "finding": {
+    "file": "src/clamp.js",
+    "line": 3,
+    "severity": "MEDIUM",
+    "summary": "clamp01 does not clamp values above 1: clamp01(1.5) returns 1.5."
+  },
+  "expectedVerdict": "refuted",
+  "notes": "A FALSE JavaScript finding."
+}

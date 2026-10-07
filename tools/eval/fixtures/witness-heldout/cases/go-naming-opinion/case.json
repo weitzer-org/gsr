@@ -1,0 +1,12 @@
+{
+  "id": "go-naming-opinion",
+  "language": "go",
+  "finding": {
+    "file": "naming/naming.go",
+    "line": 7,
+    "severity": "LOW",
+    "summary": "The variable name d in Parse is unclear; prefer a descriptive name such as duration."
+  },
+  "expectedVerdict": "opinion",
+  "notes": "An opinion finding: the author should return testable:false (opinion)."
+}

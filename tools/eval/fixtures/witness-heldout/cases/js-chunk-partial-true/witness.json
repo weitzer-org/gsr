@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "javascript",
+    "file": "src/chunk.js",
+    "symbol": "chunk",
+    "input": "chunk([1,2,3], 2)",
+    "expected": "[[1,2],[3]]",
+    "actual": "[[1,2]]"
+  },
+  "witness": {
+    "path": "src/chunk.gsr-witness.test.js",
+    "language": "javascript",
+    "framework": "jest",
+    "source": "const { chunk } = require('./chunk');\n\nif (typeof chunk !== 'function') throw new Error('gsr-setup: chunk not exported');\n\ntest('gsr witness', () => {\n  expect(chunk([1, 2, 3], 2)).toEqual([[1, 2], [3]]);\n});\n"
+  }
+}

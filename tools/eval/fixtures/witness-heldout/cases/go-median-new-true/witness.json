@@ -1,0 +1,17 @@
+{
+  "claim": {
+    "testable": true,
+    "language": "go",
+    "file": "stats/stats.go",
+    "symbol": "Median",
+    "input": "Median([]float64{1,2,3,4})",
+    "expected": "2.5",
+    "actual": "2"
+  },
+  "witness": {
+    "path": "stats/zz_gsr_witness_test.go",
+    "language": "go",
+    "framework": "go-test",
+    "source": "package stats\n\nimport \"testing\"\n\nfunc TestGSRWitness(t *testing.T) {\n\tgot := Median([]float64{1, 2, 3, 4})\n\tif got != 2.5 {\n\t\tt.Fatalf(\"Median([1 2 3 4]) = %v, want 2.5\", got)\n\t}\n}\n"
+  }
+}

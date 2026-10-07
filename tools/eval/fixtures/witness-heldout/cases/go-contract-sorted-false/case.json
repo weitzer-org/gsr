@@ -1,0 +1,19 @@
+{
+  "id": "go-contract-sorted-false",
+  "language": "go",
+  "finding": {
+    "file": "merge/merge.go",
+    "line": 11,
+    "severity": "MEDIUM",
+    "summary": "Merge returns names out of order: merging a lister that yields [b a] with one that yields [c] produces [b a c]."
+  },
+  "expectedVerdict": "refuted",
+  "notes": "A FALSE finding that only holds for a Lister violating its documented contract. witness.loose.json invents an unsorted Lister and is wrongly proven.",
+  "alsoCheck": [
+    {
+      "witnessFile": "witness.loose.json",
+      "expectedVerdict": "proven_preexisting",
+      "knownFalseProof": true
+    }
+  ]
+}

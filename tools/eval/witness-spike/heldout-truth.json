@@ -1,0 +1,63 @@
+{
+  "description": "Ground truth for the held-out set (fixtures/witness-heldout). Written together with the cases and fixed BEFORE any author run, and never edited after seeing author output. Same schema as author-truth.json. These cases were authored after, and deliberately differ from, the findings v2's prompt rule was tuned on: they cover TRUE ctx/contract bugs (to measure false refutation), a package double that itself violates the contract, other contract and error-path traps (non-ctx), and plain true/false/opinion findings. Reference witnesses were executed through the real pipeline to check each label (see tests/witnessHeldout.test.ts and `testbed.ts --heldout`).",
+  "cases": {
+    "go-ctx-retry-true": {
+      "truth": "true",
+      "why": "Head retries on every error including ctx.Err(); base returned on any error other than ErrNotReady. A ctx-honouring Source (the package FakeSource) shows 4 calls vs 1.",
+      "attribution": "regression"
+    },
+    "go-ctx-package-double-loose": {
+      "truth": "false",
+      "why": "Store documents that implementations MUST honour ctx, so with any compliant Store a cancelled ctx stops Save after the first Put. Only the package MemStore (documented as non-compliant) shows 2 calls."
+    },
+    "go-contract-sorted-false": {
+      "truth": "false",
+      "why": "Lister documents ascending order, which Merge relies on. With any compliant Lister (the package StaticLister) the output is ascending. Only a Lister that violates its contract yields out-of-order output."
+    },
+    "go-memo-error-path-false": {
+      "truth": "false",
+      "why": "For a successful load, load runs once per key (second Get is served from the map). Only a FAILING load runs twice, which the doc comment says is intended (errors are not cached)."
+    },
+    "go-window-offbyone-true": {
+      "truth": "true",
+      "why": "Head slices from len-n-1; base sliced from len-n.",
+      "attribution": "regression"
+    },
+    "go-tally-nilmap-true": {
+      "truth": "true",
+      "why": "The map is declared but never made, on base and on head, so any non-empty input panics.",
+      "attribution": "preexisting"
+    },
+    "go-median-new-true": {
+      "truth": "true",
+      "why": "File is new in the PR; the even-length branch returns the lower middle, contradicting its own doc comment.",
+      "attribution": "regression"
+    },
+    "go-cents-round-false": {
+      "truth": "false",
+      "why": "Uses math.Round; 0.29*100 is 28.999999999999996 and rounds to 29."
+    },
+    "go-sorted-copy-false": {
+      "truth": "false",
+      "why": "Sorts a copy made with append([]int(nil), xs...)."
+    },
+    "go-flush-after-error-true": {
+      "truth": "true",
+      "why": "Head flushes inside the error branch; base returned the error without flushing. The package RecordingWriter honours the Writer contract.",
+      "attribution": "regression"
+    },
+    "go-naming-opinion": {
+      "truth": "opinion",
+      "why": "Naming preference, not behaviour."
+    },
+    "js-chunk-partial-true": {
+      "truth": "true",
+      "why": "Head loop condition i + size <= length skips the last short group; base used i < length.",
+      "attribution": "regression"
+    },
+    "js-clamp-false": {
+      "truth": "false",
+      "why": "Math.min(1, ...) caps the value at 1."
+    }
+  }
+}

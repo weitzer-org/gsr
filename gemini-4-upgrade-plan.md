@@ -1,9 +1,9 @@
 # Gemini 4 upgrade plan for GSR
 
-Status (2026-11-05): inventory done, served-model tracking and the Argon price
-row shipped with this doc. No live Gemini calls have been made for this plan
-yet. Every step below that calls Gemini spends real API money and needs the
-owner's go-ahead first.
+Status (2026-11-05): inventory done; served-model tracking, the Argon price
+row and the thinking-token billing fix shipped; plan steps 1-2 (billing
+check, capability probe) run, 22 calls, about $0.17. Steps 3 onward have not
+started. Each paid step needs the owner's go-ahead first.
 
 Inputs:
 
@@ -75,10 +75,15 @@ consumer repo can't route them separately today.
   (`success: false`), not inferred from the findings.
 - **`thinkingBudget` on the deduplicator.** The lessons found budgets
   unreliable and `thinkingLevel` the working control. The 4096 budget is a
-  hang workaround specific to 3.1 Pro. If `DEDUPLICATOR_MODEL` moves to Argon
-  or 3.8 Flash, re-test that hang on the new model and prefer `thinkingLevel`.
-  The SDK pinned here (`@google/genai` 1.45.0) has `thinkingLevel`
-  (`ThinkingLevel` enum in `genai.d.ts`).
+  hang workaround specific to 3.1 Pro. Argon and 3.8 Flash both accept it
+  (§5), but if `DEDUPLICATOR_MODEL` moves to either, re-test that hang on
+  repetitive input and prefer `thinkingLevel`. The SDK pinned here
+  (`@google/genai` 1.45.0) has `thinkingLevel` (`ThinkingLevel` enum).
+- **Context caching doesn't apply.** `gemini-4-argon` doesn't list
+  `createCachedContent` among its supported methods (the models list
+  endpoint, 2026-11-05). That doesn't matter today: every persona prompt is
+  about 400 tokens and `basic.md` about 1,100, below `agent.ts`'s
+  2,048-token threshold, so production never creates a cache.
 
 ## 3. What shipped with this doc
 
@@ -97,46 +102,83 @@ consumer repo can't route them separately today.
   pricing page (ai.google.dev), which the proxy blocks here. The third copy
   (`job_tracker`'s `pricing.go`) was not touched from this repo.
   `tools/eval/usage.ts` only prices models that service calls, so it gets the
-  row when a judge or author moves to Argon.
+  row when a judge or author moves to Argon. Google Cloud's pricing page
+  (read 2026-11-05) shows the same Argon rates.
+- **Thinking tokens billed at the output rate** in both `usage.ts` copies
+  (§4). Stored records were not repriced.
+- **`tools/eval/model-probe.ts`**: the capability probe for §5. Dry run by
+  default; `--run` makes the calls and writes the full responses, raw text
+  included, to `tools/eval/model-probe-runs/`.
 
-## 4. Open finding: thinking tokens are probably under-billed
+## 4. Thinking tokens were under-billed (fixed)
 
-`computeCostUsd` bills `candidatesTokenCount` only and treats
-`thoughtsTokenCount` as telemetry (comment above it in `usage.ts`).
-sound-profile-builder bills `candidates + thoughts` at the output rate.
-Both report into the same `/usage.html` dashboard, so their cost figures are
-not computed the same way.
+`computeCostUsd` was billing `candidatesTokenCount` only and treating
+`thoughtsTokenCount` as telemetry, on the theory that candidates already
+included thoughts. They don't. On all 22 probe calls (four models),
+`totalTokenCount` was exactly prompt + candidates + thoughts, and
+`candidatesTokenCount` matched the token count of the visible text alone
+(within 1 token; a constant 15 on Argon, which looks like `countTokens`
+overhead). Google Cloud's pricing page bills thoughts at the output rate
+("Price per 1M output and thinking tokens"; Argon: "Text output (response
+and reasoning)"). The Gemini Developer API's own page (ai.google.dev) is
+blocked from this environment, so that tier rests on the rates matching.
 
-Evidence that GSR is the one under-counting: the `@google/genai` 1.45.0
-typings document `totalTokenCount` as "the sum of `prompt_token_count`,
-`candidates_token_count`, `tool_use_prompt_token_count`, and
-`thoughts_token_count`", which means candidates **exclude** thoughts. Google
-lists the output price as including thinking tokens. This comes from SDK
-docs, not a live call, so it's unverified until one call confirms it. The
-check costs one call: send any prompt to `gemini-3.1-pro-preview` and check
-that `totalTokenCount == prompt + candidates + thoughts`.
+On the probe's small inputs, the old formula under-reported
+`gemini-3.1-pro-preview` by 3.8x ($0.022 vs $0.083 over five calls). Real
+PRs have far larger inputs, so the gap there is smaller, but it wasn't
+measured. Records written before the fix keep their old `costUsd`; they
+still carry `thinkingTokens`, so they can be repriced at query time.
+GSR now bills the same way as sound-profile-builder (TODO 42).
 
-Why it matters for this plan: 3.1 Pro thinks on every call (a healthy dedup
-used ~2,200 thinking tokens) and the lessons saw Argon think 0 tokens at
-default. Comparing costs under the current formula would understate the
-baseline and flatter neither candidate correctly. Fix the formula (and
-reprice history via `opts.at`) before any cost comparison.
-`witness-spike/author.ts` already reports both ways (`costUsd` and
-`costUsdWithThinking`) for this reason.
+## 5. Capability probe results (2026-11-05)
 
-## 5. Plan
+`tools/eval/model-probe.ts --run`, 22 calls; raw output in
+`tools/eval/model-probe-runs/model-probe-2026-11-05.json`. The input was two
+one-line seeded bugs from the witness testbed (`go-regression`,
+`js-regression`), with GSR's exact schemas and system instructions. It shows
+what each model accepts and how it bills, **not** review quality: every
+model found both bugs, which a two-line diff can't tell apart.
+
+| Model | Calls | Served as | Finish | Schema-valid | Median latency | Thinking tokens (default) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `gemini-3.1-pro-preview` (prod) | 5 | itself | 5 STOP | 5/5 | 10.9 s | 210-1,403 on every call |
+| `gemini-4-argon` | 8 | itself | 8 STOP | 8/8 | 7.2 s | 144-183 on discovery; 0 on remediation, dedup, classify |
+| `gemini-3.8-flash` | 8 | itself | 8 STOP | 8/8 | 8.0 s | 172-909 on every call |
+| `gemini-2.5-pro` (eval judge) | 1 | itself | STOP | 1/1 | 6.2 s | 414 |
+
+What it established:
+
+- **Every request shape works on both candidates.** Discovery (logic and
+  basic prompts), remediation, dedup and feedback classification all came
+  back schema-valid with `STOP`. `thinkingBudget: 4096` (the dedup setting)
+  is accepted by Argon and 3.8 Flash, with no 400. `thinkingLevel` LOW and
+  HIGH are accepted by both.
+- **`thinkingLevel: LOW` works as a control.** Argon discovery: 144
+  thinking tokens at default, 0 at LOW. 3.8 Flash discovery: 909 at
+  default, 0 at LOW; dedup 775 at default, 277 at LOW. HIGH raised them
+  (Argon 576, 3.8 Flash 2,080) without a timeout on these small inputs.
+- **Argon does think at default on discovery.** The lessons saw 0 thinking
+  on every agent. Here it was 0 everywhere except discovery (144-183).
+- **Argon counts more input tokens for the same request**: 267-393 more
+  than 3.8 Flash and 3.1 Pro on identical prompts (1.3-1.5x at these sizes).
+  The gap looks closer to a fixed per-request amount than a proportional
+  one, but these inputs are too small to tell. Measure it on a real PR
+  before comparing costs: at a 1.5x ratio, Argon's input would cost more
+  than 3.1 Pro's at the same $2/1M rate.
+- **No served-model surprises.** Every id GSR sends today
+  (`gemini-3.1-pro-preview`, `gemini-2.5-pro`) and both candidates were
+  served as requested. `gemini-pro-latest` (not used by GSR) is listed as a
+  separate model; the lessons found it resolves to 3.1 Pro.
+- **`confidence` (NUMBER) behaved.** Values came back as 0.95-1, with no
+  runaway decimals.
+
+## 6. Plan
 
 Each step names its cost. Steps marked **paid** need the owner's go-ahead.
 
-1. **Verify the thinking-token billing** (§4). Paid, 1 call. Then fix
-   `computeCostUsd` in both `usage.ts` copies if confirmed.
-2. **Probe capabilities.** Paid, about 20 calls. For `gemini-4-argon` and
-   `gemini-3.8-flash`, with GSR's exact request shapes: discovery schema with
-   `cachedContent` (context caches are per model; check Argon supports
-   `caches.create`), remediation schema, dedup schema with `thinkingBudget:
-   4096` and with `thinkingLevel: LOW`, and the served id for every id GSR
-   sends today (`gemini-3.1-pro-preview`, `gemini-2.5-pro`). Record
-   `finishReason`, tokens, thinking tokens and latency.
+1. ~~**Verify the thinking-token billing.**~~ Done (§4); the formula is fixed.
+2. ~~**Probe capabilities.**~~ Done (§5), 22 calls. Caching didn't need a
+   probe (§2).
 3. **Ground truth.** Free. Reuse the flash investigation's 13-PR benchmark
    and `computeRecall`. Add precision: label the baseline's findings on the
    10 seeded-bug PRs as true/false positive once, so candidates are scored by
@@ -144,7 +186,10 @@ Each step names its cost. Steps marked **paid** need the owner's go-ahead.
 4. **Screen per call type on frozen inputs.** Paid, small. Capture the exact
    discovery, remediation and dedup inputs from one baseline review per
    benchmark PR, then replay only that call per candidate model. Gate on
-   schema validity, `MAX_TOKENS` rate and recall.
+   schema validity, `MAX_TOKENS` rate and recall. `model-probe.ts` already
+   sends the exact request shapes and keeps raw text; it needs a way to load
+   captured inputs instead of its built-in fixtures. Also record input
+   tokens per model on these real inputs (§5, Argon's extra input tokens).
 5. **End to end.** Paid, the bulk of the spend. Full reviews in one batch,
    baseline included, 2+ reps; n >= 20 on any rare defect such as dedup
    collapse or truncation. Mark any run with a failed call or a

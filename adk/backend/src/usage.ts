@@ -127,15 +127,22 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   'imagen-4.0-ultra-generate-001': { perImage: 0.06 },
 };
 
-// thinkingTokens is NOT added to outputTokens here — Gemini's own pricing
-// page describes the output rate as already "including thinking tokens",
-// and multiple developer reports (Google's own AI forum has several threads
-// asking this exact question, with inconsistent answers across models/API
-// versions) suggest `candidatesTokenCount` (this file's `outputTokens`) may
-// already reflect them for the models in PRICE_TABLE. Adding thinkingTokens
-// on top risks double-billing; it's tracked in UsageRecord/UsageBucket
-// purely as an observability metric, not folded into cost. Re-verify against
-// current per-model docs before changing this.
+// Thinking tokens are billed at the output rate, but they are NOT inside
+// `outputTokens`: callers must pass candidates + thoughts as the output
+// count (trackGeminiCall does). Both facts were checked on 2026-11-05:
+// - totalTokenCount == prompt + candidates + thoughts on 22 of 22 live calls
+//   across gemini-3.1-pro-preview, gemini-4-argon, gemini-3.8-flash and
+//   gemini-2.5-pro, and candidatesTokenCount matched countTokens() of the
+//   visible text alone (tools/eval/model-probe.ts, its run is in
+//   tools/eval/model-probe-runs/);
+// - Google Cloud's Gemini pricing page lists the output rate as "output and
+//   thinking tokens" / "Text output (response and reasoning)". The Gemini
+//   Developer API pricing page (ai.google.dev) was not reachable to confirm
+//   the same wording there.
+// Before this, cost billed candidates only. On that probe's small inputs it
+// under-reported gemini-3.1-pro-preview by 3.8x (its discovery call: 128
+// candidate tokens, 930 thinking tokens); on real PRs, where input tokens
+// are a bigger share of the bill, the gap is smaller but was not measured.
 //
 // `opts.imageCount` is only consulted for models priced per image (Imagen);
 // it is ignored for every token-priced model, so passing it is always safe.
@@ -351,7 +358,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       thinkingTokens,
       imageCount,
       latencyMs,
-      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens, { imageCount }),
+      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens + thinkingTokens, cachedTokens, { imageCount }),
       finishReason: response.candidates?.[0]?.finishReason,
       servedModel: servedModelIfDifferent(ctx.model, response.modelVersion),
       success: true,

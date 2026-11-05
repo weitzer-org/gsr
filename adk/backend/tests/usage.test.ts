@@ -322,16 +322,18 @@ describe('trackGeminiCall', () => {
         expect(data.inputTokens).toBe(0);
     });
 
-    it('records thinking tokens from thoughtsTokenCount as telemetry, without folding them into cost', async () => {
+    it('records thinking tokens and bills them at the output rate on top of candidates', async () => {
         const response = { text: 'ok', usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 10, thoughtsTokenCount: 30 } };
         await usage.trackGeminiCall({ callType: 'legacy', model: 'gemini-3.1-pro-preview' }, () => Promise.resolve(response));
 
         const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
         expect(data.thinkingTokens).toBe(30);
-        // costUsd reflects only inputTokens/outputTokens — candidatesTokenCount
-        // (outputTokens) already reflects thinking tokens per Gemini's own
-        // pricing docs, so thinkingTokens must not be billed a second time.
-        expect(data.costUsd).toBeCloseTo(usage.computeCostUsd('gemini-3.1-pro-preview', 50, 10, 0), 8);
+        expect(data.outputTokens).toBe(10);
+        // candidatesTokenCount excludes thoughts (totalTokenCount = prompt +
+        // candidates + thoughts on every live call checked), and Google bills
+        // thoughts at the output rate, so cost covers 10 + 30 output tokens.
+        expect(data.costUsd).toBeCloseTo(usage.computeCostUsd('gemini-3.1-pro-preview', 50, 40, 0), 8);
+        expect(data.costUsd).toBeCloseTo((50 * 2 + 40 * 12) / 1e6, 10);
     });
 
     it('records servedModel only when Gemini reports a different model than requested', async () => {

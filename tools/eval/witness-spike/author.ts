@@ -27,9 +27,9 @@ export interface AuthorUsage {
   thinkingTokens: number;
   /** Prompt tokens served from Gemini's implicit cache (repeat prompts, e.g. n>1 samples). */
   cachedTokens: number;
-  /** Cost by usage.ts's convention: cached input is not billed and thinking tokens are NOT billed on top of outputTokens. */
+  /** Cached input not billed, thinking tokens NOT billed. Kept for comparison with earlier runs; this under-counts. */
   costUsd: number;
-  /** Same, if thinking tokens are billed as output (unverified assumption; see the PR). */
+  /** Cached input not billed, thinking tokens billed as output: usage.ts's convention since 2026-11-05, verified (see gemini-4-upgrade-plan.md §4). */
   costUsdWithThinking: number;
   latencyMs: number;
 }

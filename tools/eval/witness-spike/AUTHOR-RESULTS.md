@@ -18,6 +18,8 @@ The testbed has 12 cases and 13 reference checks (`go-fake-too-loose` has a seco
 
 Run 1 and 2 of each prompt predate the cache-aware cost fix, so their cost columns are not comparable and are omitted. Run 1 of v1 is the original prompt, before a leaked example symbol was removed; runs 2 and later use the fixed prompt. Runs 3 (v1) and 2 (v2) used the benchmark after the review fixes (cache-aware cost, witness bound to its finding's file and language). An earlier attempt at those two runs was discarded because the Docker daemon had died mid-run and most Go runs returned `not_run`; the harness now refuses to start without Docker.
 
+> **Update 2026-11-05:** thinking tokens do bill as output. Live calls showed `candidatesTokenCount` excludes them, and Google Cloud's pricing page bills them at the output rate (`gemini-4-upgrade-plan.md` §4). So the "thinking billed" row is the real cost, and the "thinking not billed" figures below are lower bounds. The recorded numbers are unchanged.
+
 Cost is per author call; multiply by 3 for a finding at n=3. Gemini's implicit cache served 4.8% of v1 prompt tokens and 35.9% of v2's on those runs (repeat prompts across the n=3 samples). The cost convention (`tools/eval/usage.ts`) treats cached input as free, a lower bound; whether Gemini discounts rather than zeroes cached tokens, and whether thinking tokens bill as output, are unverified. The cost comparison between prompts, with cached tokens billed in full, is in the Follow-up section 2; the 1.5x figure quoted elsewhere used the free-cache convention and understates v2's cost.
 
 Local usage-store writes are not recorded here (no MinIO/R2 or ingest secret in this environment); per-call tokens and cost are in each sample's `usage`.

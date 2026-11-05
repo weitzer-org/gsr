@@ -35,6 +35,13 @@ export interface UsageEvent {
   latencyMs: number;
   costUsd: number;
   finishReason?: string;
+  // The model id Gemini reports it actually served (response.modelVersion),
+  // set only when it differs from `model`, the id we requested. A stable
+  // id can silently alias a newer model (sound-profile-builder saw every
+  // `gemini-3.5-flash` call served as `gemini-3.6-flash`), and an eval run
+  // scored on a different model than it asked for is not a valid
+  // comparison. Absent means "same as requested" or "not reported".
+  servedModel?: string;
   success: boolean;
   errorKind?: string; // set only when success is false
   repository?: string; // "owner/repo" — set only via ingestUsageRecords() for
@@ -80,6 +87,12 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   'gemini-3.6-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } }, // cut to the same introductory rate as 3.7/3.8 when 3.7 shipped; launched at 1.50/7.50 and returns there
   'gemini-3.7-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
   'gemini-3.8-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
+  // Introductory rate through 2026-11-30, then double. Source: Google Cloud's
+  // Gemini pricing page and the Argon launch post, read 2026-11-05 by the
+  // sound-profile-builder model-upgrade eval (its PR #114); not yet checked
+  // against the Gemini Developer API page (ai.google.dev), which is the tier
+  // this repo is billed on. Mirrors that project's geminiPriceSchedule.
+  'gemini-4-argon': { input: 2.0, output: 10.0, supersededBy: { from: '2026-12-01T00:00:00Z', input: 4.0, output: 20.0 } },
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // used by debug-single.ts and tools/eval's llm-comparator*.ts; <=200k-token-prompt tier — verify against current pricing if usage grows large
 
   // --- Image generation ---
@@ -261,6 +274,7 @@ type GenerateContentLikeResponse = {
     finishReason?: string;
     content?: { parts?: Array<{ inlineData?: { mimeType?: string } }> };
   }>;
+  modelVersion?: string;
   // Imagen's `ai.models.generateImages(...)` response, which carries no
   // usageMetadata at all — the image count is the only billable signal it
   // reports, so it is the sole input to that model's cost.
@@ -290,6 +304,17 @@ export function countGeneratedImages(response: GenerateContentLikeResponse): num
     }
   }
   return count || undefined;
+}
+
+// servedModelIfDifferent returns the model Gemini says it served, but only
+// when that differs from the requested id, so the common case adds nothing
+// to each record. A leading "models/" is ignored on both sides: the SDK
+// accepts either form for GEMINI_MODEL and friends, so a difference in that
+// prefix alone is not a different model.
+export function servedModelIfDifferent(requested: string, served: string | undefined): string | undefined {
+  if (typeof served !== 'string' || served === '') return undefined;
+  const strip = (id: string) => id.replace(/^models\//, '');
+  return strip(served) === strip(requested) ? undefined : served;
 }
 
 // trackGeminiCall wraps a single `ai.models.generateContent(...)` call (or
@@ -328,6 +353,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       latencyMs,
       costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens, { imageCount }),
       finishReason: response.candidates?.[0]?.finishReason,
+      servedModel: servedModelIfDifferent(ctx.model, response.modelVersion),
       success: true,
     });
     return response;
@@ -384,6 +410,7 @@ export async function recordParseFailure(
     latencyMs,
     costUsd: 0,
     finishReason: response.candidates?.[0]?.finishReason,
+    servedModel: servedModelIfDifferent(ctx.model, response.modelVersion),
     success: false,
     errorKind: 'parse_error',
   });
@@ -839,6 +866,7 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
     // for pricing would let the stored record and the billed count disagree.
     (r.imageCount === undefined || (typeof r.imageCount === 'number' && Number.isInteger(r.imageCount) && r.imageCount >= 0)) &&
     (r.repository === undefined || (typeof r.repository === 'string' && !r.repository.includes('|'))) &&
+    (r.servedModel === undefined || (typeof r.servedModel === 'string' && !r.servedModel.includes('|'))) &&
     (r.cachedTokens === undefined || (typeof r.cachedTokens === 'number' && Number.isFinite(r.cachedTokens) && r.cachedTokens >= 0)) &&
     // errorKind flows into byErrorKind[key] unguarded by addToBucket's
     // UNSAFE_BUCKET_KEYS check (that's for the UsageBucket maps only) — the

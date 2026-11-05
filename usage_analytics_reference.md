@@ -222,7 +222,9 @@ get the range wrong.
   "imageCount": 2,                            // present only on image-generation calls — see "Image generation costs"
   "latencyMs": 2431,
   "costUsd": 0.0034,
-  "finishReason": undefined,                  // not currently populated by trackGeminiCall
+  "finishReason": "STOP",                     // candidates[0].finishReason; "MAX_TOKENS" means truncated
+  "servedModel": "gemini-3.6-flash",          // present only when response.modelVersion differs from
+                                              // `model` (a silently aliased id); `model` stays the id requested
   "success": true,                            // always present, even when false
   "errorKind": "rate_limit"                   // present only when success is false
 }
@@ -237,6 +239,13 @@ Live caveats on `PRICE_TABLE` (`adk/backend/src/usage.ts`), tracked as items
   primary source.** They were added from secondary sources only —
   `ai.google.dev` and the pricing aggregators are blocked by the agent egress
   proxy — and should be checked against Google's official pricing page.
+- **`gemini-4-argon` ($2/$10, doubling to $4/$20 on 2026-12-01) is unverified
+  against ai.google.dev too.** Copied from sound-profile-builder's
+  Cloud-pricing-page read; see [gemini-4-upgrade-plan.md](gemini-4-upgrade-plan.md).
+- **Thinking tokens are probably under-billed.** `computeCostUsd` bills
+  `candidatesTokenCount` only; the SDK typings say candidates exclude
+  thoughts, and sound-profile-builder bills both. Unverified by a live call;
+  see [gemini-4-upgrade-plan.md](gemini-4-upgrade-plan.md) §4.
 - **Rates that change on a date are handled in the table, not by a comment.**
   `gemini-3.7-flash` and `gemini-3.8-flash` are on an introductory rate that
   doubles to $1.50/$7.50 on 2027-01-01; both carry a `supersededBy` entry that

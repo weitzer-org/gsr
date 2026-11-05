@@ -35,6 +35,13 @@ export interface UsageEvent {
   latencyMs: number;
   costUsd: number;
   finishReason?: string;
+  // The model id Gemini reports it actually served (response.modelVersion),
+  // set only when it differs from `model`, the id we requested. A stable
+  // id can silently alias a newer model (sound-profile-builder saw every
+  // `gemini-3.5-flash` call served as `gemini-3.6-flash`), and an eval run
+  // scored on a different model than it asked for is not a valid
+  // comparison. Absent means "same as requested" or "not reported".
+  servedModel?: string;
   success: boolean;
   errorKind?: string; // set only when success is false
   repository?: string; // "owner/repo" — set only via ingestUsageRecords() for
@@ -80,6 +87,12 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   'gemini-3.6-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } }, // cut to the same introductory rate as 3.7/3.8 when 3.7 shipped; launched at 1.50/7.50 and returns there
   'gemini-3.7-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
   'gemini-3.8-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
+  // Introductory rate through 2026-11-30, then double. Source: Google Cloud's
+  // Gemini pricing page and the Argon launch post, read 2026-11-05 by the
+  // sound-profile-builder model-upgrade eval (its PR #114); not yet checked
+  // against the Gemini Developer API page (ai.google.dev), which is the tier
+  // this repo is billed on. Mirrors that project's geminiPriceSchedule.
+  'gemini-4-argon': { input: 2.0, output: 10.0, supersededBy: { from: '2026-12-01T00:00:00Z', input: 4.0, output: 20.0 } },
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // used by debug-single.ts and tools/eval's llm-comparator*.ts; <=200k-token-prompt tier — verify against current pricing if usage grows large
 
   // --- Image generation ---
@@ -114,15 +127,22 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   'imagen-4.0-ultra-generate-001': { perImage: 0.06 },
 };
 
-// thinkingTokens is NOT added to outputTokens here — Gemini's own pricing
-// page describes the output rate as already "including thinking tokens",
-// and multiple developer reports (Google's own AI forum has several threads
-// asking this exact question, with inconsistent answers across models/API
-// versions) suggest `candidatesTokenCount` (this file's `outputTokens`) may
-// already reflect them for the models in PRICE_TABLE. Adding thinkingTokens
-// on top risks double-billing; it's tracked in UsageRecord/UsageBucket
-// purely as an observability metric, not folded into cost. Re-verify against
-// current per-model docs before changing this.
+// Thinking tokens are billed at the output rate, but they are NOT inside
+// `outputTokens`: callers must pass candidates + thoughts as the output
+// count (trackGeminiCall does). Both facts were checked on 2026-11-05:
+// - totalTokenCount == prompt + candidates + thoughts on 22 of 22 live calls
+//   across gemini-3.1-pro-preview, gemini-4-argon, gemini-3.8-flash and
+//   gemini-2.5-pro, and candidatesTokenCount matched countTokens() of the
+//   visible text alone (tools/eval/model-probe.ts, its run is in
+//   tools/eval/model-probe-runs/);
+// - Google Cloud's Gemini pricing page lists the output rate as "output and
+//   thinking tokens" / "Text output (response and reasoning)". The Gemini
+//   Developer API pricing page (ai.google.dev) was not reachable to confirm
+//   the same wording there.
+// Before this, cost billed candidates only. On that probe's small inputs it
+// under-reported gemini-3.1-pro-preview by 3.8x (its discovery call: 128
+// candidate tokens, 930 thinking tokens); on real PRs, where input tokens
+// are a bigger share of the bill, the gap is smaller but was not measured.
 //
 // `opts.imageCount` is only consulted for models priced per image (Imagen);
 // it is ignored for every token-priced model, so passing it is always safe.
@@ -261,6 +281,7 @@ type GenerateContentLikeResponse = {
     finishReason?: string;
     content?: { parts?: Array<{ inlineData?: { mimeType?: string } }> };
   }>;
+  modelVersion?: string;
   // Imagen's `ai.models.generateImages(...)` response, which carries no
   // usageMetadata at all — the image count is the only billable signal it
   // reports, so it is the sole input to that model's cost.
@@ -290,6 +311,17 @@ export function countGeneratedImages(response: GenerateContentLikeResponse): num
     }
   }
   return count || undefined;
+}
+
+// servedModelIfDifferent returns the model Gemini says it served, but only
+// when that differs from the requested id, so the common case adds nothing
+// to each record. A leading "models/" is ignored on both sides: the SDK
+// accepts either form for GEMINI_MODEL and friends, so a difference in that
+// prefix alone is not a different model.
+export function servedModelIfDifferent(requested: string, served: string | undefined): string | undefined {
+  if (typeof served !== 'string' || served === '') return undefined;
+  const strip = (id: string) => id.replace(/^models\//, '');
+  return strip(served) === strip(requested) ? undefined : served;
 }
 
 // trackGeminiCall wraps a single `ai.models.generateContent(...)` call (or
@@ -326,8 +358,9 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       thinkingTokens,
       imageCount,
       latencyMs,
-      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens, { imageCount }),
+      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens + thinkingTokens, cachedTokens, { imageCount }),
       finishReason: response.candidates?.[0]?.finishReason,
+      servedModel: servedModelIfDifferent(ctx.model, response.modelVersion),
       success: true,
     });
     return response;
@@ -384,6 +417,7 @@ export async function recordParseFailure(
     latencyMs,
     costUsd: 0,
     finishReason: response.candidates?.[0]?.finishReason,
+    servedModel: servedModelIfDifferent(ctx.model, response.modelVersion),
     success: false,
     errorKind: 'parse_error',
   });
@@ -839,6 +873,7 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
     // for pricing would let the stored record and the billed count disagree.
     (r.imageCount === undefined || (typeof r.imageCount === 'number' && Number.isInteger(r.imageCount) && r.imageCount >= 0)) &&
     (r.repository === undefined || (typeof r.repository === 'string' && !r.repository.includes('|'))) &&
+    (r.servedModel === undefined || (typeof r.servedModel === 'string' && !r.servedModel.includes('|'))) &&
     (r.cachedTokens === undefined || (typeof r.cachedTokens === 'number' && Number.isFinite(r.cachedTokens) && r.cachedTokens >= 0)) &&
     // errorKind flows into byErrorKind[key] unguarded by addToBucket's
     // UNSAFE_BUCKET_KEYS check (that's for the UsageBucket maps only) — the

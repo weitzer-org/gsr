@@ -53,6 +53,8 @@ describe('trackGeminiCall', () => {
         expect(data.success).toBe(true);
         expect(data.inputTokens).toBe(50);
         expect(data.thinkingTokens).toBe(5);
+        // Thinking tokens bill at the output rate on top of candidates.
+        expect(data.costUsd).toBeCloseTo((50 * 1.25 + (10 + 5) * 10) / 1e6, 10);
         expect(data.repository).toBe('tools-eval (local)');
         expect(data.callType).toBe('llm_compare');
     });

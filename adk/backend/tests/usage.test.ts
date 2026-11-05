@@ -322,16 +322,33 @@ describe('trackGeminiCall', () => {
         expect(data.inputTokens).toBe(0);
     });
 
-    it('records thinking tokens from thoughtsTokenCount as telemetry, without folding them into cost', async () => {
+    it('records thinking tokens and bills them at the output rate on top of candidates', async () => {
         const response = { text: 'ok', usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 10, thoughtsTokenCount: 30 } };
         await usage.trackGeminiCall({ callType: 'legacy', model: 'gemini-3.1-pro-preview' }, () => Promise.resolve(response));
 
         const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
         expect(data.thinkingTokens).toBe(30);
-        // costUsd reflects only inputTokens/outputTokens — candidatesTokenCount
-        // (outputTokens) already reflects thinking tokens per Gemini's own
-        // pricing docs, so thinkingTokens must not be billed a second time.
-        expect(data.costUsd).toBeCloseTo(usage.computeCostUsd('gemini-3.1-pro-preview', 50, 10, 0), 8);
+        expect(data.outputTokens).toBe(10);
+        // candidatesTokenCount excludes thoughts (totalTokenCount = prompt +
+        // candidates + thoughts on every live call checked), and Google bills
+        // thoughts at the output rate, so cost covers 10 + 30 output tokens.
+        expect(data.costUsd).toBeCloseTo(usage.computeCostUsd('gemini-3.1-pro-preview', 50, 40, 0), 8);
+        expect(data.costUsd).toBeCloseTo((50 * 2 + 40 * 12) / 1e6, 10);
+    });
+
+    it('records servedModel only when Gemini reports a different model than requested', async () => {
+        // sound-profile-builder saw every gemini-3.5-flash call served as gemini-3.6-flash.
+        const aliased = { text: 'ok', modelVersion: 'gemini-3.6-flash', usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } };
+        await usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-3.5-flash' }, () => Promise.resolve(aliased));
+        const [, , first] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(first.servedModel).toBe('gemini-3.6-flash');
+        // Cost stays on the requested id, which is what the call is billed under.
+        expect(first.model).toBe('gemini-3.5-flash');
+
+        const same = { text: 'ok', modelVersion: 'gemini-4-argon' };
+        await usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-4-argon' }, () => Promise.resolve(same));
+        const [, , second] = mockUploadJson.mock.calls[1] as [string, string, any];
+        expect(second.servedModel).toBeUndefined();
     });
 
     it('handles a response with no usageMetadata as zero tokens, still success', async () => {
@@ -366,6 +383,13 @@ describe('recordParseFailure', () => {
         expect(data.outputTokens).toBe(10);
         expect(data.thinkingTokens).toBe(5);
         expect(data.latencyMs).toBe(123);
+    });
+
+    it('records servedModel on a parse failure too', async () => {
+        const response = { text: '{', modelVersion: 'gemini-3.6-flash', candidates: [{ finishReason: 'MAX_TOKENS' }] };
+        await usage.recordParseFailure({ callType: 'remediation', model: 'gemini-3.5-flash' }, response, 0);
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.servedModel).toBe('gemini-3.6-flash');
     });
 
     it('captures finishReason and defaults token counts to 0 with no usageMetadata', async () => {
@@ -721,6 +745,8 @@ describe('ingestUsageRecords', () => {
             { ...record('discovery'), provider: 'openai' },
             { ...record('discovery'), success: 'true' },
             { ...record('discovery'), thinkingTokens: 'not-a-number' },
+            { ...record('discovery'), servedModel: 42 },
+            { ...record('discovery'), servedModel: 'a|b' },
         ];
 
         const result = await usage.ingestUsageRecords(malformed as any);
@@ -728,6 +754,11 @@ describe('ingestUsageRecords', () => {
         expect(result).toEqual({ accepted: 0, failed: malformed.length });
         expect(mockUploadJson).not.toHaveBeenCalled();
         errorSpy.mockRestore();
+    });
+
+    it('accepts a record with a string servedModel', async () => {
+        const result = await usage.ingestUsageRecords([{ ...record('discovery'), servedModel: 'gemini-3.6-flash' }] as any);
+        expect(result).toEqual({ accepted: 1, failed: 0 });
     });
 
     it('accepts a record with a numeric thinkingTokens', async () => {
@@ -865,5 +896,28 @@ describe('listUsageRecords', () => {
         expect(records).toHaveLength(1);
         expect(records[0].callType).toBe('discovery');
         errorSpy.mockRestore();
+    });
+});
+
+describe('servedModelIfDifferent', () => {
+    it('ignores a models/ prefix on either side', () => {
+        expect(usage.servedModelIfDifferent('models/gemini-4-argon', 'gemini-4-argon')).toBeUndefined();
+        expect(usage.servedModelIfDifferent('gemini-4-argon', 'models/gemini-4-argon')).toBeUndefined();
+    });
+
+    it('returns undefined when the response reports no model', () => {
+        expect(usage.servedModelIfDifferent('gemini-4-argon', undefined)).toBeUndefined();
+        expect(usage.servedModelIfDifferent('gemini-4-argon', '')).toBeUndefined();
+    });
+
+    it('returns the served id when it differs', () => {
+        expect(usage.servedModelIfDifferent('gemini-pro-latest', 'gemini-3.1-pro-preview')).toBe('gemini-3.1-pro-preview');
+    });
+});
+
+describe('gemini-4-argon pricing', () => {
+    it('bills the introductory rate through November 2026 and double from 2026-12-01', () => {
+        expect(usage.computeCostUsd('gemini-4-argon', 1_000_000, 1_000_000, 0, { at: new Date('2026-11-30T23:59:59Z') })).toBeCloseTo(12, 6);
+        expect(usage.computeCostUsd('gemini-4-argon', 1_000_000, 1_000_000, 0, { at: new Date('2026-12-01T00:00:00Z') })).toBeCloseTo(24, 6);
     });
 });

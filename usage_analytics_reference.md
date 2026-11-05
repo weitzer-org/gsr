@@ -222,7 +222,9 @@ get the range wrong.
   "imageCount": 2,                            // present only on image-generation calls — see "Image generation costs"
   "latencyMs": 2431,
   "costUsd": 0.0034,
-  "finishReason": undefined,                  // not currently populated by trackGeminiCall
+  "finishReason": "STOP",                     // candidates[0].finishReason; "MAX_TOKENS" means truncated
+  "servedModel": "gemini-3.6-flash",          // present only when response.modelVersion differs from
+                                              // `model` (a silently aliased id); `model` stays the id requested
   "success": true,                            // always present, even when false
   "errorKind": "rate_limit"                   // present only when success is false
 }
@@ -237,6 +239,9 @@ Live caveats on `PRICE_TABLE` (`adk/backend/src/usage.ts`), tracked as items
   primary source.** They were added from secondary sources only —
   `ai.google.dev` and the pricing aggregators are blocked by the agent egress
   proxy — and should be checked against Google's official pricing page.
+- **`gemini-4-argon` ($2/$10, doubling to $4/$20 on 2026-12-01)** matches
+  Google Cloud's Gemini pricing page (read 2026-11-05); ai.google.dev, the
+  tier this repo is billed on, was not reachable to confirm it.
 - **Rates that change on a date are handled in the table, not by a comment.**
   `gemini-3.7-flash` and `gemini-3.8-flash` are on an introductory rate that
   doubles to $1.50/$7.50 on 2027-01-01; both carry a `supersededBy` entry that
@@ -255,9 +260,14 @@ Live caveats on `PRICE_TABLE` (`adk/backend/src/usage.ts`), tracked as items
   $0.25/1M input figure that circulates for `gemini-3.1-flash-image` is its
   batch rate, and pairing it with the standard $60/1M image output prices
   neither tier correctly. Standard is what this repo's calls are billed at.
-- **Thinking tokens are billed inconsistently across the reporting
-  projects** — see the cross-project caveat under "Rollup schema" below, and
-  TODO item 42.
+- **Records written before 2026-11-05's fix under-report thinking models.**
+  Until then `costUsd` billed `candidatesTokenCount` only and left
+  `thinkingTokens` out (see "`thinkingTokens` is billed" below). Stored
+  records were not repriced, so older `costUsd` totals for
+  `gemini-3.1-pro-preview` are low (by 3.8x on the 2026-11-05 probe's tiny
+  inputs; less on real PRs, not measured). Each record still has
+  `thinkingTokens`, so a query can reprice it: add `thinkingTokens` to
+  `outputTokens` and apply the rate for the record's date.
 - **Cache-read tokens are billed as free everywhere.** `computeCostUsd`
   subtracts `cachedTokens` from the billed input rather than charging them at
   a cache rate, for every model in the table. Gemini does charge for cache
@@ -370,25 +380,25 @@ directly rather than reinventing the S3 listing/reading logic.
   methodologies.** `ingestUsageRecords` stores `costUsd` exactly as sent by
   the reporting side — it never recomputes it via GSR's own
   `computeCostUsd`. GSR, job_tracker, and sound-profile-builder each keep
-  their own pricing table and don't bill cached/thinking tokens identically
-  (e.g. GSR treats `thinkingTokens` as pure telemetry, never added to
-  `costUsd` — see below). A `totalCostUsd` that sums across repositories is
+  their own pricing table and don't bill cached tokens identically (thinking
+  tokens are billed the same way by GSR and sound-profile-builder since
+  2026-11-05). A `totalCostUsd` that sums across repositories is
   therefore a best-effort blend, not an apples-to-apples figure — fine for a
   rough trend line, not for precise cross-project cost accounting.
 - The three `by<A><B>` intersection maps key on `"<a>|<b>"` (`|` is safe:
   model names, `owner/repo` strings, and the two workload labels never
   contain it), built only from combinations actually observed in the
   aggregated records, not a full cross-product of every distinct value.
-- **`thinkingTokens` is telemetry, not part of `costUsd`**: `computeCostUsd`
-  (in both `adk/backend/src/usage.ts` and `tools/eval/usage.ts`) bills only
-  `inputTokens`/`outputTokens` — it deliberately does NOT add `thinkingTokens`
-  on top. Gemini's own pricing page describes the output rate as already
-  "including thinking tokens," and multiple developer reports (Google's AI
-  forum has several threads on this exact question, with answers that
-  differ across models/API versions) suggest `candidatesTokenCount` — this
-  file's `outputTokens` — may already reflect them for the models in
-  `PRICE_TABLE`. Adding `thinkingTokens` again would risk double-billing.
-  Re-verify against current per-model docs before changing this.
+- **`thinkingTokens` is billed at the output rate, on top of
+  `outputTokens`.** `trackGeminiCall` (in both `adk/backend/src/usage.ts` and
+  `tools/eval/usage.ts`) passes `outputTokens + thinkingTokens` to
+  `computeCostUsd`. `candidatesTokenCount` (`outputTokens`) does not include
+  thoughts: on 22 of 22 live calls across four models, `totalTokenCount` was
+  exactly prompt + candidates + thoughts, and candidates matched the visible
+  text's token count (`tools/eval/model-probe.ts`). Google Cloud's pricing
+  page lists the output rate as "output and thinking tokens". Before
+  2026-11-05 thinking tokens were left out of `costUsd`; see "Known pricing
+  gaps".
 - **Image generation costs** are billed two different ways, and
   `PRICE_TABLE` entries reflect which: the Gemini image models
   (`gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`,

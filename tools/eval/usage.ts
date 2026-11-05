@@ -81,10 +81,10 @@ const PRICE_TABLE: Record<string, { input: number; output: number }> = {
   'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 }, // witness-spike/author.ts (production's chat model); same rate as adk/backend/src/usage.ts
 };
 
-// thinkingTokens is NOT added to outputTokens — same reasoning as
-// adk/backend/src/usage.ts's computeCostUsd: Gemini's pricing page describes
-// the output rate as already "including thinking tokens", so adding them on
-// top risks double-billing. Tracked as observability only.
+// Thinking tokens bill at the output rate and are not inside outputTokens, so
+// callers pass candidates + thoughts as the output count (trackGeminiCall
+// does). Evidence: adk/backend/src/usage.ts's comment above its
+// computeCostUsd.
 export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
   const price = PRICE_TABLE[model];
   if (!price) return 0;
@@ -198,7 +198,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       cachedTokens,
       thinkingTokens,
       latencyMs,
-      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens),
+      costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens + thinkingTokens, cachedTokens),
       success: true,
     });
     return response;

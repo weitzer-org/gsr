@@ -7,6 +7,25 @@ import { DEFAULT_LOW_PRIORITY_PATH_PATTERNS, isLowPriorityPath, PathPattern } fr
 import * as fs from 'fs';
 import * as path from 'path';
 
+// How many agent tasks run at once. Each task holds its slot for both of its
+// Gemini calls (discovery, then remediation), so a cap below the number of
+// active agents makes the rest wait for a whole two-call task: at the old cap
+// of 5, the six always-on agents needed two rounds. 10 covers every agent in
+// adk/prompts/system_prompts in one round. REVIEW_MAX_CONCURRENCY lowers it
+// again for an API key whose rate limit can't take that many parallel calls.
+export const DEFAULT_MAX_CONCURRENCY = 10;
+
+export function resolveMaxConcurrency(): number {
+  const raw = (process.env.REVIEW_MAX_CONCURRENCY || '').trim();
+  if (!raw) return DEFAULT_MAX_CONCURRENCY;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    console.warn(`[Orchestrator] Ignoring invalid REVIEW_MAX_CONCURRENCY "${raw}"; using ${DEFAULT_MAX_CONCURRENCY}.`);
+    return DEFAULT_MAX_CONCURRENCY;
+  }
+  return parsed;
+}
+
 export class Orchestrator {
   private subagents: Subagent[] = [];
   private maxConcurrency: number;
@@ -30,7 +49,7 @@ export class Orchestrator {
   // never to replace it.
   private lowPriorityPathPatterns: PathPattern[];
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: PathPattern[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS) {
+  constructor(maxConcurrency: number = resolveMaxConcurrency(), promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: PathPattern[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS) {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = promptsDirName;
     this.deduplicator = new DeduplicatorAgent();

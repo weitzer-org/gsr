@@ -2,6 +2,88 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { CandidateFinding } from './types.js';
 import { trackGeminiCall } from './usage.js';
 
+// Two findings can only be duplicates when they are in the same file and
+// this close together. Shared by the prompt and the code checks around it.
+export const MERGE_LINE_WINDOW = 10;
+
+const SEVERITY_RANK: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
+
+function lineOf(f: CandidateFinding): number {
+  const n = Number(f.line);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// clusterByProximity returns, for each finding, the id of its cluster: a
+// maximal run of findings in one file where each is within MERGE_LINE_WINDOW
+// lines of the next. A cluster of one cannot contain a duplicate.
+export function clusterByProximity(findings: CandidateFinding[]): number[] {
+  const order = findings.map((_, i) => i).sort((a, b) => {
+    const fa = String(findings[a].file), fb = String(findings[b].file);
+    if (fa !== fb) return fa < fb ? -1 : 1;
+    return lineOf(findings[a]) - lineOf(findings[b]) || a - b;
+  });
+  const clusterOf = new Array<number>(findings.length);
+  let cluster = -1;
+  let prev: number | undefined;
+  for (const i of order) {
+    const sameRun = prev !== undefined
+      && String(findings[prev].file) === String(findings[i].file)
+      && lineOf(findings[i]) - lineOf(findings[prev]) <= MERGE_LINE_WINDOW;
+    if (!sameRun) cluster++;
+    clusterOf[i] = cluster;
+    prev = i;
+  }
+  return clusterOf;
+}
+
+// normalizeGroups turns the model's untrusted answer into merge groups that
+// are safe to apply. An index is honoured once (first appearance), only if it
+// was actually sent, and a group is split wherever it spans two proximity
+// clusters — so the model can neither drop a finding nor merge two findings
+// that are far apart or in different files. Anything it left out simply stays
+// unmerged. Returns only groups of two or more, each sorted ascending.
+export function normalizeGroups(raw: unknown, candidates: Set<number>, clusterOf: number[]): number[][] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<number>();
+  const groups: number[][] = [];
+  for (const entry of raw) {
+    const indices = Array.isArray(entry) ? entry : (entry as any)?.indices;
+    if (!Array.isArray(indices)) continue;
+    const byCluster = new Map<number, number[]>();
+    for (const idx of indices) {
+      if (!Number.isInteger(idx) || !candidates.has(idx) || seen.has(idx)) continue;
+      seen.add(idx);
+      const c = clusterOf[idx];
+      if (!byCluster.has(c)) byCluster.set(c, []);
+      byCluster.get(c)!.push(idx);
+    }
+    for (const g of byCluster.values()) {
+      if (g.length > 1) groups.push(g.sort((a, b) => a - b));
+    }
+  }
+  return groups;
+}
+
+// mergeGroup collapses findings the model judged to be one issue. The
+// highest-severity member (earliest on a tie) supplies the text and location;
+// the agent names are joined ("Performance, Security") and a suggestion is
+// borrowed from another member if the primary has none.
+export function mergeGroup(group: CandidateFinding[]): CandidateFinding {
+  const rank = (f: CandidateFinding) => SEVERITY_RANK[String(f.severity || '').toUpperCase()] || 0;
+  const primary = group.reduce((best, f) => (rank(f) > rank(best) ? f : best), group[0]);
+  const agents: string[] = [];
+  for (const f of group) {
+    for (const name of String(f.agent || '').split(',').map(s => s.trim()).filter(Boolean)) {
+      if (!agents.includes(name)) agents.push(name);
+    }
+  }
+  return {
+    ...primary,
+    agent: agents.length > 0 ? agents.join(', ') : primary.agent,
+    suggestion: primary.suggestion || group.find(f => f.suggestion)?.suggestion,
+  };
+}
+
 export class DeduplicatorAgent {
   private ai: GoogleGenAI;
 
@@ -17,25 +99,48 @@ export class DeduplicatorAgent {
        return findings;
     }
 
+    // Only findings that sit near another finding can be duplicates at all
+    // (the merge rule below is "same file, within MERGE_LINE_WINDOW lines"),
+    // so that proximity check is done here in code, not by the model. When
+    // nothing clusters there is nothing to merge and no call is made.
+    const clusterOf = clusterByProximity(findings);
+    const clusterSizes = new Map<number, number>();
+    for (const c of clusterOf) clusterSizes.set(c, (clusterSizes.get(c) || 0) + 1);
+    const candidateIndices = findings.map((_, i) => i).filter(i => (clusterSizes.get(clusterOf[i]) || 0) > 1);
+    if (candidateIndices.length === 0) {
+      console.log(`[Deduplicator] No findings within ${MERGE_LINE_WINDOW} lines of each other in the same file; skipping the merge call.`);
+      return findings;
+    }
+
     try {
-      console.log(`[Deduplicator] Starting deduplication of ${findings.length} findings...`);
+      console.log(`[Deduplicator] Starting deduplication of ${candidateIndices.length} clustered findings (of ${findings.length} total)...`);
+      // The model only decides WHICH findings describe the same root cause
+      // and answers with index groups. It never rewrites a finding: the merge
+      // itself happens in mergeGroup below. Re-emitting every description and
+      // suggestion was most of this call's output tokens and latency, and it
+      // let the model silently drop findings (deduplicator-duplication-bug.md
+      // "collapse") — with indices, every input finding provably survives.
       const systemInstruction = `You are an expert Code Review Deduplicator agent.
-You will be provided with a JSON array of code review findings mapped to specific files and lines. These findings were generated by various specialist subagents, so many of them will overlap or highlight the exact same issue from slightly different angles.
+You will be provided with a JSON array of code review findings, each with an "index". They were generated by various specialist subagents, so some of them highlight the exact same issue from slightly different angles.
 
-Your job is to read all the findings and rigorously MERGE them into a single, cohesive, deduplicated JSON array.
+Your job is to decide which findings are duplicates of each other. Do NOT rewrite, summarize or return the findings themselves.
 
-Follow this step-by-step process:
-1. **Identify Groups**: Group findings that target the SAME or NEARBY lines (within 10 lines) in the SAME file, AND they relate to the same root cause or issue.
-2. **Merge Groups**: For each group of related findings, synthesize them into a SINGLE CandidateFinding.
-    * **Summary**: Create a concise summary that captures the core issue.
-    * **Description**: Combine the descriptions from all findings in the group into a comprehensive explanation of the problem and its impact (e.g., explain that it is a performance issue AND a security risk).
-    * **Suggestion**: Provide the best, most comprehensive code suggestion or remediation steps.
-    * **Severity**: Take the highest severity among the findings in the group.
-    * **Agent**: Concatenate the agent names with commas (e.g., 'Performance, Security').
-3. **Keep Distinct Findings**: Findings that do not share a root cause with others should be kept separate.
+Rules:
+1. Two findings belong in the same group ONLY if they are in the SAME file, on the SAME or NEARBY lines (within ${MERGE_LINE_WINDOW} lines), AND they describe the same root cause or issue.
+2. Findings that are merely close together but describe different problems must stay in separate groups.
+3. Return every index exactly once. A finding with no duplicate is a group of one.
 
-Your final output MUST match the schema of an array of CandidateFinding objects.
-CRITICAL: You MUST retain the 'agent' field for every single finding. Without this, the UI breaks.`;
+Output a JSON array of groups, each of the form {"indices": [..]}.`;
+
+      const payload = candidateIndices.map(i => ({
+        index: i,
+        file: findings[i].file,
+        line: findings[i].line,
+        severity: findings[i].severity,
+        agent: findings[i].agent,
+        summary: findings[i].summary,
+        description: findings[i].description,
+      }));
 
       const startTime = Date.now();
       console.log(`[Deduplicator] Sending request to Gemini...`);
@@ -45,7 +150,7 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
         { callType: 'deduplicate', model: deduplicatorModel },
         () => this.ai.models.generateContent({
         model: deduplicatorModel,
-        contents: JSON.stringify(findings),
+        contents: JSON.stringify(payload),
         config: {
           systemInstruction,
           // Without an explicit cap, this model can pathologically hang past
@@ -63,19 +168,13 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.ARRAY,
-            description: "A consolidated list of deduplicated code review findings.",
+            description: "Groups of finding indices that describe the same issue. Every input index appears in exactly one group.",
             items: {
               type: Type.OBJECT,
               properties: {
-                file: { type: Type.STRING },
-                line: { type: Type.INTEGER },
-                severity: { type: Type.STRING, enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
-                summary: { type: Type.STRING },
-                description: { type: Type.STRING },
-                suggestion: { type: Type.STRING, nullable: true },
-                agent: { type: Type.STRING, nullable: true }
+                indices: { type: Type.ARRAY, items: { type: Type.INTEGER } }
               },
-              required: ["file", "line", "severity", "summary", "description"]
+              required: ["indices"]
             }
           }
         }
@@ -107,8 +206,18 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
       }
 
       if (response.text) {
-        const mergedFindings = JSON.parse(response.text) as CandidateFinding[];
-        console.log(`[Deduplicator] Successfully deduplicated into ${mergedFindings.length} findings.`);
+        const groups = normalizeGroups(JSON.parse(response.text), new Set(candidateIndices), clusterOf);
+        const groupOf = new Map<number, number[]>();
+        for (const g of groups) for (const i of g) groupOf.set(i, g);
+
+        // Emit in the original order, each group at its first member's position.
+        const mergedFindings: CandidateFinding[] = [];
+        findings.forEach((f, i) => {
+          const g = groupOf.get(i);
+          if (!g) mergedFindings.push(f);
+          else if (g[0] === i) mergedFindings.push(mergeGroup(g.map(j => findings[j])));
+        });
+        console.log(`[Deduplicator] Successfully deduplicated ${findings.length} findings into ${mergedFindings.length}.`);
         return mergedFindings;
       }
 

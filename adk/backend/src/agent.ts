@@ -15,7 +15,6 @@ export class GeminiAgent implements Subagent {
   name: string;
   public promptContent: string;
   private ai: GoogleGenAI;
-  private cachedContentName?: string;
 
   constructor(name: string, promptContent: string) {
     this.name = name;
@@ -40,42 +39,6 @@ export class GeminiAgent implements Subagent {
     let timeoutId: NodeJS.Timeout | undefined;
     let promptTokens = 0;
     let candidatesTokens = 0;
-
-    const useContextCaching = process.env.USE_CONTEXT_CACHING !== 'false';
-
-    if (useContextCaching && !this.cachedContentName) {
-      try {
-        console.log(`[${this.name}] Initializing Context Cache for persona...`);
-        // Note: GoogleGenAI caches.create defaults exactly
-        const discoverySystemInstruction = `You are the ${this.name} discovery agent.\nYour ONLY goal is to scan the code and identify the exact lines where problems exist based on your specialty.\nEnsure you return your response in the strictly required JSON format.\nCRITICAL: You MUST include every single file you read in the \`filesAnalyzed\` array, even if there are 0 issues found in it. \nIf you skip a file, the system will fail.\n${this.promptContent}`;
-        
-        const envModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
-        const cacheModel = envModel.startsWith('models/') ? envModel : `models/${envModel}`;
-        
-        const tokenResponse = await this.ai.models.countTokens({
-           model: envModel,
-           contents: discoverySystemInstruction,
-        });
-
-        const CONTEXT_CACHE_TOKEN_THRESHOLD = 2048;
-        const tokenTotal = tokenResponse.totalTokens || 0;
-        if (tokenTotal < CONTEXT_CACHE_TOKEN_THRESHOLD) {
-           console.log(`[${this.name}] Bypassing Context Cache (instructions size ${tokenTotal} is under the ${CONTEXT_CACHE_TOKEN_THRESHOLD} token limit).`);
-        } else {
-           const cache = await this.ai.caches.create({
-             model: cacheModel,
-             config: {
-                systemInstruction: discoverySystemInstruction,
-                ttl: '3600s'
-             }
-           });
-           this.cachedContentName = cache.name;
-           console.log(`[${this.name}] Cache created successfully: ${cache.name}`);
-        }
-      } catch (e) {
-        console.warn(`[${this.name}] Failed to create Context Cache, falling back to un-cached:`, e);
-      }
-    }
 
     try {
       console.log(`[${this.name}] Starting Pass 1 (Discovery) for ${aggregatedFiles}...`);
@@ -137,12 +100,7 @@ export class GeminiAgent implements Subagent {
            }
         };
 
-        if (useContextCaching && this.cachedContentName) {
-           requestArgs.cachedContent = this.cachedContentName;
-           // The cachedContent implies systemInstruction is fulfilled natively
-        } else {
-           requestArgs.config.systemInstruction = promptPayload.systemInstruction;
-        }
+        requestArgs.config.systemInstruction = promptPayload.systemInstruction;
 
         const discoveryRequestStart = Date.now();
         const genAiRequest = trackGeminiCall(
@@ -203,8 +161,14 @@ export class GeminiAgent implements Subagent {
       console.log(`[${this.name}] Starting Pass 2 (Remediation) for ${discoveryIssues.length} identified issues...`);
 
       // PASS 2: Remediation
-      // Not cached because it uses a different short-lived prompt focused tightly on synthesizing solutions
-      const remediationPayload = this.buildRemediationPrompt(chunks, discoveryIssues);
+      // Only the files that actually have a flagged issue are resent: the
+      // fix for an issue is written against its own file, and resending the
+      // whole PR per agent was most of this call's input. If the model's
+      // file names match no chunk at all (a mangled path), fall back to the
+      // full diff rather than send remediation no code to read.
+      const flaggedFiles = new Set(discoveryIssues.map(i => i.file));
+      const flaggedChunks = chunks.filter(c => flaggedFiles.has(c.file));
+      const remediationPayload = this.buildRemediationPrompt(flaggedChunks.length > 0 ? flaggedChunks : chunks, discoveryIssues);
       const remediationModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
       const remediationRequestStart = Date.now();
       const remediationRequest = trackGeminiCall(

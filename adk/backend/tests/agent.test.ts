@@ -118,6 +118,30 @@ describe('GeminiAgent', () => {
         expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     });
 
+    it('sends remediation only the files with a flagged issue, or the whole diff if none match', async () => {
+        const chunks = [{ file: 'flagged.ts', content: '+ flagged-code' }, { file: 'clean.ts', content: '+ clean-code' }];
+        const run = async (issueFile: string) => {
+            const agent = new GeminiAgent('Logic', 'logic.md');
+            const mockGenerateContent = jest.fn<any>()
+              .mockResolvedValueOnce({ text: JSON.stringify({
+                filesAnalyzed: ['flagged.ts', 'clean.ts'],
+                issues: [{ file: issueFile, line: 1, severity: 'MEDIUM', summary: 'Sum' }]
+              }) })
+              .mockResolvedValueOnce({ text: '[]' });
+            agent['ai'] = { models: { generateContent: mockGenerateContent } } as any;
+            await agent.analyze(chunks);
+            return (mockGenerateContent.mock.calls[1][0] as any).contents as string;
+        };
+
+        const scoped = await run('flagged.ts');
+        expect(scoped).toContain('flagged-code');
+        expect(scoped).not.toContain('clean-code');
+
+        const fallback = await run('no/such/file.ts');
+        expect(fallback).toContain('flagged-code');
+        expect(fallback).toContain('clean-code');
+    });
+
     it('should retry if Pass 1 misses files from filesAnalyzed', async () => {
         const agent = new GeminiAgent('Logic', 'logic.md');
         

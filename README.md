@@ -15,7 +15,7 @@ Instead of relying on a single prompt to review code, GSR uses a **swarm of spec
 
 ### Orchestration & Deduplication
 1.  **Orchestrator**: Splits the incoming PR diff into chunks and distributes them to the subagents in parallel.
-2.  **Deduplicator**: After all subagents report their findings, a dedicated `DeduplicatorAgent` (running on `gemini-3.1-pro-preview` with a sequential lock) merges duplicate findings and selects the most actionable suggestions, reducing noise for the developer.
+2.  **Deduplicator**: After all subagents report their findings, findings in the same file within 10 lines of each other are sent to a `DeduplicatorAgent` (`DEDUPLICATOR_MODEL`, default `gemini-3.1-pro-preview`), which answers only with groups of finding indices that describe the same issue. The merge itself is done in code (highest severity wins, agent names are joined), so a finding can be merged but never dropped. When no two findings are that close, the call is skipped.
 
 ---
 

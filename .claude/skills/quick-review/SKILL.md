@@ -12,12 +12,12 @@ single largest discretionary Claude-quota expense. This skill does the same
 core job in **one inline pass, spawning no agents at all**.
 
 That tradeoff is deliberate and real: a single pass finds fewer issues than 8
-specialized angles. It's affordable *because* this repo already has two other
-safety nets: `.github/workflows/deploy.yml` runs the full Jest/Supertest suite
-on every push and gates the Fly.io deploy on it passing, and CodeRabbit and
-gemini-code-assist both review every PR automatically at zero Claude quota.
-None of these catch design, security, or simplification issues on their
-own — this skill is the local first pass; CI and those bots are the backstop.
+specialized angles. No PR bot reviews this repo any more (GSR, CodeRabbit and
+gemini-code-assist are gone), so this pass is the review, not a first pass
+before one: run it on every change before pushing. The only other safety net is
+`.github/workflows/deploy.yml`, which runs the full Jest/Supertest suite on
+every push and gates the Fly.io deploy on it passing. Tests don't catch design,
+security, or simplification issues, so be thorough with the one pass you get.
 
 **Do not spawn sub-agents while running this skill.** If you find yourself
 wanting to, that's the signal to stop and tell the user this diff warrants a
@@ -103,9 +103,9 @@ summary, and a concrete failure scenario. Cap at ~8. If nothing survives
 verification, say so plainly rather than padding.
 
 Then state, in one line, what this pass did **not** cover — so the user knows
-what CI/CodeRabbit/gemini-code-assist still need to catch. For example:
-"Single-pass only; no dedicated security/injection angle — `/security-review`
-(also a single-pass skill) or the PR bots remain the check for that."
+what is still unchecked. For example: "Single-pass only; no dedicated
+security/injection angle — run `/security-review` (also a single-pass skill)
+before pushing."
 
 ## When to escalate instead
 

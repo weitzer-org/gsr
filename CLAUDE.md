@@ -150,22 +150,32 @@ just guessable. Independent gates now cover this:
   rather than reinstalling from scratch each time.
 
 ## Code review
-`.github/workflows/deploy.yml` runs all three test suites on every push/PR
-and gates the Fly.io deploy on them passing — but tests don't catch design,
-security, or simplification issues, so review before merging is still the
-main quality gate.
+**Reviews run internally, during development.** GSR itself and the PR bots
+(CodeRabbit, gemini-code-assist, the `GSR self-review` checks) are not
+available as a review gate any more: do not wait for them, do not assume a
+bot will catch what you skipped, and do not defer review to the open PR. The
+review happens in the working session, before the code is pushed.
+`.github/workflows/deploy.yml` still runs all three test suites on every
+push/PR and gates the Fly.io deploy on them passing, but tests don't catch
+design, security, or simplification issues, so the internal review below is
+the main quality gate.
 
 **Cost policy (Claude quota is a real constraint on this project).** The
 bundled `/code-review` spawns 8 finder agents plus up to 8 verifiers at
 `high` — the single largest discretionary expense in the workflow. So it is
-**not** the default. The default pre-merge review is the project's own
+**not** the default. The default review is the project's own
 **`/quick-review`** (`.claude/skills/quick-review/`): one inline pass, no
-sub-agents, ~1 call. CodeRabbit and gemini-code-assist both review every PR
-automatically at zero Claude quota and are the automated second opinion that
-makes a cheaper local pass acceptable, on top of the CI test gate above.
+sub-agents, ~1 call. Because no bot backstops it any more, run it
+*consistently* rather than skipping it.
 
-- **Default — every PR:** run **`/quick-review`** against the branch diff,
-  then let CodeRabbit and gemini-code-assist backstop it on the open PR.
+- **Default — every change, before you push:** when a logical unit of work is
+  done and its tests pass, run **`/quick-review`** against the diff. Fix every
+  real finding, re-run the affected tests, and only then push. Don't batch the
+  review to the end of a long branch: review each unit as it lands, so a
+  design problem is caught while it is cheap to change. Skip it only for a
+  change with no behavior (typo, comment, docs-only).
+- **Security-sensitive diffs — also `/security-review`** (see below), before
+  you push, not instead of `/quick-review`.
 - **Escalate to the multi-agent `/code-review medium`/`high`** only for large
   or architecturally risky changes (agent orchestration, storage/secrets,
   auth) where the fan-out's extra recall is worth the extra calls. Always
@@ -178,29 +188,29 @@ makes a cheaper local pass acceptable, on top of the CI test gate above.
   and let the user decide whether to budget for the full fan-out — don't
   quietly spawn sub-agents to compensate.
 
-### Replying to review findings (required on every PR)
-This repo's own GSR review runs on every PR (the `GSR self-review (basic)`
-and `(swarm)` checks), alongside CodeRabbit and gemini-code-assist. **Always
-reply on the PR thread to every finding any of them raises, including the ones
-you decide not to fix.** A finding with no reply looks unreviewed even when it
-was considered, and a PR with open unanswered threads is not ready to hand to
-the user for merge.
+### Recording the review (required on every PR)
+With no bot threads to answer, the PR description is the record that review
+happened. Add a short **Internal review** section to every PR body:
 
-- Reply to each thread individually and say plainly whether it was **fixed**
-  (name the commit) or **declined**, and why. A one-line reply is enough for
-  a low-severity, out-of-scope or pre-existing finding.
-- Before declining, **reproduce the claim** (see Verification discipline) and
-  quote what you ran. A decline that rests on an unexecuted assumption must say
-  so. Declining a security finding, or rebutting a bot, is an Opus trigger (see
-  Escalating to another model).
-- Cover every page of review threads and the review summary comments; do not
-  stop at the first page of results.
-- Engage with GSR's follow-up rebuttal too: GSR's PR-comment feedback loop may
-  reply to a dismissal. Concede and fix, or restate concretely why the call
-  stands, for at least one more round.
-- Resolve threads you fixed. Leave a declined security finding open until the
-  user decides.
-- Replies end with the Claude Code attribution footer.
+- which review ran (`/quick-review`, `/security-review`, `/code-review <level>`)
+  and on which diff, i.e. the commit it covered;
+- each finding raised, with its outcome: **fixed** (name the commit) or
+  **declined** and why. A one-line reason is enough for a low-severity,
+  out-of-scope or pre-existing finding;
+- anything not covered (e.g. "no browser run", "storage mocked, not run
+  against R2").
+
+Before declining a finding, **reproduce the claim** (see Verification
+discipline) and quote what you ran; a decline that rests on an unexecuted
+assumption must say so. Declining a security finding is an Opus trigger (see
+Escalating to another model); leave it visible in the PR description for the
+user to decide.
+
+If a later commit materially changes reviewed code, re-run the review on that
+change and update the section. Human review comments on a PR still get a
+reply on the thread (fixed, with the commit, or declined, with the reason),
+and a PR with unanswered human threads is not ready to hand to the user.
+Replies end with the Claude Code attribution footer.
 
 ### Security review
 The standard review lenses (correctness, cleanup, altitude, conventions) are
@@ -287,7 +297,7 @@ Call `Agent` with `subagent_type: "opus-verifier"` (model pinned to Opus in
 - You are comparing measurements across runs and the conclusion depends on the
   comparison being valid.
 - You are about to **dismiss a review finding as a false positive**, or to
-  post a rebuttal to a bot reviewer.
+  record a rebuttal of a finding from an internal review or a human reviewer.
 - You are about to make an **irreversible or expensive** change: a schema or
   data migration, anything touching auth or secrets, or a change that spends
   real API money.
@@ -342,7 +352,7 @@ asking first**. Guardrails, because Claude quota is a real constraint:
 | Sandbox, secrets, auth, or code-execution design and its review | Opus | Pair with `/security-review`; this is the "irreversible or expensive" trigger above |
 | Writing or tuning a prompt whose quality decides whether a feature works | Opus | Review the result with Fable |
 | Scoring a run, comparing measurements, writing a gate report | Opus | The "comparing measurements" trigger above |
-| Triaging or rebutting a bot review finding | Opus | The "false positive" trigger above; reproduce the claim first |
+| Triaging or rebutting a review finding (internal pass or human) | Opus | The "false positive" trigger above; reproduce the claim first |
 | "Is there a simpler way?" design checks | Fable | `fable-reviewer` |
 | Routine pre-merge review of a diff | `/quick-review` | No sub-agent; same quota profile as one call |
 
@@ -354,9 +364,11 @@ comment.
 
 ## Review-round triage ledger
 
-Bot-review rounds are where misinterpretation concentrates, and PRs here have
-run **six rounds** with real findings buried among stale re-posts. When a PR
-goes past its second review round, keep a scratch ledger (e.g.
+Review rounds are where misinterpretation concentrates, and PRs here used to
+run **six rounds** (when bots reviewed them) with real findings buried among
+stale re-posts. The same applies to repeated internal review passes on one
+branch and to human review threads. When a PR or branch goes past its second
+review round, keep a scratch ledger (e.g.
 `/tmp/pr-<n>-triage.md`, not committed) with one row per finding ID:
 `id | verdict (fixed / declined / duplicate) | the evidence`. Consult it before
 re-triaging anything. Two rules:
@@ -368,8 +380,8 @@ re-triaging anything. Two rules:
   auto-declined; a ledger that suppresses a real regression is worse than no
   ledger.
 - A genuinely new finding gets verified against the current code before it is
-  believed — bot reviewers re-anchor line numbers on old comment IDs, so a
-  changed line number is not evidence of a new finding.
+  believed — reviewers (and re-run passes) re-anchor line numbers on old
+  findings, so a changed line number is not evidence of a new finding.
 
 ## Deployment
 - **Fly.io** (current runtime): `fly.toml` (main backend, app

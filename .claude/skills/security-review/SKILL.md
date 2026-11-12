@@ -21,10 +21,11 @@ builder project's hand-rolled HTML sanitizer that shipped with XSS bypasses.
 sub-agents** — deliberately, because a multi-agent fan-out (the bundled
 `/code-review`) is the largest discretionary Claude-quota expense in this
 project's workflow. The tradeoff is that one focused pass finds less than
-several parallel angles; that's acceptable here *because* CodeRabbit and
-gemini-code-assist both review every PR automatically at zero Claude quota
-and CI (`deploy.yml`) gates deploy on the test suite passing. This skill is
-the local adversarial pass; CI and those two bots are the backstop.
+several parallel angles; that's acceptable here because CI (`deploy.yml`)
+gates deploy on the test suite passing. No PR bot reviews this repo any more,
+so this skill is the only adversarial pass: run it before pushing any
+security-sensitive diff, and recommend `/code-review high` when one pass isn't
+enough.
 
 **Do not spawn Agent-tool sub-agents while running it** — if the diff feels
 too big or dangerous for one pass, say so and recommend the user budget for a
@@ -140,4 +141,4 @@ the same `file` / `line` / `summary` / `failure_scenario` fields.
 
 Finally, because this is one pass rather than a fan-out, state plainly what
 you did **not** get to (e.g. "did not audit the full GitHub Action permission
-model end-to-end") so the user knows what CI/CodeRabbit/gemini-code-assist still need to cover.
+model end-to-end") so the user knows what is still unchecked.

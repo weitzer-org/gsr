@@ -1,5 +1,9 @@
 name: GSR Self-Review
 
+# DISABLED: GSR is no longer available, so this workflow's job(s) never run
+# (`if: false`). Kept for reference; code review now runs internally, see
+# CLAUDE.md's Code review section. Remove the `if: false` line(s) to re-enable.
+
 # Dogfoods the GSR action on its own PRs: runs both the swarm ("subagent")
 # and single-pass ("basic") review modes against this repo's own diffs,
 # posting inline findings as PR review comments. Purely additive/advisory —
@@ -41,6 +45,7 @@ permissions:
 jobs:
   self-review-swarm:
     name: GSR self-review (swarm)
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +62,7 @@ jobs:
 
   self-review-basic:
     name: GSR self-review (basic)
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

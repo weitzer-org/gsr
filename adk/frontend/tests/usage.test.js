@@ -119,6 +119,22 @@ describe('Usage dashboard frontend logic (usage.js)', () => {
         expect(document.getElementById('usage-total-calls').textContent).toBe('5');
     });
 
+    it('shows unknown, never $0, when every successful call was on an unpriced model', async () => {
+        const unpriced = { ...summaryResponse, total: { ...summaryResponse.total, totalCostUsd: 0, successCount: 5, totalCostUnknownCalls: 5 } };
+        global.fetch.mockResolvedValueOnce({ ok: true, json: async () => unpriced });
+        initUsage();
+        await new Promise(process.nextTick);
+        expect(document.getElementById('usage-total-cost').textContent).toBe('unknown (5 calls excluded)');
+    });
+
+    it('shows the priced part plus the unknown count when only some calls were unpriced', async () => {
+        const mixed = { ...summaryResponse, total: { ...summaryResponse.total, totalCostUsd: 0.03, successCount: 5, totalCostUnknownCalls: 2 } };
+        global.fetch.mockResolvedValueOnce({ ok: true, json: async () => mixed });
+        initUsage();
+        await new Promise(process.nextTick);
+        expect(document.getElementById('usage-total-cost').textContent).toBe('$0.0300 + unknown (2 calls excluded)');
+    });
+
     it('renders one time series row per bucket', async () => {
         global.fetch.mockResolvedValueOnce({ ok: true, json: async () => summaryResponse });
         initUsage();

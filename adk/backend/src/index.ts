@@ -16,10 +16,14 @@ import { app } from './app';
 import { assertProductionAuthConfigured } from './auth';
 import { assertProductionUsageIngestConfigured } from './usageIngestAuth';
 import { assertProductionFeedbackAuthConfigured } from './feedbackAuth';
+import { assertModelEnvValid } from './models';
 
 assertProductionAuthConfigured();
 assertProductionUsageIngestConfigured();
 assertProductionFeedbackAuthConfigured();
+// A typo'd GEMINI_THINKING_LEVEL / GEMINI_MAX_OUTPUT_TOKENS would otherwise silently run an arm
+// in the wrong configuration; fail the start instead.
+assertModelEnvValid();
 
 const PORT = process.env.PORT || 8080;
 

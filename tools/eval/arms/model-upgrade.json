@@ -1,0 +1,51 @@
+{
+  "description": "Pre-registered arms for docs/eval/model-upgrade-test-plan.md. Every stage's model is set explicitly on every arm (dedup included); caching is off and the output cap identical everywhere, so the model (and, for FLASH38_LOW, the thinking level) is the only variable. 32768 is gemini-4-argon's outputTokenLimit from models.get (verified 2026-11-12), the lowest of the three models, so the cap binds on all of them equally.",
+  "arms": [
+    {
+      "name": "BASE", "role": "baseline",
+      "description": "gemini-3.1-pro-preview on every stage",
+      "env": {
+        "DISCOVERY_MODEL": "gemini-3.1-pro-preview", "REMEDIATION_MODEL": "gemini-3.1-pro-preview", "BASIC_MODEL": "gemini-3.1-pro-preview",
+        "DEDUPLICATOR_MODEL": "gemini-3.1-pro-preview", "EVALUATOR_MODEL": "gemini-3.1-pro-preview",
+        "USE_CONTEXT_CACHING": "false", "GEMINI_MAX_OUTPUT_TOKENS": "32768"
+      }
+    },
+    {
+      "name": "BASE2", "role": "control",
+      "description": "A/A copy of BASE in the same batch: the noise floor the gates are calibrated against",
+      "env": {
+        "DISCOVERY_MODEL": "gemini-3.1-pro-preview", "REMEDIATION_MODEL": "gemini-3.1-pro-preview", "BASIC_MODEL": "gemini-3.1-pro-preview",
+        "DEDUPLICATOR_MODEL": "gemini-3.1-pro-preview", "EVALUATOR_MODEL": "gemini-3.1-pro-preview",
+        "USE_CONTEXT_CACHING": "false", "GEMINI_MAX_OUTPUT_TOKENS": "32768"
+      }
+    },
+    {
+      "name": "ARGON", "role": "candidate",
+      "description": "gemini-4-argon on every stage, default thinking",
+      "env": {
+        "DISCOVERY_MODEL": "gemini-4-argon", "REMEDIATION_MODEL": "gemini-4-argon", "BASIC_MODEL": "gemini-4-argon",
+        "DEDUPLICATOR_MODEL": "gemini-4-argon", "EVALUATOR_MODEL": "gemini-4-argon",
+        "USE_CONTEXT_CACHING": "false", "GEMINI_MAX_OUTPUT_TOKENS": "32768"
+      }
+    },
+    {
+      "name": "FLASH38", "role": "candidate",
+      "description": "gemini-3.8-flash on every stage, default thinking",
+      "env": {
+        "DISCOVERY_MODEL": "gemini-3.8-flash", "REMEDIATION_MODEL": "gemini-3.8-flash", "BASIC_MODEL": "gemini-3.8-flash",
+        "DEDUPLICATOR_MODEL": "gemini-3.8-flash", "EVALUATOR_MODEL": "gemini-3.8-flash",
+        "USE_CONTEXT_CACHING": "false", "GEMINI_MAX_OUTPUT_TOKENS": "32768"
+      }
+    },
+    {
+      "name": "FLASH38_LOW", "role": "candidate",
+      "description": "gemini-3.8-flash on every stage, GEMINI_THINKING_LEVEL=LOW (applies to discovery/remediation/basic; the deduplicator keeps its thinkingBudget 4096)",
+      "env": {
+        "DISCOVERY_MODEL": "gemini-3.8-flash", "REMEDIATION_MODEL": "gemini-3.8-flash", "BASIC_MODEL": "gemini-3.8-flash",
+        "DEDUPLICATOR_MODEL": "gemini-3.8-flash", "EVALUATOR_MODEL": "gemini-3.8-flash",
+        "GEMINI_THINKING_LEVEL": "LOW",
+        "USE_CONTEXT_CACHING": "false", "GEMINI_MAX_OUTPUT_TOKENS": "32768"
+      }
+    }
+  ]
+}

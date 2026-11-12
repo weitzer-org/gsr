@@ -1,0 +1,137 @@
+{
+  "rule": "merged PRs newest-first from weitzer-org/sound-profile-builder and weitzer-org/gsr (alternating), merged <= 2026-11-12T23:59:59.000Z, scanning at most 60 per repo, excluding config.json sample_prs; >= 10 changed code files (ts,tsx,js,jsx,mjs,cjs,go,py,rs,java,kt,rb,sh,sql,css,scss,html; not under docs/; with a patch; not on the backend ignore list) and total patch <= 1000000 bytes; first 5 per repo",
+  "selected_at": "2026-11-12T01:33:16.192Z",
+  "scanned": {
+    "weitzer-org/sound-profile-builder": 60,
+    "weitzer-org/gsr": 60
+  },
+  "sample_prs": [
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/3",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/4",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/5",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/6",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/7",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/8",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/9",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/10",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/11",
+    "https://github.com/weitzer-org/gemini-cli-fork/pull/12",
+    "https://github.com/weitzer-org/gsr/pull/50",
+    "https://github.com/weitzer-org/gsr/pull/57",
+    "https://github.com/weitzer-org/gsr/pull/58"
+  ],
+  "large_set": [
+    "https://github.com/weitzer-org/sound-profile-builder/pull/272",
+    "https://github.com/weitzer-org/gsr/pull/93",
+    "https://github.com/weitzer-org/sound-profile-builder/pull/270",
+    "https://github.com/weitzer-org/gsr/pull/82",
+    "https://github.com/weitzer-org/sound-profile-builder/pull/267",
+    "https://github.com/weitzer-org/gsr/pull/74",
+    "https://github.com/weitzer-org/sound-profile-builder/pull/264",
+    "https://github.com/weitzer-org/gsr/pull/73",
+    "https://github.com/weitzer-org/sound-profile-builder/pull/269",
+    "https://github.com/weitzer-org/gsr/pull/63"
+  ],
+  "large_set_detail": [
+    {
+      "url": "https://github.com/weitzer-org/sound-profile-builder/pull/272",
+      "repo": "weitzer-org/sound-profile-builder",
+      "number": 272,
+      "title": "#271 eval_report: completeness gates, per-query paired comparison and per-agent output checks",
+      "merged_at": "2026-11-12T00:20:34Z",
+      "code_files": 15,
+      "total_files": 17,
+      "patch_bytes": 71776
+    },
+    {
+      "url": "https://github.com/weitzer-org/gsr/pull/93",
+      "repo": "weitzer-org/gsr",
+      "number": 93,
+      "title": "Prove It Phase 0: witness types, author prompt, verdict function, sandbox probe, spike and testbed",
+      "merged_at": "2026-10-06T16:42:51Z",
+      "code_files": 40,
+      "total_files": 98,
+      "patch_bytes": 134139
+    },
+    {
+      "url": "https://github.com/weitzer-org/sound-profile-builder/pull/270",
+      "repo": "weitzer-org/sound-profile-builder",
+      "number": 270,
+      "title": "#262/#263 eval tooling: per-agent thinking and routing, -treat, -interleave, replay-upstream, -parallel (production behaviour unchanged)",
+      "merged_at": "2026-11-11T23:10:32Z",
+      "code_files": 38,
+      "total_files": 60,
+      "patch_bytes": 231608
+    },
+    {
+      "url": "https://github.com/weitzer-org/gsr/pull/82",
+      "repo": "weitzer-org/gsr",
+      "number": 82,
+      "title": "Phase 5: SHADOW_MODE, durationMs latency instrumentation, eval reporting",
+      "merged_at": "2026-09-02T23:36:37Z",
+      "code_files": 11,
+      "total_files": 14,
+      "patch_bytes": 56093
+    },
+    {
+      "url": "https://github.com/weitzer-org/sound-profile-builder/pull/267",
+      "repo": "weitzer-org/sound-profile-builder",
+      "number": 267,
+      "title": "#263 part 2: -replay-upstream (replay same-batch PROD outputs for agents upstream of the change)",
+      "merged_at": "2026-11-11T22:56:52Z",
+      "code_files": 15,
+      "total_files": 17,
+      "patch_bytes": 65499
+    },
+    {
+      "url": "https://github.com/weitzer-org/gsr/pull/74",
+      "repo": "weitzer-org/gsr",
+      "number": 74,
+      "title": "Deduplicator reliability fixes, prompt template bug, eval harness measurement fixes",
+      "merged_at": "2026-08-29T17:30:37Z",
+      "code_files": 10,
+      "total_files": 20,
+      "patch_bytes": 43441
+    },
+    {
+      "url": "https://github.com/weitzer-org/sound-profile-builder/pull/264",
+      "repo": "weitzer-org/sound-profile-builder",
+      "number": 264,
+      "title": "#263 part 1: retry 504/timeout runs, eval_subagent uses the research step, repeatable -treat",
+      "merged_at": "2026-11-11T22:48:17Z",
+      "code_files": 15,
+      "total_files": 17,
+      "patch_bytes": 44605
+    },
+    {
+      "url": "https://github.com/weitzer-org/gsr/pull/73",
+      "repo": "weitzer-org/gsr",
+      "number": 73,
+      "title": "Add usage metrics dashboard (tokens/cost by model, project, workload)",
+      "merged_at": "2026-08-29T16:47:39Z",
+      "code_files": 28,
+      "total_files": 30,
+      "patch_bytes": 130134
+    },
+    {
+      "url": "https://github.com/weitzer-org/sound-profile-builder/pull/269",
+      "repo": "weitzer-org/sound-profile-builder",
+      "number": 269,
+      "title": "Send the bridge's log with job results and its warnings with the heartbeat",
+      "merged_at": "2026-11-11T22:40:46Z",
+      "code_files": 13,
+      "total_files": 17,
+      "patch_bytes": 80768
+    },
+    {
+      "url": "https://github.com/weitzer-org/gsr/pull/63",
+      "repo": "weitzer-org/gsr",
+      "number": 63,
+      "title": "PR comment feedback loop, Phase 3: report accepted/rejected outcomes",
+      "merged_at": "2026-08-17T12:23:23Z",
+      "code_files": 15,
+      "total_files": 21,
+      "patch_bytes": 84287
+    }
+  ]
+}

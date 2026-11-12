@@ -27,6 +27,19 @@ function formatUsd(n) {
     return `$${(n || 0).toFixed(4)}`;
 }
 
+// Cost with unpriced calls shown as unknown, never as a bare dollar figure: a successful call on a
+// model with no price row has costUsd 0 only because the price is unknown (see
+// adk/backend/src/usage.ts costUnknown). `successCalls` is how many calls in the bucket succeeded
+// (the only ones that can be unpriced); when it is unknown, `calls` is a safe upper bound only for
+// the all-unknown test, so pass the bucket's successCount when you have it.
+function formatCost(costUsd, unknownCalls, successCalls) {
+    const n = unknownCalls || 0;
+    if (n <= 0) return formatUsd(costUsd);
+    const noun = n === 1 ? 'call' : 'calls';
+    if (n >= (successCalls || 0)) return `unknown (${n} ${noun} excluded)`;
+    return `${formatUsd(costUsd)} + unknown (${n} ${noun} excluded)`;
+}
+
 function isoDate(d) {
     return d.toISOString().slice(0, 10);
 }
@@ -120,7 +133,7 @@ export function initUsage() {
                 <td>${formatNumber(bucket.inputTokens)}</td>
                 <td>${formatNumber(bucket.outputTokens)}</td>
                 <td>${formatNumber(bucket.thinkingTokens)}</td>
-                <td>${formatUsd(bucket.costUsd)}</td>
+                <td>${formatCost(bucket.costUsd, bucket.costUnknownCalls, bucket.successCount)}</td>
             `;
             fragment.appendChild(tr);
         }
@@ -145,7 +158,7 @@ export function initUsage() {
         for (const bucket of buckets) {
             const value = bucket[metric] || 0;
             const pct = Math.max(2, Math.round((value / max) * 100));
-            const displayValue = metric === 'totalCostUsd' ? formatUsd(value) : formatNumber(value);
+            const displayValue = metric === 'totalCostUsd' ? formatCost(value, bucket.totalCostUnknownCalls, bucket.successCount) : formatNumber(value);
             const row = document.createElement('div');
             row.className = 'usage-bar-row';
             row.innerHTML = `
@@ -164,7 +177,7 @@ export function initUsage() {
         document.getElementById('usage-total-input').textContent = formatNumber(total.totalInputTokens);
         document.getElementById('usage-total-output').textContent = formatNumber(total.totalOutputTokens);
         document.getElementById('usage-total-thinking').textContent = formatNumber(total.totalThinkingTokens);
-        document.getElementById('usage-total-cost').textContent = formatUsd(total.totalCostUsd);
+        document.getElementById('usage-total-cost').textContent = formatCost(total.totalCostUsd, total.totalCostUnknownCalls, total.successCount);
         document.getElementById('usage-total-calls').textContent = formatNumber(total.totalCalls);
         updateBreakdownIntersectOptions();
         renderBreakdown();

@@ -48,3 +48,23 @@ npm run eval
 ```
 
 > **Bucket Creation:** You do not need to manually create the bucket! The `storage.ts` module will automatically create it on your first run if it doesn't already exist.
+
+## 5. Model-upgrade comparisons (multi-arm)
+
+Pre-registered plan: `docs/eval/model-upgrade-test-plan.md`. All scripts are dry-run by default and
+every live one needs an explicit call cap (see `.env.example`). Run them with `NODE_USE_ENV_PROXY=1`
+behind an HTTPS proxy.
+
+```bash
+npx ts-node probe-models.ts --live --max-calls 24                    # capability probe (raw genai client)
+npx ts-node select-large-prs.ts                                       # writes fixtures/model-upgrade-prs.json by a written rule
+npx ts-node compare-arms.ts --arms arms/model-upgrade.json --prs-file fixtures/model-upgrade-prs.json            # dry run
+npx ts-node compare-arms.ts --arms arms/model-upgrade.json --prs-file fixtures/model-upgrade-prs.json \
+    --live --max-review-calls 250 --out eval_results/model_upgrade/<id>    # N backends from one checkout, interleaved
+EVAL_MAX_JUDGE_CALLS=800 npx ts-node judge-batch.ts <batch-dir> --live                                           # two judges, agreed verdicts only
+npx ts-node report.ts <batch-dir>                                    # writes report.md + report.json (offline)
+```
+
+A batch directory holds `manifest.json` (batch_id, git commit, every arm's resolved per-stage routing),
+one file per (PR, repetition, arm) with **every attempt** and its outcome, the PR diffs, and judge records.
+Anything that reads more than one source refuses results whose `batch_id` differs.

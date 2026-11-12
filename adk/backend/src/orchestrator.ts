@@ -2,6 +2,7 @@ import { CandidateFinding, DiffChunk, Subagent, ReviewResult, AnalyzeResult } fr
 import { GeminiAgent } from './agent';
 import { DeduplicatorAgent } from './deduplicator';
 import { PromisePool } from './pool';
+import { StageCollector } from './stageMetrics';
 import { computeFindingId } from './findingMarker';
 import { DEFAULT_LOW_PRIORITY_PATH_PATTERNS, isLowPriorityPath, PathPattern } from './lowPriorityPaths';
 import * as fs from 'fs';
@@ -29,11 +30,17 @@ export class Orchestrator {
   // pass an extended list (defaults + repo-specific globs) to add to it,
   // never to replace it.
   private lowPriorityPathPatterns: PathPattern[];
+  // Per-stage served-model / finish-reason summary for this orchestrator's calls,
+  // returned in runReview's metrics.stages. See stageMetrics.ts.
+  private stageStats = new StageCollector();
+  private modelRole: 'swarm' | 'basic';
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: PathPattern[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS) {
+  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: PathPattern[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS, modelRole: 'swarm' | 'basic' = 'swarm') {
+    this.modelRole = modelRole;
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = promptsDirName;
     this.deduplicator = new DeduplicatorAgent();
+    this.deduplicator.stats = this.stageStats;
     this.useDedup = useDedup;
     this.selectedAgents = selectedAgents;
     this.aggregateChunks = aggregateChunks;
@@ -115,13 +122,17 @@ export class Orchestrator {
           } catch (e) {
             console.error(`Could not read prompt file for ${displayName}: ${promptPath}`);
           }
-          return new GeminiAgent(displayName, promptContent);
+          const agent = new GeminiAgent(displayName, promptContent, this.modelRole);
+          agent.stats = this.stageStats;
+          return agent;
       });
 
       console.log(`Loaded ${this.subagents.length} agents from ${promptsDir}`);
     } catch (e) {
       console.error("Failed to load subagents from prompts directory: " + promptsDir, e);
-      this.subagents = [new GeminiAgent('Logic', 'You are the Logic agent. Review the following code diff.')];
+      const fallback = new GeminiAgent('Logic', 'You are the Logic agent. Review the following code diff.', this.modelRole);
+      fallback.stats = this.stageStats;
+      this.subagents = [fallback];
     }
   }
 
@@ -146,7 +157,7 @@ export class Orchestrator {
     // durationMs doc comment in types.ts.
     const startTime = Date.now();
     if (!chunks || chunks.length === 0) {
-        return { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: Date.now() - startTime } };
+        return { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: Date.now() - startTime, stages: {} } };
     }
 
     const pool = new PromisePool(this.maxConcurrency);
@@ -301,7 +312,8 @@ export class Orchestrator {
         inputTokens: totalInputTokens,
         outputTokens: totalOutputTokens,
         calls: results.length + triageCalls,
-        durationMs: Date.now() - startTime
+        durationMs: Date.now() - startTime,
+        stages: this.stageStats.summary()
       }
     };
   }

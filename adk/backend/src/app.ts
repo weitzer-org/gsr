@@ -6,6 +6,8 @@ import { spawn, exec } from './cmd.js';
 import { GitHubClient } from './github';
 import { Orchestrator } from './orchestrator';
 import { Evaluator } from './evaluator';
+import { describeModelRouting } from './models';
+import { StageCollector } from './stageMetrics';
 import { ReviewSource } from './types';
 import { requireAuth, handleLogin, handleLogout } from './auth';
 import { isValidUsageIngestKey } from './usageIngestAuth';
@@ -117,7 +119,11 @@ app.get('/api/status', (req, res) => {
   res.json({
     status: 'success',
     geminiConnected: isConnected,
-    model: modelStr
+    model: modelStr,
+    // Resolved per-stage routing (models.ts). `model` above stays GEMINI_MODEL for
+    // existing consumers; the deduplicator does NOT follow it, so read stageModels
+    // to know what each stage will actually request.
+    ...describeModelRouting()
   });
 });
 
@@ -172,7 +178,7 @@ app.post('/api/review', async (req, res) => {
     // useDedup: false (basic mode shouldn't deduplicate), aggregateChunks:
     // true (review-quality-design.md §5.1 — still give it full cross-file
     // context within the PR, independent of skipping the dedup pass)
-    const basicOrchestrator = new Orchestrator(5, BASIC_PROMPT_DIR, false, undefined, true);
+    const basicOrchestrator = new Orchestrator(5, BASIC_PROMPT_DIR, false, undefined, true, undefined, 'basic');
 
     console.log(`Fetching diff for ${url}...`);
     const chunks = await ghClient.getPRDiff(url);
@@ -264,8 +270,8 @@ app.post('/api/review', async (req, res) => {
     // individually below (subagentMetrics/basicMetrics).
     const dualRunDurationMs = Date.now() - dualRunStart;
 
-    const subagentResult = results[0].status === 'fulfilled' ? results[0].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 } };
-    const basicResult = results[1].status === 'fulfilled' ? results[1].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 } };
+    const subagentResult = results[0].status === 'fulfilled' ? results[0].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0, stages: {} } };
+    const basicResult = results[1].status === 'fulfilled' ? results[1].value : { findings: [], metrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0, stages: {} } };
 
     // Tag findings with source cleanly to avoid mutating the original arrays
     const subagentFindingsWithSource = subagentResult.findings.map(f => ({ ...f, source: ReviewSource.SUBAGENT }));
@@ -276,6 +282,8 @@ app.post('/api/review', async (req, res) => {
     // Evaluate comparison
     console.log(`Evaluating comparison...`);
     const evaluator = new Evaluator();
+    const evaluateStats = new StageCollector();
+    evaluator.stats = evaluateStats;
     // Pass original unmutated findings to evaluator
     const evaluationText = await evaluator.evaluateComparison(subagentResult.findings, basicResult.findings);
 
@@ -287,7 +295,16 @@ app.post('/api/review', async (req, res) => {
        calls: subagentResult.metrics.calls + basicResult.metrics.calls,
        durationMs: dualRunDurationMs,
        subagentMetrics: subagentResult.metrics,
-       basicMetrics: basicResult.metrics
+       basicMetrics: basicResult.metrics,
+       // Served model / finish reasons per stage, split by review source so the swarm
+       // and basic findings are never pooled (basic skips the deduplicator). `shared`
+       // holds the single evaluate call. Each orchestrator's own copy lives in
+       // subagentMetrics.stages / basicMetrics.stages.
+       stages: {
+         subagent: subagentResult.metrics.stages ?? {},
+         basic: basicResult.metrics.stages ?? {},
+         shared: evaluateStats.summary()
+       }
     };
 
     const currentTimestamp = new Date().toISOString();

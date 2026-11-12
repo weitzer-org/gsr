@@ -1,9 +1,13 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { CandidateFinding } from './types.js';
 import { trackGeminiCall } from './usage.js';
+import { resolveStageModel } from './models.js';
+import type { StageCollector } from './stageMetrics.js';
 
 export class DeduplicatorAgent {
   private ai: GoogleGenAI;
+  // Attached by the Orchestrator for per-stage metrics; see agent.ts.
+  public stats?: StageCollector;
 
   constructor() {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -40,9 +44,9 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
       const startTime = Date.now();
       console.log(`[Deduplicator] Sending request to Gemini...`);
       
-      const deduplicatorModel = process.env.DEDUPLICATOR_MODEL || 'gemini-3.1-pro-preview';
+      const deduplicatorModel = resolveStageModel('deduplicate');
       const request = trackGeminiCall(
-        { callType: 'deduplicate', model: deduplicatorModel },
+        { callType: 'deduplicate', model: deduplicatorModel, observer: this.stats ? (r) => this.stats!.observe(r) : undefined },
         () => this.ai.models.generateContent({
         model: deduplicatorModel,
         contents: JSON.stringify(findings),
@@ -97,7 +101,10 @@ CRITICAL: You MUST retain the 'agent' field for every single finding. Without th
           timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Deduplicator fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
       });
 
-      const response = await Promise.race([request, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+      const response = await Promise.race([request, timeoutPromise]).finally(() => clearTimeout(timeoutId)).catch((e) => {
+        if (/^ETIMEDOUT/.test(String(e?.message))) this.stats?.timeout('deduplicate', deduplicatorModel);
+        throw e;
+      });
       
       const duration = Date.now() - startTime;
       console.log(`[Deduplicator] Response received in ${duration}ms`);

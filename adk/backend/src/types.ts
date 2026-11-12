@@ -177,6 +177,9 @@ export interface ReviewResult {
     // latency (155s median, per §10) had to be pulled from Actions history
     // after the fact instead of being recorded anywhere.
     durationMs: number;
+    // Per-stage served-model / finish-reason summary (stageMetrics.ts). Additive
+    // and optional: absent on review-history records written before it existed.
+    stages?: import('./stageMetrics').StageMetrics;
   }
 }
 

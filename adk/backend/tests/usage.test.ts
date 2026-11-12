@@ -56,6 +56,7 @@ describe('computeCostUsd', () => {
         // which pins the model to its current rate and breaks the
         // post-rollover assertion below. Add any newly scheduled model here.
         const SCHEDULED = ['gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash'];
+        // gemini-4-argon changes on a different date and rate; it has its own case below.
 
         it.each(SCHEDULED)('bills %s at the introductory rate up to the last instant before it lapses', (model) => {
             const cost = usage.computeCostUsd(model, 1_000_000, 1_000_000, 0, { at: new Date('2026-12-31T23:59:59.999Z') });
@@ -88,6 +89,21 @@ describe('computeCostUsd', () => {
             const now = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000);
             const explicit = usage.computeCostUsd('gemini-3.8-flash', 1_000_000, 1_000_000, 0, { at: new Date() });
             expect(now).toBeCloseTo(explicit, 8);
+        });
+    });
+
+    describe('gemini-4-argon (unverified price row from the Sound Builder test plan)', () => {
+        it('bills $2/$10 per 1M through 2026-11-30 and $4/$20 from 2026-12-01', () => {
+            expect(usage.computeCostUsd('gemini-4-argon', 1_000_000, 1_000_000, 0, { at: new Date('2026-11-30T23:59:59.999Z') })).toBeCloseTo(2 + 10, 5);
+            expect(usage.computeCostUsd('gemini-4-argon', 1_000_000, 1_000_000, 0, { at: new Date('2026-12-01T00:00:00Z') })).toBeCloseTo(4 + 20, 5);
+        });
+
+        it('is a priced model, unlike a name that has no row', () => {
+            expect(usage.isModelPriced('gemini-4-argon')).toBe(true);
+            expect(usage.isModelPriced('gemini-9-nope')).toBe(false);
+            // Object.prototype members must never read as "priced".
+            expect(usage.isModelPriced('constructor')).toBe(false);
+            expect(usage.isModelPriced('__proto__')).toBe(false);
         });
     });
 
@@ -260,7 +276,7 @@ describe('recordUsage', () => {
 
         await expect(
             usage.recordUsage({ callType: 'discovery', model: 'x', inputTokens: 0, outputTokens: 0, latencyMs: 0, costUsd: 0, success: true })
-        ).resolves.toBeUndefined();
+        ).resolves.toMatchObject({ callType: 'discovery', provider: 'gemini' });
 
         expect(errorSpy).toHaveBeenCalled();
         errorSpy.mockRestore();
@@ -341,6 +357,96 @@ describe('trackGeminiCall', () => {
         expect(data.success).toBe(true);
         expect(data.inputTokens).toBe(0);
         expect(data.outputTokens).toBe(0);
+    });
+});
+
+describe('trackGeminiCall: served model and unknown cost', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockUploadJson.mockResolvedValue(undefined);
+    });
+
+    it('records response.modelVersion as servedModel next to finishReason', async () => {
+        const response = {
+            text: 'ok', modelVersion: 'gemini-3.6-flash',
+            usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 5 },
+            candidates: [{ finishReason: 'STOP' }],
+        };
+        await usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-3.5-flash' }, () => Promise.resolve(response));
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.servedModel).toBe('gemini-3.6-flash');
+        expect(data.finishReason).toBe('STOP');
+        expect(data.model).toBe('gemini-3.5-flash');
+    });
+
+    it('leaves servedModel absent when the response carries no modelVersion', async () => {
+        await usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-3.1-pro-preview' }, () => Promise.resolve({ text: 'ok' } as any));
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.servedModel).toBeUndefined();
+    });
+
+    it('flags a successful call on an unpriced model as costUnknown instead of a free call', async () => {
+        await usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-9-unpriced' }, () => Promise.resolve({ usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10 } } as any));
+        const [, , data] = mockUploadJson.mock.calls[0] as [string, string, any];
+        expect(data.costUsd).toBe(0);
+        expect(data.costUnknown).toBe(true);
+    });
+
+    it('does not flag a priced model, and does not flag a failed call (no tokens were billed)', async () => {
+        await usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-4-argon' }, () => Promise.resolve({ usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10 } } as any));
+        expect((mockUploadJson.mock.calls[0] as any)[2].costUnknown).toBeUndefined();
+
+        mockUploadJson.mockClear();
+        await expect(usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-9-unpriced' }, () => Promise.reject(new Error('x')))).rejects.toThrow();
+        expect((mockUploadJson.mock.calls[0] as any)[2].costUnknown).toBeUndefined();
+    });
+
+    it('hands every record (success, failure, parse failure) to an observer, and survives an observer that throws', async () => {
+        const seen: any[] = [];
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        await usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-4-argon', observer: (r) => seen.push(r) }, () => Promise.resolve({ modelVersion: 'gemini-4-argon' } as any));
+        await expect(usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-4-argon', observer: (r) => seen.push(r) }, () => Promise.reject(new Error('nope')))).rejects.toThrow('nope');
+        await usage.recordParseFailure({ callType: 'discovery', model: 'gemini-4-argon', observer: (r) => seen.push(r) }, { modelVersion: 'gemini-4-argon', candidates: [{ finishReason: 'MAX_TOKENS' }] }, 5);
+        expect(seen.map((r) => r.success)).toEqual([true, false, false]);
+        expect(seen[2].errorKind).toBe('parse_error');
+        expect(seen[2].servedModel).toBe('gemini-4-argon');
+
+        await expect(usage.trackGeminiCall({ callType: 'discovery', model: 'm', observer: () => { throw new Error('observer bug'); } }, () => Promise.resolve({} as any))).resolves.toEqual({});
+        errorSpy.mockRestore();
+    });
+});
+
+describe('aggregate: unknown-cost calls are counted, not hidden as $0', () => {
+    const rec = (over: any) => ({ timestamp: 't', provider: 'gemini' as const, callType: 'discovery', model: 'm', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0, success: true, ...over });
+
+    it('counts costUnknown successes per bucket and in the total, and sums them across rollups', () => {
+        const r = usage.aggregate('2026-11-12', [
+            rec({ model: 'gemini-9-unpriced', costUnknown: true }),
+            rec({ model: 'gemini-9-unpriced', costUnknown: true }),
+            rec({ model: 'gemini-4-argon', costUsd: 0.5 }),
+            rec({ model: 'gemini-9-unpriced', success: false, errorKind: 'timeout' }),
+        ]);
+        expect(r.totalCostUnknownCalls).toBe(2);
+        expect(r.byModel['gemini-9-unpriced'].costUnknownCalls).toBe(2);
+        expect(r.byModel['gemini-4-argon'].costUnknownCalls).toBeUndefined();
+        const summed = usage.sumRollups('x', [r, r]);
+        expect(summed.totalCostUnknownCalls).toBe(4);
+        expect(summed.byModel['gemini-9-unpriced'].costUnknownCalls).toBe(4);
+    });
+
+    it('formatCostWithUnknown never prints a bare dollar figure when calls were unpriced', () => {
+        expect(usage.formatCostWithUnknown(0, 3, 3)).toBe('unknown (3 calls excluded)');
+        expect(usage.formatCostWithUnknown(0, 1, 1)).toBe('unknown (1 call excluded)');
+        expect(usage.formatCostWithUnknown(0.12, 3, 10)).toBe('$0.1200 + unknown (3 calls excluded)');
+        expect(usage.formatCostWithUnknown(0.12, 0, 10)).toBe('$0.1200');
+        expect(usage.formatCostWithUnknown(0.12, undefined, 10)).toBe('$0.1200');
+    });
+
+    it('the job-summary markdown shows unknown, not $0.0000, for an all-unpriced run', () => {
+        const r = usage.aggregate('2026-11-12', [rec({ model: 'gemini-9-unpriced', costUnknown: true })]);
+        const md = usage.formatUsageSummaryMarkdown(r);
+        expect(md).toContain('unknown (1 call excluded)');
+        expect(md).not.toContain('$0.0000');
     });
 });
 

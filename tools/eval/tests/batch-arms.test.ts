@@ -1,4 +1,4 @@
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, afterAll } from '@jest/globals';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -92,6 +92,10 @@ describe('diffRoutingAgainstStatus', () => {
   });
 });
 
+const tmpDirs: string[] = [];
+const mkTmp = (prefix: string) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); tmpDirs.push(d); return d; };
+afterAll(() => { for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true }); });
+
 describe('batch helpers', () => {
   it('prSlug / sizeClassOf', () => {
     expect(prSlug('https://github.com/weitzer-org/gsr/pull/50')).toBe('weitzer-org__gsr__pull-50');
@@ -103,7 +107,7 @@ describe('batch helpers', () => {
   });
 
   it('loadBatch refuses a run file from another batch', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'batch-'));
+    const dir = mkTmp('batch-');
     const manifest = { schema: 1, batch_id: 'batch-A', arms: [], prs: [] } as unknown as Manifest;
     writeJson(path.join(dir, 'manifest.json'), manifest);
     const run = (batch_id: string): RunRecord => ({ schema: 1, batch_id, arm: 'BASE', pr: 'u', pr_slug: 's', rep: 1, attempts: [], first_attempt_complete: true, first_attempt_clean: true, retries: 0, accepted_attempt: 1, result: null });
@@ -116,7 +120,7 @@ describe('batch helpers', () => {
   });
 
   it('loadBatch needs a manifest with a batch_id', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'batch-'));
+    const dir = mkTmp('batch-');
     expect(() => loadBatch(dir)).toThrow(/manifest/);
     writeJson(path.join(dir, 'manifest.json'), { schema: 1 });
     expect(() => loadBatch(dir)).toThrow(/batch_id/);

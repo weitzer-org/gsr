@@ -145,9 +145,12 @@ describe('GeminiAgent model / cap / thinking routing', () => {
     agent['ai'] = { models: { generateContent: jest.fn<any>().mockImplementation(() => new Promise(() => {})) } } as any;
     agent.stats = new StageCollector();
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const result = await agent.analyze(CHUNKS);
-    errSpy.mockRestore();
-    expect(result.findings).toEqual([]);
-    expect(agent.stats.summary().discovery.timeouts).toBe(1);
+    try {
+      const result = await agent.analyze(CHUNKS);
+      expect(result.findings).toEqual([]);
+      expect(agent.stats.summary().discovery.timeouts).toBe(1);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });

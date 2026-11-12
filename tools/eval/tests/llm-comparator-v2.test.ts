@@ -159,8 +159,13 @@ describe('normalizeV2Metrics / resolveV2Metrics: label matching follows the labe
 });
 
 describe('compareResultsWithLLMV2 under a slot swap, end to end with a mocked judge', () => {
+  const originalKey = process.env.GEMINI_API_KEY;
   beforeEach(() => {
     process.env.GEMINI_API_KEY = 'test_api_key';
+  });
+  afterEach(() => {
+    if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = originalKey;
   });
 
   const finding = (n: number) => ({ fileName: 'a.ts', lineNumber: n, issueDescription: 'd', suggestion: 's', severity: 'HIGH', source: 'basic' });

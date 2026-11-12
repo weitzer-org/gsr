@@ -1,4 +1,4 @@
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, afterAll } from '@jest/globals';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -8,10 +8,15 @@ import { buildBackendEnv, loadArms } from '../arms';
 
 const arms = loadArms(path.join(__dirname, '..', 'arms', 'model-upgrade.json'));
 
+const tmpDirs: string[] = [];
+afterAll(() => { for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true }); });
+
 describe('null S3 sink', () => {
   it('accepts writes from the real AWS SDK, keeps usage/ objects per bucket on disk, and nothing else', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sink-'));
+    tmpDirs.push(dir);
     const sink = await startNullS3({ saveDir: dir });
+    try {
     const client = new S3Client({ region: 'us-east-1', endpoint: sink.endpoint, forcePathStyle: true, credentials: { accessKeyId: 'a', secretAccessKey: 'b' } });
     await client.send(new PutObjectCommand({ Bucket: 'eval-BASE-review', Key: 'usage/2026-11-12/abc.json', Body: JSON.stringify({ servedModel: 'm' }) }));
     await client.send(new PutObjectCommand({ Bucket: 'eval-BASE-review', Key: 'review-run_x.json', Body: '{}' }));
@@ -21,7 +26,9 @@ describe('null S3 sink', () => {
     const list = await client.send(new ListObjectsV2Command({ Bucket: 'eval-BASE-review', Prefix: 'usage/' }));
     expect(list.Contents ?? []).toHaveLength(0);
     await expect(client.send(new GetObjectCommand({ Bucket: 'b', Key: 'k' }))).rejects.toMatchObject({ name: 'NoSuchKey' });
-    await sink.close();
+    } finally {
+      await sink.close();
+    }
   });
 });
 

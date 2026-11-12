@@ -404,15 +404,18 @@ describe('trackGeminiCall: served model and unknown cost', () => {
     it('hands every record (success, failure, parse failure) to an observer, and survives an observer that throws', async () => {
         const seen: any[] = [];
         const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-        await usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-4-argon', observer: (r) => seen.push(r) }, () => Promise.resolve({ modelVersion: 'gemini-4-argon' } as any));
-        await expect(usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-4-argon', observer: (r) => seen.push(r) }, () => Promise.reject(new Error('nope')))).rejects.toThrow('nope');
-        await usage.recordParseFailure({ callType: 'discovery', model: 'gemini-4-argon', observer: (r) => seen.push(r) }, { modelVersion: 'gemini-4-argon', candidates: [{ finishReason: 'MAX_TOKENS' }] }, 5);
-        expect(seen.map((r) => r.success)).toEqual([true, false, false]);
-        expect(seen[2].errorKind).toBe('parse_error');
-        expect(seen[2].servedModel).toBe('gemini-4-argon');
+        try {
+            await usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-4-argon', observer: (r) => seen.push(r) }, () => Promise.resolve({ modelVersion: 'gemini-4-argon' } as any));
+            await expect(usage.trackGeminiCall({ callType: 'discovery', model: 'gemini-4-argon', observer: (r) => seen.push(r) }, () => Promise.reject(new Error('nope')))).rejects.toThrow('nope');
+            await usage.recordParseFailure({ callType: 'discovery', model: 'gemini-4-argon', observer: (r) => seen.push(r) }, { modelVersion: 'gemini-4-argon', candidates: [{ finishReason: 'MAX_TOKENS' }] }, 5);
+            expect(seen.map((r) => r.success)).toEqual([true, false, false]);
+            expect(seen[2].errorKind).toBe('parse_error');
+            expect(seen[2].servedModel).toBe('gemini-4-argon');
 
-        await expect(usage.trackGeminiCall({ callType: 'discovery', model: 'm', observer: () => { throw new Error('observer bug'); } }, () => Promise.resolve({} as any))).resolves.toEqual({});
-        errorSpy.mockRestore();
+            await expect(usage.trackGeminiCall({ callType: 'discovery', model: 'm', observer: () => { throw new Error('observer bug'); } }, () => Promise.resolve({} as any))).resolves.toEqual({});
+        } finally {
+            errorSpy.mockRestore();
+        }
     });
 });
 

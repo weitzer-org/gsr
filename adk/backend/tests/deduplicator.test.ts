@@ -1,5 +1,5 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { DeduplicatorAgent } from '../src/deduplicator';
+import { DeduplicatorAgent, applyMergeGroups } from '../src/deduplicator';
 
 // See tests/agent.test.ts's identical mock for why: trackGeminiCall's real
 // implementation writes to S3-compatible storage (src/usage.ts) — pass
@@ -147,5 +147,23 @@ describe('DeduplicatorAgent', () => {
         // returns original unmodified
         expect(mockGenerate).toHaveBeenCalledTimes(1);
         expect(results).toEqual(inputFindings);
+    });
+});
+
+describe('applyMergeGroups', () => {
+    const f = (line: number, agent: string): any => ({ file: 'a.ts', line, severity: 'LOW', agent, summary: agent, description: agent });
+
+    it('collapses each group at its first member and leaves the rest in order, with no model call', () => {
+        const input = [f(1, 'A'), f(2, 'B'), f(3, 'C'), f(4, 'D'), f(5, 'E')];
+
+        const out = applyMergeGroups(input, [[1, 3], [2, 4]]);
+
+        expect(out.map(x => x.agent)).toEqual(['A', 'B, D', 'C, E']);
+        expect(out[0]).toBe(input[0]);
+    });
+
+    it('returns every finding unchanged when there are no groups', () => {
+        const input = [f(1, 'A'), f(2, 'B')];
+        expect(applyMergeGroups(input, [])).toEqual(input);
     });
 });

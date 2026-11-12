@@ -83,6 +83,24 @@ export function mergeGroup(group: CandidateFinding[]): CandidateFinding {
   };
 }
 
+// applyMergeGroups returns the findings with each group collapsed into one,
+// in the original order: a merged finding takes the position of its group's
+// first member, and findings in no group pass through untouched. Pure, so the
+// merge can be tested without a model call. `groups` must come from
+// normalizeGroups (disjoint, in range, each sorted ascending).
+export function applyMergeGroups(findings: CandidateFinding[], groups: number[][]): CandidateFinding[] {
+  const groupOf = new Map<number, number[]>();
+  for (const g of groups) for (const i of g) groupOf.set(i, g);
+
+  const merged: CandidateFinding[] = [];
+  findings.forEach((f, i) => {
+    const g = groupOf.get(i);
+    if (!g) merged.push(f);
+    else if (g[0] === i) merged.push(mergeGroup(g.map(j => findings[j])));
+  });
+  return merged;
+}
+
 export class DeduplicatorAgent {
   private ai: GoogleGenAI;
 
@@ -206,16 +224,7 @@ Output a JSON array of groups, each of the form {"indices": [..]}.`;
 
       if (response.text) {
         const groups = normalizeGroups(JSON.parse(response.text), new Set(candidateIndices), clusterOf);
-        const groupOf = new Map<number, number[]>();
-        for (const g of groups) for (const i of g) groupOf.set(i, g);
-
-        // Emit in the original order, each group at its first member's position.
-        const mergedFindings: CandidateFinding[] = [];
-        findings.forEach((f, i) => {
-          const g = groupOf.get(i);
-          if (!g) mergedFindings.push(f);
-          else if (g[0] === i) mergedFindings.push(mergeGroup(g.map(j => findings[j])));
-        });
+        const mergedFindings = applyMergeGroups(findings, groups);
         console.log(`[Deduplicator] Successfully deduplicated ${findings.length} findings into ${mergedFindings.length}.`);
         return mergedFindings;
       }

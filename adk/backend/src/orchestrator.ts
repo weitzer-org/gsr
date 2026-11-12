@@ -12,7 +12,9 @@ import * as path from 'path';
 // active agents makes the rest wait for a whole two-call task: at the old cap
 // of 5, the six always-on agents needed two rounds. 10 covers every agent in
 // adk/prompts/system_prompts in one round. REVIEW_MAX_CONCURRENCY lowers it
-// again for an API key whose rate limit can't take that many parallel calls.
+// again for an API key whose rate limit can't take that many parallel calls;
+// the entry points (app.ts, action-entrypoint.ts) read it and pass it in, so
+// the Orchestrator itself never reads the environment for this.
 export const DEFAULT_MAX_CONCURRENCY = 10;
 
 export function resolveMaxConcurrency(): number {
@@ -49,7 +51,7 @@ export class Orchestrator {
   // never to replace it.
   private lowPriorityPathPatterns: PathPattern[];
 
-  constructor(maxConcurrency: number = resolveMaxConcurrency(), promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: PathPattern[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS) {
+  constructor(maxConcurrency: number = DEFAULT_MAX_CONCURRENCY, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: PathPattern[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS) {
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = promptsDirName;
     this.deduplicator = new DeduplicatorAgent();

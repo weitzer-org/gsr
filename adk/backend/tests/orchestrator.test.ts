@@ -1,5 +1,5 @@
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { Orchestrator } from '../src/orchestrator';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { Orchestrator, resolveMaxConcurrency, DEFAULT_MAX_CONCURRENCY } from '../src/orchestrator';
 import { GeminiAgent } from '../src/agent';
 import { DeduplicatorAgent } from '../src/deduplicator';
 import { computeFindingId } from '../src/findingMarker';
@@ -395,5 +395,39 @@ describe('Orchestrator', () => {
         await orchestrator.runReview([{ file: 'Dockerfile', content: 'x' }]);
         expect(onProgress).toHaveBeenCalledWith('Cicd', 'Dockerfile', 'start');
         expect(onProgress).toHaveBeenCalledWith('Cicd', 'Dockerfile', 'complete');
+    });
+});
+
+describe('resolveMaxConcurrency', () => {
+    const saved = process.env.REVIEW_MAX_CONCURRENCY;
+
+    afterEach(() => {
+        if (saved === undefined) delete process.env.REVIEW_MAX_CONCURRENCY;
+        else process.env.REVIEW_MAX_CONCURRENCY = saved;
+        jest.restoreAllMocks();
+    });
+
+    it('uses the default when unset or blank', () => {
+        delete process.env.REVIEW_MAX_CONCURRENCY;
+        expect(resolveMaxConcurrency()).toBe(DEFAULT_MAX_CONCURRENCY);
+        process.env.REVIEW_MAX_CONCURRENCY = '   ';
+        expect(resolveMaxConcurrency()).toBe(DEFAULT_MAX_CONCURRENCY);
+    });
+
+    it('accepts a positive integer', () => {
+        process.env.REVIEW_MAX_CONCURRENCY = ' 3 ';
+        expect(resolveMaxConcurrency()).toBe(3);
+    });
+
+    it.each(['abc', '0', '-2', '2.5', 'Infinity'])('warns and uses the default for %p', (value) => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        process.env.REVIEW_MAX_CONCURRENCY = value;
+        expect(resolveMaxConcurrency()).toBe(DEFAULT_MAX_CONCURRENCY);
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('is not read by the Orchestrator constructor itself', () => {
+        process.env.REVIEW_MAX_CONCURRENCY = '3';
+        expect((new Orchestrator() as any).maxConcurrency).toBe(DEFAULT_MAX_CONCURRENCY);
     });
 });

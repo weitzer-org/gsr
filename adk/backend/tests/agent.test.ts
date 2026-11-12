@@ -137,11 +137,14 @@ describe('GeminiAgent', () => {
         expect(scoped).toContain('flagged-code');
         expect(scoped).not.toContain('clean-code');
 
+        const noneResolved = await run('no/such/file.ts');
+        expect(noneResolved).toContain('flagged-code');
+        expect(noneResolved).toContain('clean-code');
+
         // One real file plus one path that matches nothing: still the whole diff.
-        for (const fallback of [await run('no/such/file.ts'), await run('flagged.ts', 'no/such/file.ts')]) {
-            expect(fallback).toContain('flagged-code');
-            expect(fallback).toContain('clean-code');
-        }
+        const partlyResolved = await run('flagged.ts', 'no/such/file.ts');
+        expect(partlyResolved).toContain('flagged-code');
+        expect(partlyResolved).toContain('clean-code');
     });
 
     it('should retry if Pass 1 misses files from filesAnalyzed', async () => {

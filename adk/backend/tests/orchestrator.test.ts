@@ -1,5 +1,5 @@
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { Orchestrator } from '../src/orchestrator';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { Orchestrator, resolveMaxConcurrency, DEFAULT_MAX_CONCURRENCY } from '../src/orchestrator';
 import { GeminiAgent } from '../src/agent';
 import { DeduplicatorAgent } from '../src/deduplicator';
 import { computeFindingId } from '../src/findingMarker';
@@ -395,5 +395,26 @@ describe('Orchestrator', () => {
         await orchestrator.runReview([{ file: 'Dockerfile', content: 'x' }]);
         expect(onProgress).toHaveBeenCalledWith('Cicd', 'Dockerfile', 'start');
         expect(onProgress).toHaveBeenCalledWith('Cicd', 'Dockerfile', 'complete');
+    });
+});
+
+describe('resolveMaxConcurrency', () => {
+    afterEach(() => {
+        jest.restoreAllMocks();
+    });
+
+    it('uses the default when unset or blank', () => {
+        expect(resolveMaxConcurrency(undefined)).toBe(DEFAULT_MAX_CONCURRENCY);
+        expect(resolveMaxConcurrency('   ')).toBe(DEFAULT_MAX_CONCURRENCY);
+    });
+
+    it('accepts a positive integer', () => {
+        expect(resolveMaxConcurrency(' 3 ')).toBe(3);
+    });
+
+    it.each(['abc', '0', '-2', '2.5', 'Infinity'])('warns and uses the default for %p', (value) => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        expect(resolveMaxConcurrency(value)).toBe(DEFAULT_MAX_CONCURRENCY);
+        expect(warn).toHaveBeenCalledTimes(1);
     });
 });

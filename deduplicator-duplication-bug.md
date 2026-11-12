@@ -1,6 +1,18 @@
 # Deduplicator "duplication" bug — collapse and passthrough
 
-Status: **known, not fixed.** Discovered as a side effect of the Gemini
+Status: **collapse (mode A) fixed structurally; passthrough (mode B) still
+open.** The deduplicator no longer rewrites findings. It sends only findings
+that are in the same file within 10 lines of another finding, the model
+answers with groups of indices, and `normalizeGroups`/`mergeGroup` in
+`deduplicator.ts` apply them in code: an index is honoured once, a group is
+split at file and distance boundaries, and anything the model omits stays
+unmerged. A finding can therefore be merged with a neighbour but not dropped,
+and findings far apart cannot be merged at all. Over-merging *within* one
+10-line cluster is still possible. Passthrough on a failed call (§3) is
+unchanged and still not flagged to callers. The sections below describe the
+behaviour as originally found.
+
+Original status: **known, not fixed.** Discovered as a side effect of the Gemini
 model-comparison investigation (see `gemini-flash-model-investigation.md`).
 Real, pre-existing production behavior, independent of which Gemini model is
 used for discovery/remediation — tracked here for a dedicated follow-up fix,

@@ -8,6 +8,28 @@ import { DEFAULT_LOW_PRIORITY_PATH_PATTERNS, isLowPriorityPath, PathPattern } fr
 import * as fs from 'fs';
 import * as path from 'path';
 
+// How many agent tasks run at once. Each task holds its slot for both of its
+// Gemini calls (discovery, then remediation), so a cap below the number of
+// active agents makes the rest wait for a whole two-call task: at the old cap
+// of 5, the six always-on agents needed two rounds. 10 covers every agent in
+// adk/prompts/system_prompts in one round. REVIEW_MAX_CONCURRENCY lowers it
+// again for an API key whose rate limit can't take that many parallel calls.
+// Nothing in this module reads the environment for it: the entry points
+// (app.ts, action-entrypoint.ts) pass the raw value to resolveMaxConcurrency
+// and hand the result to the constructor.
+export const DEFAULT_MAX_CONCURRENCY = 10;
+
+export function resolveMaxConcurrency(rawValue: string | undefined): number {
+  const raw = (rawValue || '').trim();
+  if (!raw) return DEFAULT_MAX_CONCURRENCY;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    console.warn(`[Orchestrator] Ignoring invalid REVIEW_MAX_CONCURRENCY "${raw}"; using ${DEFAULT_MAX_CONCURRENCY}.`);
+    return DEFAULT_MAX_CONCURRENCY;
+  }
+  return parsed;
+}
+
 export class Orchestrator {
   private subagents: Subagent[] = [];
   private maxConcurrency: number;
@@ -35,7 +57,7 @@ export class Orchestrator {
   private stageStats = new StageCollector();
   private modelRole: 'swarm' | 'basic';
 
-  constructor(maxConcurrency: number = 5, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: PathPattern[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS, modelRole: 'swarm' | 'basic' = 'swarm') {
+  constructor(maxConcurrency: number = DEFAULT_MAX_CONCURRENCY, promptsDirName: string = 'system_prompts', useDedup: boolean = true, selectedAgents?: string[], aggregateChunks: boolean = true, lowPriorityPathPatterns: PathPattern[] = DEFAULT_LOW_PRIORITY_PATH_PATTERNS, modelRole: 'swarm' | 'basic' = 'swarm') {
     this.modelRole = modelRole;
     this.maxConcurrency = maxConcurrency;
     this.promptsDirName = promptsDirName;

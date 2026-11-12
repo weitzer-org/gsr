@@ -262,8 +262,8 @@ Live caveats on `PRICE_TABLE` (`adk/backend/src/usage.ts`), tracked as items
   subtracts `cachedTokens` from the billed input rather than charging them at
   a cache rate, for every model in the table. Gemini does charge for cache
   reads (3.8 Flash: $0.075/1M through 2026-12-31, $0.15/1M after), so any
-  workload using context caching — `agent.ts`'s `USE_CONTEXT_CACHING` path —
-  under-reports. Pre-existing behaviour, tracked as TODO 45.
+  workload using context caching under-reports (GSR's own review calls no
+  longer do: the `USE_CONTEXT_CACHING` path in `agent.ts` was removed). Pre-existing behaviour, tracked as TODO 45.
 
 ## Reading it via the dashboard
 

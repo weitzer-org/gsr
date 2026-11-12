@@ -10,6 +10,9 @@ adk/frontend/node_modules/
 coverage/
 test-results/
 *results*
+!docs/eval/model-upgrade-results.md
+!docs/eval/data/
+!docs/eval/data/**
 latest_run.json
 scratch_local_vs_*.json
 

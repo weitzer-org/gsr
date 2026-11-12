@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { CandidateFinding, DiffChunk, Subagent, AnalyzeResult } from './types';
 import { trackGeminiCall, recordParseFailure } from './usage';
+import { resolveStageModel, generationOverrides, ModelStage } from './models';
+import type { StageCollector } from './stageMetrics';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -11,15 +13,63 @@ export interface DiscoveryIssue {
   summary: string;
 }
 
+// The discovery-pass response schema. Exported so tools/eval/probe-models.ts probes a model with
+// exactly the schema production sends, not a copy that could drift.
+export const DISCOVERY_RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  description: "Strict coverage wrapper for code review.",
+  properties: {
+    filesAnalyzed: {
+      type: Type.ARRAY,
+      description: "A complete list of EVERY file path that was successfully read and checked for bugs.",
+      items: { type: Type.STRING }
+    },
+    issues: {
+      type: Type.ARRAY,
+      description: "A list of problematic locations found in the code.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          file: { type: Type.STRING },
+          line: { type: Type.INTEGER },
+          severity: { type: Type.STRING, enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
+          summary: { type: Type.STRING }
+        },
+        required: ["file", "line", "severity", "summary"]
+      }
+    }
+  },
+  required: ["filesAnalyzed", "issues"]
+};
+
 export class GeminiAgent implements Subagent {
   name: string;
   public promptContent: string;
   private ai: GoogleGenAI;
+  // 'swarm' agents read DISCOVERY_MODEL / REMEDIATION_MODEL; 'basic' agents (the
+  // basic-mode orchestrator, which also runs discovery + remediation passes)
+  // read BASIC_MODEL for every call. Unset env => GEMINI_MODEL => the default,
+  // so nothing changes unless a stage variable is set.
+  private role: 'swarm' | 'basic';
+  // Per-stage served-model / finish-reason collector, attached by the
+  // Orchestrator for the review API's metrics. Optional: tests and scripts that
+  // construct a bare agent get no collection and unchanged behaviour.
+  public stats?: StageCollector;
 
-  constructor(name: string, promptContent: string) {
+  constructor(name: string, promptContent: string, role: 'swarm' | 'basic' = 'swarm') {
     this.name = name;
     this.promptContent = promptContent;
+    this.role = role;
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+
+  private modelFor(pass: 'discovery' | 'remediation' | 'legacy'): string {
+    const stage: ModelStage = this.role === 'basic' || pass === 'legacy' ? 'basic' : pass;
+    return resolveStageModel(stage);
+  }
+
+  private observer() {
+    return this.stats ? (r: Parameters<StageCollector['observe']>[0]) => this.stats!.observe(r) : undefined;
   }
 
   async analyze(chunks: DiffChunk[]): Promise<AnalyzeResult> {
@@ -67,36 +117,12 @@ export class GeminiAgent implements Subagent {
         const promptPayload = this.buildDiscoveryPrompt(chunksToProcess);
         
         const requestArgs: any = {
-           model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
+           model: this.modelFor('discovery'),
            contents: promptPayload.contents,
            config: {
+             ...generationOverrides(),
              responseMimeType: 'application/json',
-             responseSchema: {
-               type: Type.OBJECT,
-               description: "Strict coverage wrapper for code review.",
-               properties: {
-                 filesAnalyzed: {
-                   type: Type.ARRAY,
-                   description: "A complete list of EVERY file path that was successfully read and checked for bugs.",
-                   items: { type: Type.STRING }
-                 },
-                 issues: {
-                   type: Type.ARRAY,
-                   description: "A list of problematic locations found in the code.",
-                   items: {
-                     type: Type.OBJECT,
-                     properties: {
-                       file: { type: Type.STRING },
-                       line: { type: Type.INTEGER },
-                       severity: { type: Type.STRING, enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
-                       summary: { type: Type.STRING }
-                     },
-                     required: ["file", "line", "severity", "summary"]
-                   }
-                 }
-               },
-               required: ["filesAnalyzed", "issues"]
-             }
+             responseSchema: DISCOVERY_RESPONSE_SCHEMA
            }
         };
 
@@ -104,7 +130,7 @@ export class GeminiAgent implements Subagent {
 
         const discoveryRequestStart = Date.now();
         const genAiRequest = trackGeminiCall(
-          { callType: 'discovery', model: requestArgs.model },
+          { callType: 'discovery', model: requestArgs.model, observer: this.observer() },
           () => this.ai.models.generateContent(requestArgs)
         );
 
@@ -112,7 +138,10 @@ export class GeminiAgent implements Subagent {
             timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
         });
 
-        const response = await Promise.race([genAiRequest, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+        const response = await Promise.race([genAiRequest, timeoutPromise]).finally(() => clearTimeout(timeoutId)).catch((e) => {
+          if (/^ETIMEDOUT/.test(String(e?.message))) this.stats?.timeout('discovery', requestArgs.model);
+          throw e;
+        });
 
         if (response.usageMetadata) {
             promptTokens += response.usageMetadata.promptTokenCount || 0;
@@ -130,7 +159,7 @@ export class GeminiAgent implements Subagent {
               // turned into a silent `{ findings: [] }`, indistinguishable
               // from "found nothing". Record it as its own visible failure
               // mode before letting that same graceful-degradation path run.
-              await recordParseFailure({ callType: 'discovery', model: requestArgs.model }, response, Date.now() - discoveryRequestStart);
+              await recordParseFailure({ callType: 'discovery', model: requestArgs.model, observer: this.observer() }, response, Date.now() - discoveryRequestStart);
               throw parseErr;
             }
             if (result.issues) {
@@ -171,14 +200,15 @@ export class GeminiAgent implements Subagent {
       const flaggedChunks = chunks.filter(c => flaggedFiles.has(c.file));
       const allFlaggedFilesResolved = new Set(flaggedChunks.map(c => c.file)).size === flaggedFiles.size;
       const remediationPayload = this.buildRemediationPrompt(allFlaggedFilesResolved ? flaggedChunks : chunks, discoveryIssues);
-      const remediationModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+      const remediationModel = this.modelFor('remediation');
       const remediationRequestStart = Date.now();
       const remediationRequest = trackGeminiCall(
-        { callType: 'remediation', model: remediationModel },
+        { callType: 'remediation', model: remediationModel, observer: this.observer() },
         () => this.ai.models.generateContent({
            model: remediationModel,
            contents: remediationPayload.contents,
            config: {
+             ...generationOverrides(),
              systemInstruction: remediationPayload.systemInstruction,
              responseMimeType: 'application/json',
              responseSchema: {
@@ -203,7 +233,10 @@ export class GeminiAgent implements Subagent {
 
       const remediationResponse = await Promise.race([remediationRequest, new Promise<any>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Gemini remediation fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
-      })]).finally(() => clearTimeout(timeoutId));
+      })]).finally(() => clearTimeout(timeoutId)).catch((e) => {
+        if (/^ETIMEDOUT/.test(String(e?.message))) this.stats?.timeout('remediation', remediationModel);
+        throw e;
+      });
 
       if (remediationResponse.usageMetadata) {
           promptTokens += remediationResponse.usageMetadata.promptTokenCount || 0;
@@ -215,7 +248,7 @@ export class GeminiAgent implements Subagent {
           try {
             findings = JSON.parse(remediationResponse.text);
           } catch (parseErr) {
-            await recordParseFailure({ callType: 'remediation', model: remediationModel }, remediationResponse, Date.now() - remediationRequestStart);
+            await recordParseFailure({ callType: 'remediation', model: remediationModel, observer: this.observer() }, remediationResponse, Date.now() - remediationRequestStart);
             throw parseErr;
           }
           console.log(`[${this.name}] Successfully generated ${findings.length} final actionable findings.`);
@@ -261,14 +294,15 @@ ${chunk.content}
     try {
       console.log(`[${this.name}] Starting Baseline Gemini API call for ${chunk.file}...`);
       
-      const legacyModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+      const legacyModel = this.modelFor('legacy');
       const legacyRequestStart = Date.now();
       const response = await trackGeminiCall(
-        { callType: 'legacy', model: legacyModel },
+        { callType: 'legacy', model: legacyModel, observer: this.observer() },
         () => this.ai.models.generateContent({
          model: legacyModel,
          contents: prompt,
          config: {
+           ...generationOverrides(),
            responseMimeType: 'application/json',
            responseSchema: {
              type: Type.ARRAY,
@@ -295,7 +329,7 @@ ${chunk.content}
           try {
             findings = JSON.parse(response.text);
           } catch (parseErr) {
-            await recordParseFailure({ callType: 'legacy', model: legacyModel }, response, Date.now() - legacyRequestStart);
+            await recordParseFailure({ callType: 'legacy', model: legacyModel, observer: this.observer() }, response, Date.now() - legacyRequestStart);
             throw parseErr;
           }
           return {

@@ -1,9 +1,13 @@
 import { GoogleGenAI } from '@google/genai';
 import { CandidateFinding } from './types';
 import { trackGeminiCall } from './usage';
+import { resolveStageModel } from './models';
+import type { StageCollector } from './stageMetrics';
 
 export class Evaluator {
   private ai: GoogleGenAI;
+  // Optional per-stage collector; see agent.ts.
+  public stats?: StageCollector;
 
   constructor() {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -37,9 +41,9 @@ Format your output in professional Markdown. Keep it under 250 words and be high
     try {
       console.log(`[Evaluator] Starting Gemini API call for comparison evaluation...`);
       
-      const evaluatorModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+      const evaluatorModel = resolveStageModel('evaluate');
       const response = await trackGeminiCall(
-        { callType: 'evaluate', model: evaluatorModel },
+        { callType: 'evaluate', model: evaluatorModel, observer: this.stats ? (r) => this.stats!.observe(r) : undefined },
         () => this.ai.models.generateContent({
          model: evaluatorModel,
          contents: prompt,

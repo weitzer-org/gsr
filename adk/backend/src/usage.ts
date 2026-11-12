@@ -35,6 +35,15 @@ export interface UsageEvent {
   latencyMs: number;
   costUsd: number;
   finishReason?: string;
+  // The model that actually answered (GenerateContentResponse.modelVersion),
+  // which can differ from the requested `model` — Sound Builder measured
+  // gemini-3.5-flash being served as 3.6 Flash in 7 of 7 calls. Absent when
+  // the response carried no modelVersion (older records, Imagen, failures).
+  servedModel?: string;
+  // true on a SUCCESSFUL call whose model has no PRICE_TABLE row: costUsd is
+  // 0 only because the price is unknown, not because the call was free.
+  // Aggregates count these separately and report cost as unknown.
+  costUnknown?: boolean;
   success: boolean;
   errorKind?: string; // set only when success is false
   repository?: string; // "owner/repo" — set only via ingestUsageRecords() for
@@ -80,6 +89,12 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   'gemini-3.6-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } }, // cut to the same introductory rate as 3.7/3.8 when 3.7 shipped; launched at 1.50/7.50 and returns there
   'gemini-3.7-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
   'gemini-3.8-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
+  // UNVERIFIED: $2/$10 through 2026-11-30, then $4/$20 from 2026-12-01 — copied from
+  // sound-profile-builder's docs/eval/gemini-model-upgrade-test-plan.md §9a, which cites
+  // Google Cloud's pricing page as fetched 2026-11-05. Not re-checked against a primary
+  // source from this repo (see docs/eval/model-upgrade-test-plan.md "Unverified assumptions"
+  // and TODO.md). job_tracker's internal/scoring/pricing.go needs the same row.
+  'gemini-4-argon': { input: 2.0, output: 10.0, supersededBy: { from: '2026-12-01T00:00:00Z', input: 4.0, output: 20.0 } },
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // used by debug-single.ts and tools/eval's llm-comparator*.ts; <=200k-token-prompt tier — verify against current pricing if usage grows large
 
   // --- Image generation ---
@@ -119,7 +134,10 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
 // and multiple developer reports (Google's own AI forum has several threads
 // asking this exact question, with inconsistent answers across models/API
 // versions) suggest `candidatesTokenCount` (this file's `outputTokens`) may
-// already reflect them for the models in PRICE_TABLE. Adding thinkingTokens
+// already reflect them for the models in PRICE_TABLE. NOTE (2026-11-12 probe, docs/eval/data): on every
+// call that reported thoughtsTokenCount, totalTokenCount == prompt + candidates + thoughts, i.e.
+// candidatesTokenCount EXCLUDES thinking. So if thinking is billed at the output rate (unverified),
+// costUsd under-reports thinking-heavy calls. Adding thinkingTokens
 // on top risks double-billing; it's tracked in UsageRecord/UsageBucket
 // purely as an observability metric, not folded into cost. Re-verify against
 // current per-model docs before changing this.
@@ -136,7 +154,7 @@ export function computeCostUsd(
   cachedTokens = 0,
   opts?: { imageCount?: number; at?: Date }
 ): number {
-  const table = PRICE_TABLE[model];
+  const table = isModelPriced(model) ? PRICE_TABLE[model] : undefined;
   if (!table) return 0;
   const price = effectivePrice(table, opts?.at ?? new Date());
   const perM = 1_000_000;
@@ -144,6 +162,12 @@ export function computeCostUsd(
   const tokenCost = (billedInput * (price.input ?? 0)) / perM + (outputTokens * (price.output ?? 0)) / perM;
   if (price.perImage === undefined) return tokenCost;
   return tokenCost + normalizeImageCount(opts?.imageCount) * price.perImage;
+}
+
+// isModelPriced reports whether computeCostUsd has a rate for `model`. A
+// $0 from computeCostUsd is only meaningful when this is true.
+export function isModelPriced(model: string): boolean {
+  return Object.prototype.hasOwnProperty.call(PRICE_TABLE, model);
 }
 
 // effectivePrice resolves a scheduled rate change against the moment the call
@@ -241,16 +265,35 @@ export function resetUsageSink(): void {
 // dropped analytics record into a failed review. A write failure is logged
 // and the record dropped, mirroring internal/usage.Store.Record's contract
 // in the sibling job_tracker project.
-export async function recordUsage(event: UsageEvent): Promise<void> {
+export async function recordUsage(event: UsageEvent): Promise<UsageRecord> {
   const record: UsageRecord = { ...event, provider: 'gemini', timestamp: new Date().toISOString() };
   try {
     await sink(record);
   } catch (err) {
     console.error('[usage] failed to record usage event:', err);
   }
+  return record;
+}
+
+// UsageObserver receives every record a tracked call produces, in-process,
+// in addition to the sink. The orchestrator uses it to build the per-stage
+// served-model / finish-reason summary the review API returns (see
+// stageMetrics.ts) without re-reading storage. It must never throw into the
+// call path: notify() swallows the observer's own errors.
+export type UsageObserver = (record: UsageRecord) => void;
+
+function notify(observer: UsageObserver | undefined, record: UsageRecord): void {
+  if (!observer) return;
+  try {
+    observer(record);
+  } catch (err) {
+    console.error('[usage] usage observer threw:', err);
+  }
 }
 
 type GenerateContentLikeResponse = {
+  // The model that actually served the request; see UsageEvent.servedModel.
+  modelVersion?: string;
   usageMetadata?: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
@@ -303,7 +346,7 @@ export function countGeneratedImages(response: GenerateContentLikeResponse): num
 // site is completely unaffected — this only observes the call, it never
 // changes its outcome.
 export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
-  ctx: { callType: string; model: string; refId?: string },
+  ctx: { callType: string; model: string; refId?: string; observer?: UsageObserver },
   fn: () => Promise<T>
 ): Promise<T> {
   const start = Date.now();
@@ -316,7 +359,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
     const cachedTokens = u?.cachedContentTokenCount ?? 0;
     const thinkingTokens = u?.thoughtsTokenCount ?? 0;
     const imageCount = countGeneratedImages(response);
-    await recordUsage({
+    const record = await recordUsage({
       callType: ctx.callType,
       refId: ctx.refId,
       model: ctx.model,
@@ -328,12 +371,15 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       latencyMs,
       costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens, { imageCount }),
       finishReason: response.candidates?.[0]?.finishReason,
+      servedModel: response.modelVersion || undefined,
+      costUnknown: isModelPriced(ctx.model) ? undefined : true,
       success: true,
     });
+    notify(ctx.observer, record);
     return response;
   } catch (err) {
     const latencyMs = Date.now() - start;
-    await recordUsage({
+    const failed = await recordUsage({
       callType: ctx.callType,
       refId: ctx.refId,
       model: ctx.model,
@@ -344,6 +390,7 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       success: false,
       errorKind: classifyError(err),
     });
+    notify(ctx.observer, failed);
     throw err;
   }
 }
@@ -368,12 +415,12 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
 // distinguishing a MAX_TOKENS truncation from a genuinely malformed response)
 // without double-billing.
 export async function recordParseFailure(
-  ctx: { callType: string; model: string; refId?: string },
+  ctx: { callType: string; model: string; refId?: string; observer?: UsageObserver },
   response: GenerateContentLikeResponse,
   latencyMs: number
 ): Promise<void> {
   const u = response.usageMetadata;
-  await recordUsage({
+  const record = await recordUsage({
     callType: ctx.callType,
     refId: ctx.refId,
     model: ctx.model,
@@ -384,9 +431,11 @@ export async function recordParseFailure(
     latencyMs,
     costUsd: 0,
     finishReason: response.candidates?.[0]?.finishReason,
+    servedModel: response.modelVersion || undefined,
     success: false,
     errorKind: 'parse_error',
   });
+  notify(ctx.observer, record);
 }
 
 // --- Rollup aggregation, mirroring internal/usage's Aggregate/ListRecords
@@ -400,6 +449,11 @@ export interface UsageBucket {
   outputTokens: number;
   thinkingTokens: number;
   costUsd: number;
+  // Successful calls whose model has no PRICE_TABLE row. Their costUsd is 0
+  // because the price is unknown, so costUsd UNDER-states spend by an unknown
+  // amount whenever this is > 0. Optional: absent on rollups cached before
+  // this field existed (read as 0).
+  costUnknownCalls?: number;
 }
 
 // Bumped whenever Rollup's shape OR classification semantics change, OR
@@ -460,6 +514,7 @@ export interface Rollup {
   totalOutputTokens: number;
   totalThinkingTokens: number;
   totalCostUsd: number;
+  totalCostUnknownCalls?: number; // see UsageBucket.costUnknownCalls
   totalLatencyMs: number;
   avgLatencyMs: number;
   byCallType: Record<string, UsageBucket>;
@@ -593,6 +648,7 @@ function addToBucket(m: Record<string, UsageBucket>, key: string | undefined, re
   b.outputTokens += rec.outputTokens;
   b.thinkingTokens += rec.thinkingTokens ?? 0;
   b.costUsd += rec.costUsd;
+  if (rec.costUnknown && rec.success) b.costUnknownCalls = (b.costUnknownCalls ?? 0) + 1;
 }
 
 // Unlike addToBucket, `key === '__proto__'` here does NOT actually corrupt
@@ -648,6 +704,7 @@ export function aggregate(date: string, records: UsageRecord[]): Rollup {
     rollup.totalOutputTokens += rec.outputTokens;
     rollup.totalThinkingTokens += rec.thinkingTokens ?? 0;
     rollup.totalCostUsd += rec.costUsd;
+    if (rec.costUnknown && rec.success) rollup.totalCostUnknownCalls = (rollup.totalCostUnknownCalls ?? 0) + 1;
     rollup.totalLatencyMs += rec.latencyMs;
 
     const repository = rec.repository || UNTAGGED_REPOSITORY_LABEL;
@@ -745,6 +802,7 @@ function mergeBucketMaps(a: Record<string, UsageBucket>, b: Record<string, Usage
     x.outputTokens += y.outputTokens;
     x.thinkingTokens += y.thinkingTokens;
     x.costUsd += y.costUsd;
+    if (y.costUnknownCalls) x.costUnknownCalls = (x.costUnknownCalls ?? 0) + y.costUnknownCalls;
   }
   return a;
 }
@@ -786,6 +844,7 @@ export function sumRollups(label: string, rollups: Rollup[]): Rollup {
     result.totalOutputTokens += r.totalOutputTokens;
     result.totalThinkingTokens += r.totalThinkingTokens;
     result.totalCostUsd += r.totalCostUsd;
+    if (r.totalCostUnknownCalls) result.totalCostUnknownCalls = (result.totalCostUnknownCalls ?? 0) + r.totalCostUnknownCalls;
     result.totalLatencyMs += r.totalLatencyMs;
     for (const kind of Object.keys(r.byErrorKind)) {
       incrementCount(result.byErrorKind, kind, r.byErrorKind[kind]);
@@ -839,6 +898,8 @@ function isValidIngestedRecordShape(record: unknown): record is UsageRecord {
     // for pricing would let the stored record and the billed count disagree.
     (r.imageCount === undefined || (typeof r.imageCount === 'number' && Number.isInteger(r.imageCount) && r.imageCount >= 0)) &&
     (r.repository === undefined || (typeof r.repository === 'string' && !r.repository.includes('|'))) &&
+    (r.servedModel === undefined || (typeof r.servedModel === 'string' && r.servedModel.length <= 200)) &&
+    (r.costUnknown === undefined || typeof r.costUnknown === 'boolean') &&
     (r.cachedTokens === undefined || (typeof r.cachedTokens === 'number' && Number.isFinite(r.cachedTokens) && r.cachedTokens >= 0)) &&
     // errorKind flows into byErrorKind[key] unguarded by addToBucket's
     // UNSAFE_BUCKET_KEYS check (that's for the UsageBucket maps only) — the
@@ -918,6 +979,18 @@ function formatUsd(n: number): string {
   return `$${n.toFixed(4)}`;
 }
 
+// formatCostWithUnknown never renders a cost that includes unpriced calls as a
+// plain dollar figure: "$0.0000" for a model with no price row reads as
+// "free". Partial: "$0.1200 + unknown (3 calls excluded)"; all unknown:
+// "unknown (3 calls excluded)".
+export function formatCostWithUnknown(costUsd: number, unknownCalls: number | undefined, successfulCalls: number): string {
+  const n = unknownCalls ?? 0;
+  if (n <= 0) return formatUsd(costUsd);
+  const noun = n === 1 ? 'call' : 'calls';
+  if (n >= successfulCalls) return `unknown (${n} ${noun} excluded)`;
+  return `${formatUsd(costUsd)} + unknown (${n} ${noun} excluded)`;
+}
+
 // formatUsageSummaryMarkdown renders a Rollup as GitHub-Flavored Markdown
 // for $GITHUB_STEP_SUMMARY. Pure — independently testable from the
 // file-writing side, which lives in action-entrypoint.ts.
@@ -929,7 +1002,7 @@ export function formatUsageSummaryMarkdown(rollup: Rollup): string {
   lines.push('|---|---|---|---|---|---|---|');
   lines.push(
     `| ${rollup.totalCalls} | ${rollup.successCount} | ${rollup.failureCount} | ` +
-    `${rollup.totalInputTokens} | ${rollup.totalOutputTokens} | ${formatUsd(rollup.totalCostUsd)} | ` +
+    `${rollup.totalInputTokens} | ${rollup.totalOutputTokens} | ${formatCostWithUnknown(rollup.totalCostUsd, rollup.totalCostUnknownCalls, rollup.successCount)} | ` +
     `${Math.round(rollup.avgLatencyMs)}ms |`
   );
 
@@ -942,7 +1015,7 @@ export function formatUsageSummaryMarkdown(rollup: Rollup): string {
     lines.push('|---|---|---|---|---|');
     for (const callType of callTypes) {
       const b = rollup.byCallType[callType];
-      lines.push(`| ${callType} | ${b.calls} | ${b.inputTokens} | ${b.outputTokens} | ${formatUsd(b.costUsd)} |`);
+      lines.push(`| ${callType} | ${b.calls} | ${b.inputTokens} | ${b.outputTokens} | ${formatCostWithUnknown(b.costUsd, b.costUnknownCalls, b.successCount)} |`);
     }
   }
 

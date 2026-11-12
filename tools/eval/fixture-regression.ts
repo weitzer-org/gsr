@@ -12,7 +12,7 @@ import { filePathsMatch } from './validation';
  * another target's output.
  */
 
-interface FixtureEntryBase {
+export interface FixtureEntryBase {
   id: string;
   prUrl: string;
   file: string;
@@ -20,12 +20,12 @@ interface FixtureEntryBase {
   summary: string;
 }
 
-interface CrossFileEntry extends FixtureEntryBase {
+export interface CrossFileEntry extends FixtureEntryBase {
   definedInFile: string;
   claimPatterns: string[];
 }
 
-interface Fixture {
+export interface Fixture {
   description: string;
   lineTolerance: number;
   entries: {
@@ -35,9 +35,9 @@ interface Fixture {
   };
 }
 
-type Category = 'must_catch' | 'must_not_flag_high' | 'must_resolve_cross_file';
+export type Category = 'must_catch' | 'must_not_flag_high' | 'must_resolve_cross_file';
 
-interface ScoreResult {
+export interface ScoreResult {
   id: string;
   category: Category;
   prUrl: string;
@@ -55,7 +55,7 @@ const HIGH_SEVERITIES = new Set(['HIGH', 'CRITICAL']);
 // against basic-mode findings specifically (not the combined basic+subagent
 // set /api/review returns) is what makes this a faithful regression check on
 // production behavior, not just on whichever mode happens to catch it.
-const SCORED_SOURCE = 'basic';
+export const SCORED_SOURCE = 'basic';
 
 function findingText(f: ReviewFinding): string {
   const anyF = f as any;
@@ -108,57 +108,68 @@ function scoreMustResolveCrossFile(entry: CrossFileEntry, findings: ReviewFindin
   };
 }
 
-export async function runFixtureRegression(fixturePath: string, baseUrl: string, githubPat: string): Promise<{ allPass: boolean; results: ScoreResult[] }> {
-  const fixture: Fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
-
+// Pure scoring step, shared by the CLI below and by the model-upgrade report (which scores every
+// ARM's saved findings with exactly these rules). `findingsByPr[url]` is the PR's findings
+// (already filtered to SCORED_SOURCE by the caller, or not — pass `scoredSource` to filter here);
+// a PR in `errorsByPr` failed to review and fails every entry for it, never a quiet pass.
+export function scoreFixtureEntries(
+  fixture: Fixture,
+  findingsByPr: Record<string, ReviewFinding[] | undefined>,
+  errorsByPr: Record<string, string | undefined> = {},
+  scoredSource: string = SCORED_SOURCE
+): ScoreResult[] {
   const allEntries: Array<{ category: Category; entry: FixtureEntryBase | CrossFileEntry }> = [
     ...fixture.entries.must_catch.map(entry => ({ category: 'must_catch' as const, entry })),
     ...fixture.entries.must_not_flag_high.map(entry => ({ category: 'must_not_flag_high' as const, entry })),
     ...fixture.entries.must_resolve_cross_file.map(entry => ({ category: 'must_resolve_cross_file' as const, entry }))
   ];
-
-  const entriesByPr = new Map<string, typeof allEntries>();
-  for (const item of allEntries) {
-    const list = entriesByPr.get(item.entry.prUrl) ?? [];
-    list.push(item);
-    entriesByPr.set(item.entry.prUrl, list);
-  }
-
   const results: ScoreResult[] = [];
+  for (const { category, entry } of allEntries) {
+    const prUrl = entry.prUrl;
+    const reviewError = errorsByPr[prUrl];
+    const raw = findingsByPr[prUrl];
+    if (reviewError || !raw) {
+      // A failed review call has no signal either way — reporting it as a pass (e.g. "no HIGH
+      // finding" because there were no findings at all) would be a false green.
+      results.push({
+        id: entry.id, category, prUrl, file: entry.file, line: entry.line, pass: false,
+        detail: `review call failed, cannot verify: ${reviewError ?? 'no result for this PR'}`
+      });
+      continue;
+    }
+    const scopedFindings = raw.filter(f => (f.source ?? scoredSource) === scoredSource);
+    if (category === 'must_catch') results.push(scoreMustCatch(entry, scopedFindings, fixture.lineTolerance));
+    else if (category === 'must_not_flag_high') results.push(scoreMustNotFlagHigh(entry, scopedFindings, fixture.lineTolerance));
+    else results.push(scoreMustResolveCrossFile(entry as CrossFileEntry, scopedFindings, fixture.lineTolerance));
+  }
+  return results;
+}
 
-  for (const [prUrl, items] of entriesByPr.entries()) {
-    console.log(`\n🔍 Reviewing ${prUrl} (${items.length} fixture entr${items.length === 1 ? 'y' : 'ies'})...`);
-    let scopedFindings: ReviewFinding[] = [];
-    let reviewError: string | undefined;
+export async function runFixtureRegression(fixturePath: string, baseUrl: string, githubPat: string): Promise<{ allPass: boolean; results: ScoreResult[] }> {
+  const fixture: Fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+
+  const prUrls = new Set<string>([
+    ...fixture.entries.must_catch.map(e => e.prUrl),
+    ...fixture.entries.must_not_flag_high.map(e => e.prUrl),
+    ...fixture.entries.must_resolve_cross_file.map(e => e.prUrl),
+  ]);
+
+  const findingsByPr: Record<string, ReviewFinding[]> = {};
+  const errorsByPr: Record<string, string> = {};
+
+  for (const prUrl of prUrls) {
+    console.log(`\n🔍 Reviewing ${prUrl}...`);
     try {
       const { findings } = await runReview(baseUrl, prUrl, githubPat);
-      scopedFindings = findings.filter(f => (f.source ?? SCORED_SOURCE) === SCORED_SOURCE);
-      console.log(`  ${findings.length} total findings, ${scopedFindings.length} from '${SCORED_SOURCE}' mode.`);
+      findingsByPr[prUrl] = findings;
+      console.log(`  ${findings.length} total findings, ${findings.filter(f => (f.source ?? SCORED_SOURCE) === SCORED_SOURCE).length} from '${SCORED_SOURCE}' mode.`);
     } catch (e: any) {
-      reviewError = e.message;
-      console.error(`  ❌ Review failed: ${reviewError}`);
-    }
-
-    for (const { category, entry } of items) {
-      // A failed review call has no signal either way — reporting it as a
-      // pass (e.g. "no HIGH finding" because there were no findings at all)
-      // would be a false green, so fail every entry for this PR explicitly
-      // instead of scoring against an empty findings array.
-      if (reviewError) {
-        results.push({
-          id: entry.id, category, prUrl, file: entry.file, line: entry.line, pass: false,
-          detail: `review call failed, cannot verify: ${reviewError}`
-        });
-      } else if (category === 'must_catch') {
-        results.push(scoreMustCatch(entry, scopedFindings, fixture.lineTolerance));
-      } else if (category === 'must_not_flag_high') {
-        results.push(scoreMustNotFlagHigh(entry, scopedFindings, fixture.lineTolerance));
-      } else {
-        results.push(scoreMustResolveCrossFile(entry as CrossFileEntry, scopedFindings, fixture.lineTolerance));
-      }
+      errorsByPr[prUrl] = e.message;
+      console.error(`  ❌ Review failed: ${e.message}`);
     }
   }
 
+  const results = scoreFixtureEntries(fixture, findingsByPr, errorsByPr);
   return { allPass: printReport(results), results };
 }
 

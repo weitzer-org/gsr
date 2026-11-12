@@ -10,6 +10,12 @@ export interface ReviewMetrics {
   // received a real `metrics` payload (see the two literal fallbacks
   // below).
   durationMs: number;
+  // Additive fields the backend now returns (adk/backend/src/app.ts): each orchestrator's own
+  // metrics, and the per-stage served-model / finish-reason summary split by review source
+  // (`subagent`, `basic`, `shared`). Absent from older backends.
+  subagentMetrics?: { inputTokens: number; outputTokens: number; calls: number; durationMs: number; stages?: Record<string, any> };
+  basicMetrics?: { inputTokens: number; outputTokens: number; calls: number; durationMs: number; stages?: Record<string, any> };
+  stages?: { subagent?: Record<string, any>; basic?: Record<string, any>; shared?: Record<string, any> };
 }
 
 export interface ReviewFinding {
@@ -32,12 +38,16 @@ export interface CombinedResult {
 /**
  * Sends a review request to the GSR application and aggregates the NDJSON response.
  */
-export async function runReview(baseUrl: string, prUrl: string, pat: string): Promise<CombinedResult> {
+export async function runReview(baseUrl: string, prUrl: string, pat: string, opts: { timeoutMs?: number } = {}): Promise<CombinedResult> {
   const url = `${baseUrl}/api/review`;
+  // Unset = no client-side deadline, exactly as before. The multi-arm runner sets one so a hung
+  // arm becomes a recorded 'timeout' attempt instead of stalling the batch.
+  const signal = opts.timeoutMs && opts.timeoutMs > 0 ? AbortSignal.timeout(opts.timeoutMs) : undefined;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: prUrl, pat })
+    body: JSON.stringify({ url: prUrl, pat }),
+    signal
   });
 
   if (!response.ok || !response.body) {

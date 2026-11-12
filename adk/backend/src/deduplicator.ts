@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { CandidateFinding } from './types.js';
 import { trackGeminiCall } from './usage.js';
+import { resolveStageModel } from './models.js';
+import type { StageCollector } from './stageMetrics.js';
 
 // Two findings can only be duplicates when they are in the same file and
 // this close together. Shared by the prompt and the code checks around it.
@@ -107,6 +109,8 @@ export function applyMergeGroups(findings: CandidateFinding[], groups: number[][
 
 export class DeduplicatorAgent {
   private ai: GoogleGenAI;
+  // Attached by the Orchestrator for per-stage metrics; see agent.ts.
+  public stats?: StageCollector;
 
   constructor() {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -166,9 +170,9 @@ Output a JSON array of groups, each of the form {"indices": [..]}.`;
       const startTime = Date.now();
       console.log(`[Deduplicator] Sending request to Gemini...`);
       
-      const deduplicatorModel = process.env.DEDUPLICATOR_MODEL || 'gemini-3.1-pro-preview';
+      const deduplicatorModel = resolveStageModel('deduplicate');
       const request = trackGeminiCall(
-        { callType: 'deduplicate', model: deduplicatorModel },
+        { callType: 'deduplicate', model: deduplicatorModel, observer: this.stats ? (r) => this.stats!.observe(r) : undefined },
         () => this.ai.models.generateContent({
         model: deduplicatorModel,
         contents: JSON.stringify(payload),
@@ -217,7 +221,10 @@ Output a JSON array of groups, each of the form {"indices": [..]}.`;
           timeoutId = setTimeout(() => reject(new Error(`ETIMEDOUT: Deduplicator fetch exceeded ${timeoutMs}ms.`)), timeoutMs);
       });
 
-      const response = await Promise.race([request, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+      const response = await Promise.race([request, timeoutPromise]).finally(() => clearTimeout(timeoutId)).catch((e) => {
+        if (/^ETIMEDOUT/.test(String(e?.message))) this.stats?.timeout('deduplicate', deduplicatorModel);
+        throw e;
+      });
       
       const duration = Date.now() - startTime;
       console.log(`[Deduplicator] Response received in ${duration}ms`);

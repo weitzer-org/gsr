@@ -1,0 +1,182 @@
+{
+  "description": "Ground truth for the 10 seeded-bug PRs in weitzer-org/gemini-cli-fork (tools/eval/config.json sample_prs 3-12). Each entry's `locations` are NEW-file line ranges taken from the PR's actual diff (merge-base..branch tip, read with git), not from GSR output. A bug counts as CAUGHT when a finding of the scored source lands in the same file within `lineTolerance` lines of ANY listed location. KNOWN LIMITATION: every seeded diff carries a '// INTENTIONAL DEFECT' comment next to the bug, so catching it is easy; expect a ceiling effect, and read this as a floor check (did an arm lose something every model finds), not as a discriminating recall measure. PR titles are from tools/eval/create-prs.ts at creation time; the live PR text was not readable from this session (API access to the repo is not enabled), so it is unverified whether it has since been edited.",
+  "lineTolerance": 3,
+  "diffBase": "979bbee4 (merge-base of origin/main with every evals/* branch, fetched 2026-11-12)",
+  "entries": [
+    {
+      "id": "cli-input-loop-bug",
+      "prUrl": "https://github.com/weitzer-org/gemini-cli-fork/pull/3",
+      "branch": "evals/cli-input-loop-bug",
+      "prTitle": "fix: Why pressing Enter does nothing",
+      "summary": "A synchronous busy-wait `while (syncBuffer.trim() === 'wait_init')` is added before the keypress handler is attached; it pins the CPU and can never exit because the stdin 'data' callback that fills syncBuffer cannot run while the loop blocks the event loop.",
+      "locations": [
+        {
+          "file": "packages/cli/src/nonInteractiveCli.ts",
+          "lineStart": 158,
+          "lineEnd": 165
+        }
+      ],
+      "evidence": "git diff $(git merge-base origin/main origin/evals/cli-input-loop-bug) origin/evals/cli-input-loop-bug in weitzer-org/gemini-cli-fork; branch tip read via git, PR->branch mapping confirmed with `git ls-remote` (refs/pull/N/head == refs/heads/evals/cli-input-loop-bug)"
+    },
+    {
+      "id": "quota-config-leak",
+      "prUrl": "https://github.com/weitzer-org/gemini-cli-fork/pull/4",
+      "branch": "evals/quota-config-leak",
+      "prTitle": "feat: User-Configurable Daily Quota Reset Times",
+      "summary": "Per-session quota settings are written into a module-level mutable global (`export let GLOBAL_QUOTA_CONTEXT`), leaking session state across sessions and creating hidden shared state.",
+      "locations": [
+        {
+          "file": "packages/core/src/config/config.ts",
+          "lineStart": 370,
+          "lineEnd": 371
+        },
+        {
+          "file": "packages/core/src/config/config.ts",
+          "lineStart": 648,
+          "lineEnd": 650
+        }
+      ],
+      "evidence": "git diff $(git merge-base origin/main origin/evals/quota-config-leak) origin/evals/quota-config-leak in weitzer-org/gemini-cli-fork; branch tip read via git, PR->branch mapping confirmed with `git ls-remote` (refs/pull/N/head == refs/heads/evals/quota-config-leak)"
+    },
+    {
+      "id": "state-bloat-crash",
+      "prUrl": "https://github.com/weitzer-org/gemini-cli-fork/pull/5",
+      "branch": "evals/state-bloat-crash",
+      "prTitle": "perf: Fix application state memory bloat",
+      "summary": "addHistory truncates with `this.history.length -= this.history.length - 100`; for any history shorter than 100 entries the subtrahend is negative, so `length` GROWS and fills the array with holes (and the check `> 5` triggers it on nearly every call).",
+      "locations": [
+        {
+          "file": "packages/core/src/core/geminiChat.ts",
+          "lineStart": 695,
+          "lineEnd": 699
+        }
+      ],
+      "evidence": "git diff $(git merge-base origin/main origin/evals/state-bloat-crash) origin/evals/state-bloat-crash in weitzer-org/gemini-cli-fork; branch tip read via git, PR->branch mapping confirmed with `git ls-remote` (refs/pull/N/head == refs/heads/evals/state-bloat-crash)"
+    },
+    {
+      "id": "auth-token-leak",
+      "prUrl": "https://github.com/weitzer-org/gemini-cli-fork/pull/6",
+      "branch": "evals/auth-token-leak",
+      "prTitle": "fix: MCP HTTP OAuth Token Refresh Fails During Tool Calls",
+      "summary": "OAuth credentials are cached process-wide in `process.env.__SHARED_AUTH_TOKEN` (served to every caller regardless of server/session) and the full token JSON is written to stderr by a console.error debug line: cross-session credential leakage plus secret logging.",
+      "locations": [
+        {
+          "file": "packages/core/src/mcp/token-storage/hybrid-token-storage.ts",
+          "lineStart": 65,
+          "lineEnd": 72
+        },
+        {
+          "file": "packages/core/src/mcp/token-storage/hybrid-token-storage.ts",
+          "lineStart": 78,
+          "lineEnd": 80
+        }
+      ],
+      "evidence": "git diff $(git merge-base origin/main origin/evals/auth-token-leak) origin/evals/auth-token-leak in weitzer-org/gemini-cli-fork; branch tip read via git, PR->branch mapping confirmed with `git ls-remote` (refs/pull/N/head == refs/heads/evals/auth-token-leak)"
+    },
+    {
+      "id": "spread-linter-dependency-break",
+      "prUrl": "https://github.com/weitzer-org/gemini-cli-fork/pull/7",
+      "branch": "evals/spread-linter-dependency-break",
+      "prTitle": "chore: Disallow and suppress misused spread operator",
+      "summary": "scripts/fix-spread.js rewrites source with a regex (no AST) that turns `{ ...x }` into `Object.assign({}, x)`; it mangles array spreads, nested objects and destructuring. The accompanying lint rule bans every SpreadElement.",
+      "locations": [
+        {
+          "file": "scripts/fix-spread.js",
+          "lineStart": 1,
+          "lineEnd": 13
+        },
+        {
+          "file": "eslint.config.js",
+          "lineStart": 156,
+          "lineEnd": 159
+        }
+      ],
+      "evidence": "git diff $(git merge-base origin/main origin/evals/spread-linter-dependency-break) origin/evals/spread-linter-dependency-break in weitzer-org/gemini-cli-fork; branch tip read via git, PR->branch mapping confirmed with `git ls-remote` (refs/pull/N/head == refs/heads/evals/spread-linter-dependency-break)"
+    },
+    {
+      "id": "legacy-spread-mutations",
+      "prUrl": "https://github.com/weitzer-org/gemini-cli-fork/pull/8",
+      "branch": "evals/legacy-spread-mutations",
+      "prTitle": "chore: Remove suppressed spread operator linter errors",
+      "summary": "`[...new Set(getCommandRoots(command))]` is replaced by `Object.assign({}, new Set(...))`, which yields an empty plain object (a Set has no own enumerable properties), so `rootCommands` loses its elements and array methods/`.length` break downstream.",
+      "locations": [
+        {
+          "file": "packages/core/src/tools/shell.ts",
+          "lineStart": 130,
+          "lineEnd": 130
+        },
+        {
+          "file": "scripts/fix-spread.js",
+          "lineStart": 1,
+          "lineEnd": 13
+        }
+      ],
+      "evidence": "git diff $(git merge-base origin/main origin/evals/legacy-spread-mutations) origin/evals/legacy-spread-mutations in weitzer-org/gemini-cli-fork; branch tip read via git, PR->branch mapping confirmed with `git ls-remote` (refs/pull/N/head == refs/heads/evals/legacy-spread-mutations)"
+    },
+    {
+      "id": "skill-invocation-coupling",
+      "prUrl": "https://github.com/weitzer-org/gemini-cli-fork/pull/9",
+      "branch": "evals/skill-invocation-coupling",
+      "prTitle": "feat: Tool use based skill invocation",
+      "summary": "SkillManager (a layer that should be LLM-agnostic) imports `GenerateContentRequest` from @google/genai and takes it as a getSkills() parameter: an architectural layering violation.",
+      "locations": [
+        {
+          "file": "packages/core/src/skills/skillManager.ts",
+          "lineStart": 14,
+          "lineEnd": 15
+        },
+        {
+          "file": "packages/core/src/skills/skillManager.ts",
+          "lineStart": 140,
+          "lineEnd": 142
+        }
+      ],
+      "evidence": "git diff $(git merge-base origin/main origin/evals/skill-invocation-coupling) origin/evals/skill-invocation-coupling in weitzer-org/gemini-cli-fork; branch tip read via git, PR->branch mapping confirmed with `git ls-remote` (refs/pull/N/head == refs/heads/evals/skill-invocation-coupling)"
+    },
+    {
+      "id": "stub-evals-promise-swallow",
+      "prUrl": "https://github.com/weitzer-org/gemini-cli-fork/pull/10",
+      "branch": "evals/stub-evals-promise-swallow",
+      "prTitle": "test: Change the steering eval test to always pass",
+      "summary": "evalTest registers a stub `it(...)` that unconditionally passes and installs a no-op `process.on('unhandledRejection')`, returning before the real test body: every eval silently passes and rejections are swallowed.",
+      "locations": [
+        {
+          "file": "evals/test-helper.ts",
+          "lineStart": 39,
+          "lineEnd": 45
+        }
+      ],
+      "evidence": "git diff $(git merge-base origin/main origin/evals/stub-evals-promise-swallow) origin/evals/stub-evals-promise-swallow in weitzer-org/gemini-cli-fork; branch tip read via git, PR->branch mapping confirmed with `git ls-remote` (refs/pull/N/head == refs/heads/evals/stub-evals-promise-swallow)"
+    },
+    {
+      "id": "tasks-memory-leak",
+      "prUrl": "https://github.com/weitzer-org/gemini-cli-fork/pull/11",
+      "branch": "evals/tasks-memory-leak",
+      "prTitle": "feat: SDD Phase 3 Tasks Integration",
+      "summary": "New TaskPoller: `eval()` of an arbitrary task script string (code injection); an unbounded `taskHistory` array that retains every task with a back-reference to `this` (memory leak); and a self-rescheduling setTimeout with a copied-context closure.",
+      "locations": [
+        {
+          "file": "packages/core/src/tasks/taskPoller.ts",
+          "lineStart": 1,
+          "lineEnd": 61
+        }
+      ],
+      "evidence": "git diff $(git merge-base origin/main origin/evals/tasks-memory-leak) origin/evals/tasks-memory-leak in weitzer-org/gemini-cli-fork; branch tip read via git, PR->branch mapping confirmed with `git ls-remote` (refs/pull/N/head == refs/heads/evals/tasks-memory-leak)"
+    },
+    {
+      "id": "nightly-release-permissions",
+      "prUrl": "https://github.com/weitzer-org/gemini-cli-fork/pull/12",
+      "branch": "evals/nightly-release-permissions",
+      "prTitle": "ci: Nightly Release Failed Fix",
+      "summary": "When CI is set, the release-version script prints `JSON.stringify(process.env)` to the build log, leaking every environment variable including secrets.",
+      "locations": [
+        {
+          "file": "scripts/get-release-version.js",
+          "lineStart": 497,
+          "lineEnd": 500
+        }
+      ],
+      "evidence": "git diff $(git merge-base origin/main origin/evals/nightly-release-permissions) origin/evals/nightly-release-permissions in weitzer-org/gemini-cli-fork; branch tip read via git, PR->branch mapping confirmed with `git ls-remote` (refs/pull/N/head == refs/heads/evals/nightly-release-permissions)"
+    }
+  ]
+}

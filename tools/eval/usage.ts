@@ -58,6 +58,13 @@ export interface UsageEvent {
   thinkingTokens?: number;
   latencyMs: number;
   costUsd: number;
+  finishReason?: string;
+  // The model that actually answered (response.modelVersion); may differ from
+  // `model`. See adk/backend/src/usage.ts.
+  servedModel?: string;
+  // true on a SUCCESSFUL call whose model has no PRICE_TABLE row: costUsd is 0
+  // because the price is unknown, not because the call was free.
+  costUnknown?: boolean;
   success: boolean;
   errorKind?: string;
 }
@@ -76,18 +83,48 @@ export interface UsageRecord extends UsageEvent {
 // from here; the backend's chat and image models are deliberately absent
 // rather than missing. Add a row here only when the judge model changes —
 // and keep its rate in step with the backend's copy when it does.
-const PRICE_TABLE: Record<string, { input: number; output: number }> = {
+interface ModelPrice {
+  input: number;
+  output: number;
+  // Rates that replace the ones above from `from` (ISO 8601) onward; same
+  // semantics as adk/backend/src/usage.ts.
+  supersededBy?: { from: string; input?: number; output?: number };
+}
+
+const PRICE_TABLE: Record<string, ModelPrice> = {
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // <=200k-token-prompt tier — verify against current pricing if usage grows large
   'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 }, // witness-spike/author.ts (production's chat model); same rate as adk/backend/src/usage.ts
+  // Rows for every model the model-upgrade eval can use as a JUDGE (JUDGE_MODEL / JUDGE_MODEL_2),
+  // mirroring adk/backend/src/usage.ts. The Argon row is UNVERIFIED (see that file's comment).
+  'gemini-3.8-flash': { input: 0.75, output: 3.75, supersededBy: { from: '2027-01-01T00:00:00Z', input: 1.5, output: 7.5 } },
+  'gemini-4-argon': { input: 2.0, output: 10.0, supersededBy: { from: '2026-12-01T00:00:00Z', input: 4.0, output: 20.0 } },
 };
+
+export function isModelPriced(model: string): boolean {
+  return Object.prototype.hasOwnProperty.call(PRICE_TABLE, model);
+}
+
+// An unparsable `from` or invalid `at` keeps the current rates rather than silently billing the
+// future rate (a NaN comparison is false, which would read as "past the change date").
+function effectivePrice(price: ModelPrice, at: Date): { input: number; output: number } {
+  const next = price.supersededBy;
+  if (!next) return price;
+  const from = Date.parse(next.from);
+  const atMs = at.getTime();
+  if (Number.isNaN(from) || !Number.isFinite(atMs) || atMs < from) return price;
+  return { input: next.input ?? price.input, output: next.output ?? price.output };
+}
 
 // thinkingTokens is NOT added to outputTokens — same reasoning as
 // adk/backend/src/usage.ts's computeCostUsd: Gemini's pricing page describes
 // the output rate as already "including thinking tokens", so adding them on
 // top risks double-billing. Tracked as observability only.
-export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
-  const price = PRICE_TABLE[model];
-  if (!price) return 0;
+//
+// An unknown model returns 0 here, which is NOT "free": callers must check isModelPriced() and set
+// costUnknown (trackGeminiCall does), and reports must show "unknown", never $0.
+export function computeCostUsd(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0, opts?: { at?: Date }): number {
+  if (!isModelPriced(model)) return 0;
+  const price = effectivePrice(PRICE_TABLE[model], opts?.at ?? new Date());
   const perM = 1_000_000;
   const billedInput = Math.max(0, inputTokens - cachedTokens);
   return (billedInput * price.input) / perM + (outputTokens * price.output) / perM;
@@ -166,6 +203,8 @@ export async function recordUsage(event: UsageEvent): Promise<void> {
 }
 
 type GenerateContentLikeResponse = {
+  modelVersion?: string;
+  candidates?: Array<{ finishReason?: string }>;
   usageMetadata?: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
@@ -199,6 +238,9 @@ export async function trackGeminiCall<T extends GenerateContentLikeResponse>(
       thinkingTokens,
       latencyMs,
       costUsd: computeCostUsd(ctx.model, inputTokens, outputTokens, cachedTokens),
+      finishReason: response.candidates?.[0]?.finishReason,
+      servedModel: response.modelVersion || undefined,
+      costUnknown: isModelPriced(ctx.model) ? undefined : true,
       success: true,
     });
     return response;

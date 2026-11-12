@@ -127,7 +127,9 @@ describe('POST /api/review', () => {
         // durationMs below, which come straight from the mocked return value.
         durationMs: expect.any(Number),
         subagentMetrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 },
-        basicMetrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 }
+        basicMetrics: { inputTokens: 0, outputTokens: 0, calls: 0, durationMs: 0 },
+        // Additive per-stage summary; the mocked orchestrators report none.
+        stages: { subagent: {}, basic: {}, shared: {} }
       },
       evaluation: 'Mock evaluation string'
     }));
@@ -256,3 +258,28 @@ describe('GET /api/agents', () => {
   });
 });
 
+
+describe('GET /api/status: resolved per-stage routing', () => {
+  const keys = ['GEMINI_MODEL', 'DISCOVERY_MODEL', 'REMEDIATION_MODEL', 'BASIC_MODEL', 'DEDUPLICATOR_MODEL', 'EVALUATOR_MODEL', 'GEMINI_MAX_OUTPUT_TOKENS', 'GEMINI_THINKING_LEVEL'];
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => { for (const k of keys) { saved[k] = process.env[k]; delete process.env[k]; } });
+  afterEach(() => { for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
+
+  it('defaults: every stage on the default model, no cap, no thinking level; `model` is unchanged', async () => {
+    const body = (await request(app).get('/api/status')).body;
+    expect(body.model).toBe('gemini-3.1-pro-preview');
+    expect(Object.values(body.stageModels)).toEqual(Array(5).fill('gemini-3.1-pro-preview'));
+    expect(body.maxOutputTokens).toBeNull();
+    expect(body.thinkingLevel).toBeNull();
+  });
+
+  it('exposes that the deduplicator stays put when GEMINI_MODEL changes', async () => {
+    process.env.GEMINI_MODEL = 'gemini-3.8-flash';
+    const body = (await request(app).get('/api/status')).body;
+    expect(body.model).toBe('gemini-3.8-flash');
+    expect(body.stageModels).toEqual({
+      discovery: 'gemini-3.8-flash', remediation: 'gemini-3.8-flash', basic: 'gemini-3.8-flash',
+      deduplicate: 'gemini-3.1-pro-preview', evaluate: 'gemini-3.8-flash',
+    });
+  });
+});

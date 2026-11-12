@@ -21,8 +21,19 @@ describe('computeCostUsd', () => {
         expect(cost).toBe(0);
     });
 
-    it('returns 0 for an unknown model', () => {
+    it('returns 0 for an unknown model — which is why isModelPriced must be checked, not the 0', () => {
         expect(usage.computeCostUsd('some-future-model', 1000, 1000)).toBe(0);
+        expect(usage.isModelPriced('some-future-model')).toBe(false);
+        expect(usage.isModelPriced('constructor')).toBe(false);
+        expect(usage.isModelPriced('gemini-2.5-pro')).toBe(true);
+    });
+
+    it('has rows for every judge model the upgrade eval can use, with scheduled price changes', () => {
+        expect(usage.computeCostUsd('gemini-3.8-flash', 1e6, 1e6, 0, { at: new Date('2026-12-31T23:59:59Z') })).toBeCloseTo(0.75 + 3.75, 5);
+        expect(usage.computeCostUsd('gemini-3.8-flash', 1e6, 1e6, 0, { at: new Date('2027-01-01T00:00:00Z') })).toBeCloseTo(1.5 + 7.5, 5);
+        expect(usage.computeCostUsd('gemini-4-argon', 1e6, 1e6, 0, { at: new Date('2026-11-30T23:59:59Z') })).toBeCloseTo(2 + 10, 5);
+        expect(usage.computeCostUsd('gemini-4-argon', 1e6, 1e6, 0, { at: new Date('2026-12-01T00:00:00Z') })).toBeCloseTo(4 + 20, 5);
+        expect(usage.computeCostUsd('gemini-4-argon', 1e6, 1e6, 0, { at: new Date('nope') })).toBeCloseTo(2 + 10, 5);
     });
 });
 
@@ -55,6 +66,22 @@ describe('trackGeminiCall', () => {
         expect(data.thinkingTokens).toBe(5);
         expect(data.repository).toBe('tools-eval (local)');
         expect(data.callType).toBe('llm_compare');
+    });
+
+    it('records servedModel and finishReason, and flags an unpriced model as costUnknown', async () => {
+        const response = { text: 'ok', modelVersion: 'gemini-9-served', candidates: [{ finishReason: 'MAX_TOKENS' }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 5 } };
+        await usage.trackGeminiCall({ callType: 'llm_compare', model: 'gemini-9-unpriced' }, () => Promise.resolve(response));
+        const [, , data] = mockUploadResultsToGCS.mock.calls[0] as [string, string, any];
+        expect(data.servedModel).toBe('gemini-9-served');
+        expect(data.finishReason).toBe('MAX_TOKENS');
+        expect(data.costUsd).toBe(0);
+        expect(data.costUnknown).toBe(true);
+    });
+
+    it('does not flag a priced judge model as costUnknown', async () => {
+        await usage.trackGeminiCall({ callType: 'llm_compare', model: 'gemini-3.8-flash' }, () => Promise.resolve({ text: 'ok', usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 5 } } as any));
+        const [, , data] = mockUploadResultsToGCS.mock.calls[0] as [string, string, any];
+        expect(data.costUnknown).toBeUndefined();
     });
 
     it('records a failed call with a classified errorKind and rethrows unchanged', async () => {

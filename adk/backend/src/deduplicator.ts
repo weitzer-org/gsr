@@ -36,10 +36,11 @@ export function clusterByProximity(findings: CandidateFinding[]): number[] {
 }
 
 // normalizeGroups turns the model's untrusted answer into merge groups that
-// are safe to apply. An index is honoured once (first appearance), only if it
-// was actually sent, and a group is split wherever it spans two proximity
-// clusters — so the model can neither drop a finding nor merge two findings
-// that are far apart or in different files. Anything it left out simply stays
+// are safe to apply. An index is merged at most once (the first group that
+// actually merges it wins), only if it was actually sent, and a group is
+// split wherever it spans two proximity clusters — so the model can neither
+// drop a finding nor merge two findings that are far apart or in different
+// files. Anything it left out simply stays
 // unmerged. Returns only groups of two or more, each sorted ascending.
 export function normalizeGroups(raw: unknown, candidates: Set<number>, clusterOf: number[]): number[][] {
   if (!Array.isArray(raw)) return [];
@@ -49,15 +50,18 @@ export function normalizeGroups(raw: unknown, candidates: Set<number>, clusterOf
     const indices = Array.isArray(entry) ? entry : (entry as any)?.indices;
     if (!Array.isArray(indices)) continue;
     const byCluster = new Map<number, number[]>();
-    for (const idx of indices) {
+    for (const idx of new Set(indices)) {
       if (!Number.isInteger(idx) || !candidates.has(idx) || seen.has(idx)) continue;
-      seen.add(idx);
       const c = clusterOf[idx];
       if (!byCluster.has(c)) byCluster.set(c, []);
       byCluster.get(c)!.push(idx);
     }
     for (const g of byCluster.values()) {
-      if (g.length > 1) groups.push(g.sort((a, b) => a - b));
+      if (g.length < 2) continue;
+      groups.push(g.sort((a, b) => a - b));
+      // Claimed only now that it has actually merged: an index left alone by
+      // a bad grouping stays available to a later, valid one.
+      for (const i of g) seen.add(i);
     }
   }
   return groups;

@@ -1,5 +1,5 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { DeduplicatorAgent, applyMergeGroups } from '../src/deduplicator';
+import { DeduplicatorAgent, applyMergeGroups, normalizeGroups } from '../src/deduplicator';
 
 // See tests/agent.test.ts's identical mock for why: trackGeminiCall's real
 // implementation writes to S3-compatible storage (src/usage.ts) — pass
@@ -147,6 +147,20 @@ describe('DeduplicatorAgent', () => {
         // returns original unmodified
         expect(mockGenerate).toHaveBeenCalledTimes(1);
         expect(results).toEqual(inputFindings);
+    });
+});
+
+describe('normalizeGroups', () => {
+    it('does not let a rejected grouping block a later valid one for the same index', () => {
+        // clusters: {0,1} and {2}. The model first pairs 0 with far-away 2
+        // (split into singletons, nothing merged), then correctly pairs 0 with 1.
+        const groups = normalizeGroups([{ indices: [0, 2] }, { indices: [0, 1] }], new Set([0, 1, 2]), [0, 0, 1]);
+        expect(groups).toEqual([[0, 1]]);
+    });
+
+    it('ignores an index repeated inside one group, and one already merged by an earlier group', () => {
+        const groups = normalizeGroups([{ indices: [0, 0] }, { indices: [1, 0, 1] }, { indices: [1, 2] }], new Set([0, 1, 2]), [0, 0, 0]);
+        expect(groups).toEqual([[0, 1]]);
     });
 });
 

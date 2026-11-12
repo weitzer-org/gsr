@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { runWithRetries, buildRunRecord, planStartOrder, planCalls, hashSeed, RetryDeps } from '../compare-arms';
+import { parseArg, runWithRetries, buildRunRecord, planStartOrder, planCalls, hashSeed, RetryDeps } from '../compare-arms';
 import { CallBudget, BudgetExceededError } from '../budget';
 import { CombinedResult } from '../api-client';
 
@@ -112,5 +112,15 @@ describe('planStartOrder / planCalls', () => {
   it('plan arithmetic: PRs x reps x arms, and the worst case with retries', () => {
     expect(planCalls(23, 2, 5, 3)).toEqual({ prs: 23, reps: 2, arms: 5, reviews: 230, worstCaseAttempts: 690 });
     expect(planCalls(1, 1, 5, 3).reviews).toBe(5);
+  });
+});
+
+describe('parseArg', () => {
+  it('returns the value, the default when the flag is absent, and throws when the flag has no value', () => {
+    expect(parseArg(['--reps', '3'], '--reps', '2')).toBe('3');
+    expect(parseArg(['--live'], '--reps', '2')).toBe('2');
+    expect(parseArg([], '--out')).toBeUndefined();
+    expect(() => parseArg(['--live', '--reps'], '--reps', '2')).toThrow(/--reps needs a value/);
+    expect(() => parseArg(['--reps', '--live'], '--reps', '2')).toThrow(/--reps needs a value/);
   });
 });

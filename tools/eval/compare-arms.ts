@@ -112,9 +112,18 @@ export function planCalls(prs: number, reps: number, arms: number, maxAttempts: 
 
 // ---- CLI ------------------------------------------------------------------------------------------
 
+// A flag that is present but has no value (last argument, or followed by another flag) is an operator
+// mistake. Falling back to the default would hide it, and returning undefined would turn into
+// Number(undefined) = NaN downstream (e.g. `--reps` silently running zero repetitions), so fail loudly.
+export function parseArg(argv: readonly string[], name: string, def?: string): string | undefined {
+  const i = argv.indexOf(name);
+  if (i < 0) return def;
+  const v = argv[i + 1];
+  if (v === undefined || v.startsWith('--')) throw new Error(`${name} needs a value.`);
+  return v;
+}
 function arg(name: string, def?: string): string | undefined {
-  const i = process.argv.indexOf(name);
-  return i > 0 ? process.argv[i + 1] : def;
+  return parseArg(process.argv, name, def);
 }
 const flag = (name: string) => process.argv.includes(name);
 

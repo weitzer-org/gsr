@@ -135,6 +135,21 @@ describe('Usage dashboard frontend logic (usage.js)', () => {
         expect(document.getElementById('usage-total-cost').textContent).toBe('$0.0300 + unknown (2 calls excluded)');
     });
 
+    it('breakdown rows and time-series bars use the bucket\'s own successCount / costUnknownCalls', async () => {
+        const r = JSON.parse(JSON.stringify(summaryResponse));
+        // breakdown bucket (a UsageBucket): 4 successes, 1 of them unpriced -> priced part + unknown
+        r.total.byModel['gemini-3.1-pro-preview'] = { calls: 5, successCount: 4, failureCount: 1, inputTokens: 1, outputTokens: 1, thinkingTokens: 0, costUsd: 0.03, costUnknownCalls: 1 };
+        // day bucket (a Rollup): every success unpriced -> unknown
+        r.buckets[0] = { ...r.buckets[0], totalCostUsd: 0, successCount: 2, totalCostUnknownCalls: 2 };
+        global.fetch.mockResolvedValueOnce({ ok: true, json: async () => r });
+        initUsage();
+        await new Promise(process.nextTick);
+        expect(document.getElementById('usage-breakdown-body').textContent).toContain('$0.0300 + unknown (1 call excluded)');
+        document.getElementById('usage-timeseries-metric').value = 'totalCostUsd';
+        document.getElementById('usage-timeseries-metric').dispatchEvent(new Event('change'));
+        expect(document.getElementById('usage-timeseries').textContent).toContain('unknown (2 calls excluded)');
+    });
+
     it('renders one time series row per bucket', async () => {
         global.fetch.mockResolvedValueOnce({ ok: true, json: async () => summaryResponse });
         initUsage();

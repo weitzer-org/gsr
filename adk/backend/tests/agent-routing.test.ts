@@ -38,7 +38,10 @@ describe('GeminiAgent model / cap / thinking routing', () => {
     setUsageSink(() => {});
   });
   afterEach(() => {
-    process.env = originalEnv;
+    // Restore key by key: reassigning process.env replaces the runtime's env proxy and does not
+    // reliably drop keys added during the test.
+    for (const k of Object.keys(process.env)) if (!(k in originalEnv)) delete process.env[k];
+    Object.assign(process.env, originalEnv);
     resetUsageSink();
   });
 

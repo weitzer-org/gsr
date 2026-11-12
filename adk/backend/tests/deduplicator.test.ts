@@ -75,6 +75,7 @@ describe('DeduplicatorAgent', () => {
 
         const results = await deduplicator.deduplicate(input);
 
+        expect(mockGenerate).toHaveBeenCalledTimes(1);
         const sent = JSON.parse((mockGenerate.mock.calls[0][0] as any).contents);
         expect(sent.map((s: any) => s.index)).toEqual([0, 2]);
         expect(sent[0].suggestion).toBeUndefined();

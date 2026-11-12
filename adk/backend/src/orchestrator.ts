@@ -12,13 +12,14 @@ import * as path from 'path';
 // active agents makes the rest wait for a whole two-call task: at the old cap
 // of 5, the six always-on agents needed two rounds. 10 covers every agent in
 // adk/prompts/system_prompts in one round. REVIEW_MAX_CONCURRENCY lowers it
-// again for an API key whose rate limit can't take that many parallel calls;
-// the entry points (app.ts, action-entrypoint.ts) read it and pass it in, so
-// the Orchestrator itself never reads the environment for this.
+// again for an API key whose rate limit can't take that many parallel calls.
+// Nothing in this module reads the environment for it: the entry points
+// (app.ts, action-entrypoint.ts) pass the raw value to resolveMaxConcurrency
+// and hand the result to the constructor.
 export const DEFAULT_MAX_CONCURRENCY = 10;
 
-export function resolveMaxConcurrency(): number {
-  const raw = (process.env.REVIEW_MAX_CONCURRENCY || '').trim();
+export function resolveMaxConcurrency(rawValue: string | undefined): number {
+  const raw = (rawValue || '').trim();
   if (!raw) return DEFAULT_MAX_CONCURRENCY;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) {

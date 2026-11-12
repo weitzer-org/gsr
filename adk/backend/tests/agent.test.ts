@@ -130,6 +130,7 @@ describe('GeminiAgent', () => {
               .mockResolvedValueOnce({ text: '[]' });
             agent['ai'] = { models: { generateContent: mockGenerateContent } } as any;
             await agent.analyze(chunks);
+            expect(mockGenerateContent).toHaveBeenCalledTimes(2);
             return (mockGenerateContent.mock.calls[1][0] as any).contents as string;
         };
 

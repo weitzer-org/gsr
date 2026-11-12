@@ -17,21 +17,20 @@ function lineOf(f: CandidateFinding): number {
 // maximal run of findings in one file where each is within MERGE_LINE_WINDOW
 // lines of the next. A cluster of one cannot contain a duplicate.
 export function clusterByProximity(findings: CandidateFinding[]): number[] {
-  const order = findings.map((_, i) => i).sort((a, b) => {
-    const fa = String(findings[a].file), fb = String(findings[b].file);
-    if (fa !== fb) return fa < fb ? -1 : 1;
-    return lineOf(findings[a]) - lineOf(findings[b]) || a - b;
+  // Sort keys are computed once per finding, not once per comparison.
+  const keyed = findings.map((f, i) => ({ i, file: String(f.file), line: lineOf(f) }));
+  keyed.sort((a, b) => {
+    if (a.file !== b.file) return a.file < b.file ? -1 : 1;
+    return a.line - b.line || a.i - b.i;
   });
   const clusterOf = new Array<number>(findings.length);
   let cluster = -1;
-  let prev: number | undefined;
-  for (const i of order) {
-    const sameRun = prev !== undefined
-      && String(findings[prev].file) === String(findings[i].file)
-      && lineOf(findings[i]) - lineOf(findings[prev]) <= MERGE_LINE_WINDOW;
+  let prev: { file: string; line: number } | undefined;
+  for (const cur of keyed) {
+    const sameRun = prev !== undefined && prev.file === cur.file && cur.line - prev.line <= MERGE_LINE_WINDOW;
     if (!sameRun) cluster++;
-    clusterOf[i] = cluster;
-    prev = i;
+    clusterOf[cur.i] = cluster;
+    prev = cur;
   }
   return clusterOf;
 }

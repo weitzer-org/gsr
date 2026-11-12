@@ -215,7 +215,7 @@ async function main() {
     // whatever the consuming repo added via low-priority-paths — never
     // replaced, see lowPriorityPaths.ts's module doc.
     const lowPriorityPathPatterns = parseLowPriorityPathPatterns(process.env.LOW_PRIORITY_PATHS);
-    const orchestrator = new Orchestrator(resolveMaxConcurrency(), modeConfig.promptsDir, modeConfig.useDedup, selectedAgents, true, lowPriorityPathPatterns);
+    const orchestrator = new Orchestrator(resolveMaxConcurrency(process.env.REVIEW_MAX_CONCURRENCY), modeConfig.promptsDir, modeConfig.useDedup, selectedAgents, true, lowPriorityPathPatterns);
     orchestrator.onProgress = (agentName, file, status) => {
       console.log(`[GSR Action][${agentName}] ${file} — ${status}`);
     };
@@ -245,7 +245,7 @@ async function main() {
       const shadowSelectedAgents = shadowMode === 'subagent'
         ? resolveAgentSelectionForMode(shadowMode, process.env.REVIEW_AGENTS, Orchestrator.listAgentIds(shadowModeConfig.promptsDir)).selectedAgents
         : undefined;
-      shadowOrchestrator = new Orchestrator(resolveMaxConcurrency(), shadowModeConfig.promptsDir, shadowModeConfig.useDedup, shadowSelectedAgents, true, lowPriorityPathPatterns);
+      shadowOrchestrator = new Orchestrator(resolveMaxConcurrency(process.env.REVIEW_MAX_CONCURRENCY), shadowModeConfig.promptsDir, shadowModeConfig.useDedup, shadowSelectedAgents, true, lowPriorityPathPatterns);
       shadowOrchestrator.onProgress = (agentName, file, status) => {
         console.log(`[GSR Action][Shadow:${agentName}] ${file} — ${status}`);
       };

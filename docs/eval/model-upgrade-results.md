@@ -6,22 +6,23 @@ Pre-registered plan: `docs/eval/model-upgrade-test-plan.md` (committed as a7786b
 
 **No recommendation on quality can be made yet.** `MAX_LIVE_SPEND_USD` was blank, so per the task only Parts A–D and the smoke pass were run. The smoke pass is **one large PR × five arms × one repetition (n = 1)**; it proves the harness works end to end and gives measured token counts for a cost projection. It cannot rank the models. Every candidate is **UNDETERMINED** on both modes because ground truth, large-PR recall (needs ≥ 4 PRs) and meaningful judging are unmeasured. Nothing in production changed.
 
-What the smoke pass does show, as observations about this one PR (not findings about the models):
+What the (valid) second smoke batch shows, as observations about this one PR and not findings about the models:
 
-- All five arms completed on the first attempt, were served by the model requested on every call, and had 0 MAX_TOKENS, 0 timeouts, 0 parse failures.
-- The A/A control is noisy at n = 1: BASE vs BASE2 returned 14 vs 18 findings (swarm 11 vs 16) and basic-mode recall of BASE of 0%. Any single-PR difference of that size is not evidence.
-- 3.8 Flash returned far fewer swarm findings (3, and 2 at LOW) than BASE (11). This resembles the retrospective's "going quiet" pattern, but with n = 1 it is a lead to test on the full matrix, not a result.
+- All five arms completed, every call was served by the model requested, and there were 0 MAX_TOKENS, 0 timeouts, 0 parse failures and 0 stage API errors in the accepted results. BASE2's **first attempt failed ("terminated")** and was retried successfully; that is exactly what the attempt log and the first-attempt gate exist to record.
+- The A/A control is noisy at n = 1: BASE vs BASE2 swarm 13 vs 11 findings (11 vs 16 in the first, invalid batch), basic-mode recall of BASE 0%. Any single-PR difference of that size is not evidence.
+- 3.8 Flash returned fewer swarm findings (5; 4 at LOW) than BASE (13) in both smoke batches (3 and 2 in the first). This resembles the retrospective's "going quiet" pattern but at n = 1 it is a lead for the full matrix, not a result.
+- Cost order depends on an unresolved billing question (see Cost): on recorded tokens Argon ($0.57 → $1.14 after 2026-12-01) is below 3.1 Pro ($0.69) today and above it after the change; if thinking is billed on top, 3.1 Pro is ≈ $2.15 and Argon stays ≈ $0.62.
 
 ## What ran (live calls)
 
 | Step | Calls | Notes |
 |---|---|---|
 | Capability probe | 19 | `docs/eval/data/probe-2026-11-12T01-37-24-602Z.json` |
-| Smoke pass: reviews | 5 reviews, 5 attempts (cap 10) | gsr #74 (20 files, large), arms BASE, BASE2, ARGON, FLASH38, FLASH38_LOW. 74 Gemini calls inside the reviews (14–16 per arm) |
-| Smoke pass: judging | 16 (cap 20) | 4 comparisons × 2 modes × 2 judges (2.5 Pro; 3.8 Flash for ARGON/BASE2, Argon for the FLASH38 pairs) |
-| Spend | ≈ $1.8 recorded for the five reviews (≈ $4.2 if thinking tokens are billed on top), plus a few cents for the probe and judging (judge cost not measured) | computed from recorded tokens at the PRICE_TABLE rates; Argon's rate is unverified |
+| Smoke batch 1 (**invalid for comparison**, kept as evidence) | 5 reviews, 5 attempts; 16 judge calls | The local proxy dropped while BASE and BASE2 were finishing: their deduplicate and evaluate calls failed (`fetch failed`, `ECONNREFUSED`), and the harness reported the runs as clean. Found by the verifier; see "Verifier" |
+| Smoke batch 2 (**valid**) | 5 reviews, 6 attempts (cap 10); 16 judge calls (cap 20) | gsr #74 (20 files, large), same seed, harness fixed first. 74 Gemini calls inside the reviews (14–16 per arm) |
+| Spend | ≈ $3.9 recorded for the ten review runs (batch 1 ≈ $1.8, batch 2 ≈ $2.1; ≈ $7 if thinking tokens are billed on top), plus a few cents for the probe and unmeasured judge cost | computed from recorded tokens at PRICE_TABLE rates (Argon's rate unverified); the failed BASE2 attempt's cost is not in the records |
 
-Raw data: `docs/eval/data/smoke-20261112.tar.gz` (batch dir incl. manifest with per-arm resolved routing, every attempt, diffs, judge records, per-call usage records). The large full-matrix data does not exist yet.
+Raw data: `docs/eval/data/smoke2-20261112.tar.gz` (valid batch) and `docs/eval/data/smoke-20261112.tar.gz` (invalid batch 1) (each a batch dir incl. manifest with per-arm resolved routing, every attempt, diffs, judge records, per-call usage records). The large full-matrix data does not exist yet.
 
 ## Integrity results
 
@@ -44,7 +45,7 @@ Raw data: `docs/eval/data/smoke-20261112.tar.gz` (batch dir incl. manifest with 
 
 ## Gate tables
 
-Smoke batch, per candidate vs BASE (full tables with details are in the archived `report.md`):
+Smoke batch 2, per candidate vs BASE (full tables with details are in the archived `report.md`). Gates added after the verifier's finding: stage API errors per stage ≤ BASE (also PASS for all three).
 
 | Gate | ARGON | FLASH38 | FLASH38_LOW |
 |---|---|---|---|
@@ -62,30 +63,32 @@ The operational gates passing on one review each carries almost no information (
 
 Not computable on the smoke batch: every comparison has 1 paired PR (< 4 → UNMEASURED). The statistics module and its FAIL/WARN/PASS rules are pinned by 22 unit tests, including a null comparison (same data vs itself → PASS, zero-width interval) and a computed −13% case that is a WARN, not a FAIL.
 
-Agreed judge verdicts (n = 1 pair per cell; two judges): swarm: ARGON, FLASH38, FLASH38_LOW each "win" over BASE (both judges agree), BASE2-vs-BASE judges disagree; basic: judges disagree for every candidate and for BASE2. That the A/A control already draws a split verdict in both modes is the point: single verdicts are noise.
+Agreed judge verdicts, batch 2 (n = 1 pair per cell; two judges): basic: ARGON agreed win; FLASH38 and FLASH38_LOW judges disagree; BASE2 agreed tie. Swarm: FLASH38 and FLASH38_LOW agreed win (despite far fewer findings, the judges rate precision/actionability, not volume); ARGON and BASE2 judges disagree. The A/A control already draws a disagreement in swarm mode: single verdicts are noise, and judging cannot see "went quiet" (retrospective §2), which is why recall and ground truth are separate measures.
 
-## Cost (measured tokens, this one 42 KB-patch review; today / after the price change)
+The recall comparison in the statistics now uses the A/A control's recall of BASE as its reference. The first version compared candidates with BASE's own recall of itself (always 100%), which would have made every candidate, and the control, FAIL (verifier finding).
+
+## Cost (measured tokens, batch 2, this one 42 KB-patch review; today / after the price change)
 
 | Arm | Cost/review today | From 2026-12-01 | From 2027-01-01 | If thinking billed on top (today) | Review wall-clock |
 |---|---|---|---|---|---|
-| BASE (3.1 Pro) | $0.43 | $0.43 | $0.43 | +$1.18 | 226 s |
-| BASE2 | $0.44 | $0.44 | $0.44 | +$0.96 | 226 s |
-| ARGON (**price unverified**) | $0.63 | $1.27 | $1.27 | +$0.06 | 151 s |
-| FLASH38 | $0.15 | $0.15 | $0.30 | +$0.20 | 211 s |
-| FLASH38_LOW | $0.14 | $0.14 | $0.27 | +$0.01 | 33 s |
+| BASE (3.1 Pro) | $0.69 | $0.69 | $0.69 | +$1.47 | 347 s |
+| BASE2 | $0.49 | $0.49 | $0.49 | +$1.06 | (first attempt failed; retry not comparable) |
+| ARGON (**price unverified**) | $0.57 | $1.14 | $1.14 | +$0.05 | 163 s |
+| FLASH38 | $0.16 | $0.16 | $0.32 | +$0.22 | 210 s |
+| FLASH38_LOW | $0.15 | $0.15 | $0.30 | +$0.01 | 51 s |
 
-Argon costs more per review than 3.1 Pro on recorded tokens even today (it wrote 27k output tokens vs 9k) and 3× more after 2026-12-01, unless 3.1 Pro's thinking is billed on top, in which case today's order flips. Latency is from one run at 5-way concurrency; do not compare it with any other batch.
+**Which column is right is unresolved and decides the cost ranking.** The probe shows `candidatesTokenCount` excludes thinking tokens (verified). `usage.ts` bills only that, following a pricing-page reading that the output rate "includes thinking"; if Google instead bills thoughts at the output rate, the "on top" column is the real cost and BASE (≈ $2.15) is ~3.5× Argon's today (≈ $0.62). The pre-registered plan (U2) assumed the opposite and presented the recorded-token column as the headline; that is a deviation (below). BASE's cost also varies run to run: $0.43 in the invalid batch 1 (missing two calls) vs $0.69 here. Latency is from one run at 5-way concurrency; do not compare it with any other batch.
 
 ### Projection for the full matrix (not run)
 
-Full matrix = 23 PRs (total patch 1,066 KB = 25.4× the smoke PR) × 5 arms × 2 reps = 230 reviews, then 736 judge calls. Scaling the measured per-review tokens linearly by patch size (an upper-leaning assumption: outputs and thinking grow slower than diffs; the fixed per-call prompt is small):
+Full matrix = 23 PRs (total patch 1,066 KB = 25.4× the smoke PR) × 5 arms × 2 reps = 230 reviews, then 736 judge calls. Scaling the batch 2 per-review tokens (batch 1's figures were ≈ 10–15% lower because two baseline calls were missing) linearly by patch size (an upper-leaning assumption: outputs and thinking grow slower than diffs; the fixed per-call prompt is small):
 
 | | Reviews (recorded basis) | Reviews (thinking billed on top) |
 |---|---|---|
-| Today's rates | ≈ $91 | ≈ $213 |
-| After 2026-12-01 (Argon $4/$20) | ≈ $123 | ≈ $245 |
+| Today's rates | ≈ $95–$110 | ≈ $230–$250 |
+| After 2026-12-01 (Argon $4/$20) | ≈ $125–$140 | ≈ $255–$280 |
 
-Judging: ≈ $30–50 (**unmeasured estimate**: ~8k input + ~3k output/thinking per call). **Total ≈ $120–300, wall-clock ≈ 3–4 hours** (≈ 4 min per (PR, rep) × 46, arms in parallel). Because the cap was blank this was not run. To run it: `compare-arms.ts … --live --max-review-calls 250`, then `EVAL_MAX_JUDGE_CALLS=800 judge-batch.ts`, then `report.ts` (commands in `tools/eval/README.md`). **Prerequisite for any ground-truth result:** attach `weitzer-org/gemini-cli-fork` (and `job_tracker`) to the session.
+Judging: ≈ $30–50 (**unmeasured estimate**: ~8k input + ~3k output/thinking per call). **Total ≈ $130–320, wall-clock ≈ 4–5 hours** (≈ 4 min per (PR, rep) × 46, arms in parallel). Because the cap was blank this was not run. To run it: `compare-arms.ts … --live --max-review-calls 250`, then `EVAL_MAX_JUDGE_CALLS=800 judge-batch.ts`, then `report.ts` (commands in `tools/eval/README.md`). **Prerequisite for any ground-truth result:** attach `weitzer-org/gemini-cli-fork` (and `job_tracker`) to the session.
 
 ## Recommendation per mode
 
@@ -98,10 +101,22 @@ Everything in the plan's §13, plus: any ground-truth PR; any PR other than gsr 
 
 ## Deviations from the plan
 
-- The capability probe and smoke judging were run under the smoke authorization (plan D14). Smoke judging was not in the plan's list but exercises the judge path the report needs (16 calls).
-- Before the live run, storage redirection (`nullS3.ts`) was added after finding the environment's real-bucket credentials (see Integrity). The smoke batch's `manifest.json` records `dirty tree` because that commit was made after the batch; the committed code is the code that ran.
+- The capability probe, a second smoke pass, and smoke judging (2 × 16 calls) were run under the smoke authorization (plan D14). The second smoke pass repeats the first because the first was invalid.
+- **Added gate**: stage API errors per stage ≤ BASE (not in plan §6). A failed deduplicate/evaluate call degrades silently, and the harness had no flag for it. Added after the first smoke batch, before the second.
+- **Changed reference**: recall is compared with the A/A control's recall of BASE rather than BASE's own (always 100%); plan §5 did not specify this and the naive reading was degenerate.
+- Plan U2 ("candidates includes thinking") is contradicted by the probe; costs are shown both ways and the ranking is stated as unresolved.
+- `concurrent_arms` on a first attempt now records the planned group size; before, it recorded start order (1..5).
+- Storage redirection (`nullS3.ts`) was added after finding the environment's real-bucket credentials (see Integrity), before any live review.
 - Early in the session, a few backend test runs were made with a bare `jest` (no `--experimental-vm-modules`) in a shell that holds those real S3 credentials; unmocked suites may have attempted usage-record writes to that bucket. I cannot tell whether any succeeded.
 
 ## Verifier
 
-(see below)
+One `opus-verifier` recomputed the batch-1 report from the raw run, diff, judge and probe files with its own scripts. **Confirmed**: per-stage counts, findings per source, hallucination/validity counts, recall in both directions, cost per review at all three price dates (to the cent), judge verdict logic and un-swap direction, agreed/disagreed counts, the probe's token identity (`total = prompt + candidates + thoughts` on all 13 calls that returned usage; it only says something about thinking for the 9 that reported thoughts), and `compareMeasure` against plan §5. **Where it disagreed with the report** (all accepted, with the response):
+
+1. *Critical*: BASE and BASE2 lost their deduplicate and evaluate calls (proxy dropout) yet were reported clean, so swarm counts, recall, judging and cost compared different pipelines. → I reproduced it from the run files and logs; added the `stage_error` flag/outcome/gate and a report column; re-ran the smoke (batch 2).
+2. *High*: the recall comparison used BASE's recall of itself (1.0), so even an A/A copy would FAIL and ADOPT was unreachable. → reference is now the control's recall; UNMEASURED without a control; tests added.
+3. *High*: the plan/report/`usage.ts` comment said thinking is probably already in the output count; the probe says otherwise. → corrected here and in the `usage.ts` comment; both cost columns shown.
+4. *Medium*: `concurrent_arms` recorded start order, and "equal load" is not independently supported (arms finished at 48 s to 227 s). → field fixed; the claim is stated as "simultaneous start", not equal load.
+5. *Low, not changed*: the backend's top-level `metrics.calls` counts agents, not Gemini calls (pre-existing; the report uses the stage counts); a 1-output-token FLASH38_LOW remediation call was not flagged by any gate; judge 2 differs between pairs by pre-registration, so §6 verdicts are not comparable across arms; the plan §10 `models.get` outputs and HTTP-status checks have no saved artifact (they are quoted from commands run in this session).
+
+The verifier did not re-run batch 2; its numbers come from my report plus the test suite. An independent check of batch 2 was not repeated (one verifier is the allowed budget).

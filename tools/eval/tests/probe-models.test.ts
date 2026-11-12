@@ -1,6 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { buildProbePlan, buildRequest, runCase, assessProbe, longInstruction, CANDIDATE_MODELS, ProbeResult, ProbeCase } from '../probe-models';
-import { DISCOVERY_RESPONSE_SCHEMA } from '../../../adk/backend/src/agent';
+import { DISCOVERY_RESPONSE_SCHEMA, buildProbePlan, buildRequest, runCase, assessProbe, longInstruction, CANDIDATE_MODELS, ProbeResult, ProbeCase } from '../probe-models';
 
 describe('probe plan', () => {
   it('is 6 cases per candidate plus one plain call per judge that is not already a candidate: about 20', () => {
@@ -16,6 +15,7 @@ describe('probe requests use the production settings', () => {
   it('the schema case uses GSR\'s real discovery schema object', () => {
     const r: any = buildRequest(c('schema'));
     expect(r.config.responseSchema).toBe(DISCOVERY_RESPONSE_SCHEMA);
+    expect(r.config.responseSchema.required).toEqual(['filesAnalyzed', 'issues']);
     expect(r.config.responseMimeType).toBe('application/json');
     expect(r.config.maxOutputTokens).toBe(32768);
     expect('thinkingConfig' in r.config).toBe(false);

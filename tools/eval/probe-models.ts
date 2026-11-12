@@ -13,9 +13,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import 'dotenv/config';
 import { GoogleGenAI, Type } from '@google/genai';
-import { DISCOVERY_RESPONSE_SCHEMA } from '../../adk/backend/src/agent';
 import { CallBudget, requireCap } from './budget';
 import { DEFAULT_JUDGE_MODEL } from './llm-comparator-v2';
+
+// GSR's discovery-pass response schema, serialized from adk/backend/src/agent.ts's
+// DISCOVERY_RESPONSE_SCHEMA. Read from a fixture (not imported) because tools/eval is installed on its
+// own in CI, where the backend's node_modules do not exist; adk/backend/tests/discovery-schema.test.ts
+// fails if the fixture ever drifts from the real schema.
+export const DISCOVERY_RESPONSE_SCHEMA = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'discovery-schema.json'), 'utf8'));
 
 export type ProbeKind = 'schema' | 'thinking_budget_4096' | 'thinking_low' | 'thinking_minimal' | 'caches_create' | 'max_output_small' | 'judge_plain';
 

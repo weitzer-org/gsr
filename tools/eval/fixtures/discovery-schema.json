@@ -1,0 +1,50 @@
+{
+  "type": "OBJECT",
+  "description": "Strict coverage wrapper for code review.",
+  "properties": {
+    "filesAnalyzed": {
+      "type": "ARRAY",
+      "description": "A complete list of EVERY file path that was successfully read and checked for bugs.",
+      "items": {
+        "type": "STRING"
+      }
+    },
+    "issues": {
+      "type": "ARRAY",
+      "description": "A list of problematic locations found in the code.",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "file": {
+            "type": "STRING"
+          },
+          "line": {
+            "type": "INTEGER"
+          },
+          "severity": {
+            "type": "STRING",
+            "enum": [
+              "CRITICAL",
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ]
+          },
+          "summary": {
+            "type": "STRING"
+          }
+        },
+        "required": [
+          "file",
+          "line",
+          "severity",
+          "summary"
+        ]
+      }
+    }
+  },
+  "required": [
+    "filesAnalyzed",
+    "issues"
+  ]
+}

@@ -1,8 +1,10 @@
 name: GSR Self-Review
 
-# DISABLED: GSR is no longer available, so this workflow's job(s) never run
-# (`if: false`). Kept for reference; code review now runs internally, see
-# CLAUDE.md's Code review section. Remove the `if: false` line(s) to re-enable.
+# DISABLED: GSR is no longer available. The pull_request trigger is replaced
+# by manual-only workflow_dispatch (original trigger kept in the comment on
+# `on:` below) and the job(s) are gated with `if: false`. Kept for reference;
+# code review now runs internally, see CLAUDE.md's Code review section.
+# To re-enable: restore the original trigger and remove the `if: false` line(s).
 
 # Dogfoods the GSR action on its own PRs: runs both the swarm ("subagent")
 # and single-pass ("basic") review modes against this repo's own diffs,
@@ -29,10 +31,11 @@ name: GSR Self-Review
 # shape exactly, reporting classification outcomes to the same
 # FEEDBACK_SHARED_SECRET already live in production from PR #63, via the
 # GSR_FEEDBACK_KEY repo secret.
+# Original trigger (disabled):
+#   pull_request:
+#     branches: [main]
 on:
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 concurrency:
   group: gsr-self-review-${{ github.event.pull_request.number }}

@@ -163,12 +163,14 @@ export class GeminiAgent implements Subagent {
       // PASS 2: Remediation
       // Only the files that actually have a flagged issue are resent: the
       // fix for an issue is written against its own file, and resending the
-      // whole PR per agent was most of this call's input. If the model's
-      // file names match no chunk at all (a mangled path), fall back to the
-      // full diff rather than send remediation no code to read.
+      // whole PR per agent was most of this call's input. If ANY flagged
+      // file name matches no chunk (a mangled or invented path), fall back
+      // to the full diff, so no issue reaches remediation without the code
+      // it most likely refers to.
       const flaggedFiles = new Set(discoveryIssues.map(i => i.file));
       const flaggedChunks = chunks.filter(c => flaggedFiles.has(c.file));
-      const remediationPayload = this.buildRemediationPrompt(flaggedChunks.length > 0 ? flaggedChunks : chunks, discoveryIssues);
+      const allFlaggedFilesResolved = new Set(flaggedChunks.map(c => c.file)).size === flaggedFiles.size;
+      const remediationPayload = this.buildRemediationPrompt(allFlaggedFilesResolved ? flaggedChunks : chunks, discoveryIssues);
       const remediationModel = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
       const remediationRequestStart = Date.now();
       const remediationRequest = trackGeminiCall(

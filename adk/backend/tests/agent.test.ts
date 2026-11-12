@@ -118,14 +118,14 @@ describe('GeminiAgent', () => {
         expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     });
 
-    it('sends remediation only the files with a flagged issue, or the whole diff if none match', async () => {
+    it('sends remediation only the files with a flagged issue, or the whole diff if any flagged file is unknown', async () => {
         const chunks = [{ file: 'flagged.ts', content: '+ flagged-code' }, { file: 'clean.ts', content: '+ clean-code' }];
-        const run = async (issueFile: string) => {
+        const run = async (...issueFiles: string[]) => {
             const agent = new GeminiAgent('Logic', 'logic.md');
             const mockGenerateContent = jest.fn<any>()
               .mockResolvedValueOnce({ text: JSON.stringify({
                 filesAnalyzed: ['flagged.ts', 'clean.ts'],
-                issues: [{ file: issueFile, line: 1, severity: 'MEDIUM', summary: 'Sum' }]
+                issues: issueFiles.map(file => ({ file, line: 1, severity: 'MEDIUM', summary: 'Sum' }))
               }) })
               .mockResolvedValueOnce({ text: '[]' });
             agent['ai'] = { models: { generateContent: mockGenerateContent } } as any;
@@ -137,9 +137,11 @@ describe('GeminiAgent', () => {
         expect(scoped).toContain('flagged-code');
         expect(scoped).not.toContain('clean-code');
 
-        const fallback = await run('no/such/file.ts');
-        expect(fallback).toContain('flagged-code');
-        expect(fallback).toContain('clean-code');
+        // One real file plus one path that matches nothing: still the whole diff.
+        for (const fallback of [await run('no/such/file.ts'), await run('flagged.ts', 'no/such/file.ts')]) {
+            expect(fallback).toContain('flagged-code');
+            expect(fallback).toContain('clean-code');
+        }
     });
 
     it('should retry if Pass 1 misses files from filesAnalyzed', async () => {

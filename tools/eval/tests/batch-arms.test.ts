@@ -150,7 +150,7 @@ describe('attempt classification', () => {
 
   it('stageFlagCounts sums across sources and stages', () => {
     const m = { stages: { subagent: { discovery: stage({ maxTokens: 1 }) }, basic: { discovery: stage({ maxTokens: 2 }) }, shared: { evaluate: stage({ parseFailures: 1 }) } } };
-    expect(stageFlagCounts(m)).toEqual({ max_tokens: 3, parse_failure: 1, stage_timeout: 0, served_model_mismatch: 0 });
+    expect(stageFlagCounts(m)).toEqual({ max_tokens: 3, parse_failure: 1, stage_timeout: 0, stage_error: 0, served_model_mismatch: 0 });
   });
 });
 

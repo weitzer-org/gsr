@@ -134,7 +134,10 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
 // and multiple developer reports (Google's own AI forum has several threads
 // asking this exact question, with inconsistent answers across models/API
 // versions) suggest `candidatesTokenCount` (this file's `outputTokens`) may
-// already reflect them for the models in PRICE_TABLE. Adding thinkingTokens
+// already reflect them for the models in PRICE_TABLE. NOTE (2026-11-12 probe, docs/eval/data): on every
+// call that reported thoughtsTokenCount, totalTokenCount == prompt + candidates + thoughts, i.e.
+// candidatesTokenCount EXCLUDES thinking. So if thinking is billed at the output rate (unverified),
+// costUsd under-reports thinking-heavy calls. Adding thinkingTokens
 // on top risks double-billing; it's tracked in UsageRecord/UsageBucket
 // purely as an observability metric, not folded into cost. Re-verify against
 // current per-model docs before changing this.

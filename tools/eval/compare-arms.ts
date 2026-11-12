@@ -61,7 +61,7 @@ export interface AttemptLoopResult {
 
 // One (arm, PR, rep): attempt until a complete review comes back or attempts run out.
 export async function runWithRetries(
-  args: { baseUrl: string; prUrl: string; pat: string; maxAttempts: number; timeoutMs: number },
+  args: { baseUrl: string; prUrl: string; pat: string; maxAttempts: number; timeoutMs: number; plannedConcurrency?: number },
   deps: RetryDeps
 ): Promise<AttemptLoopResult> {
   const attempts: Attempt[] = [];
@@ -70,7 +70,9 @@ export async function runWithRetries(
     const startedAt = new Date(deps.now()).toISOString();
     const t0 = deps.now();
     deps.inFlight.n++;
-    const concurrent = deps.inFlight.n;
+    // First attempts of a group start within milliseconds of each other, so counting what is already
+    // in flight would record start ORDER (1..N), not load. The planned group size is the load.
+    const concurrent = n === 1 && args.plannedConcurrency ? args.plannedConcurrency : deps.inFlight.n;
     try {
       const res = await deps.runReview(args.baseUrl, args.prUrl, args.pat, { timeoutMs: args.timeoutMs });
       const cls = classifyCompleteAttempt(res.metrics, deps.pins);
@@ -290,7 +292,7 @@ async function main() {
         console.log(`\n=== ${pr.url} rep ${rep} (${pr.size_class}, ${pr.changed_files} files) — ${todo.join(', ')} ===`);
         await Promise.all(todo.map(async name => {
           const mArm = manifestArms.find(a => a.name === name)!;
-          const loop = await runWithRetries({ baseUrl: `http://localhost:${mArm.port}`, prUrl: pr.url, pat: token, maxAttempts, timeoutMs }, deps);
+          const loop = await runWithRetries({ baseUrl: `http://localhost:${mArm.port}`, prUrl: pr.url, pat: token, maxAttempts, timeoutMs, plannedConcurrency: todo.length }, deps);
           const rec = buildRunRecord(batchId, name, pr.url, rep, loop);
           writeJson(path.join(outDir, 'runs', runFileName(pr.slug, rep, name)), rec);
           console.log(`  ${name}: ${loop.result ? `${loop.result.findings.length} findings` : 'NO RESULT'} after ${loop.attempts.length} attempt(s) [${loop.attempts.map(a => a.outcome).join(', ')}]`);

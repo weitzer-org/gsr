@@ -52,7 +52,7 @@ export interface Manifest {
   settings: Record<string, string>;          // non-secret harness settings
 }
 
-export type AttemptOutcome = 'success' | 'timeout' | 'error' | 'parse_failure' | 'max_tokens' | 'served_model_mismatch' | 'stage_timeout';
+export type AttemptOutcome = 'success' | 'timeout' | 'error' | 'parse_failure' | 'max_tokens' | 'served_model_mismatch' | 'stage_timeout' | 'stage_error';
 
 export interface Attempt {
   n: number;
@@ -62,7 +62,7 @@ export interface Attempt {
   outcome: AttemptOutcome;    // 'success' = complete AND no stage flag
   flags: string[];            // stage flags seen on a complete attempt
   error?: string;
-  concurrent_arms: number;    // arms in flight at this attempt's start (load context)
+  concurrent_arms: number;    // first attempt: arms started together for this (PR, rep); retry: attempts then in flight
 }
 
 export interface RunRecord {
@@ -161,6 +161,10 @@ export interface StageFlagCounts {
   max_tokens: number;
   parse_failure: number;
   stage_timeout: number;
+  // A stage's Gemini call failed outright (network error, 5xx, 429, ...; timeouts and parse failures
+  // are counted separately). The review still "completes" because the deduplicator and evaluator
+  // fall back to raw findings / a canned string, so without this flag such a review looks clean.
+  stage_error: number;
   served_model_mismatch: number;
 }
 
@@ -180,14 +184,23 @@ export function stageServedMismatches(summary: any, pins: ServedPins = {}): numb
   return bad;
 }
 
+// Failed calls that are not timeouts (those have their own counter; parse failures are annotations,
+// not failures, in StageCollector).
+export function stageApiErrors(summary: any): number {
+  const failures = summary?.failures ?? 0;
+  const timeouts = summary?.errorKinds?.timeout ?? 0;
+  return Math.max(0, failures - timeouts);
+}
+
 export function stageFlagCounts(metrics: any, pins: ServedPins = {}): StageFlagCounts {
-  const out: StageFlagCounts = { max_tokens: 0, parse_failure: 0, stage_timeout: 0, served_model_mismatch: 0 };
+  const out: StageFlagCounts = { max_tokens: 0, parse_failure: 0, stage_timeout: 0, stage_error: 0, served_model_mismatch: 0 };
   const stages = metrics?.stages ?? {};
   for (const src of SOURCES) {
     for (const s of Object.values<any>(stages[src] ?? {})) {
       out.max_tokens += s.maxTokens ?? 0;
       out.parse_failure += s.parseFailures ?? 0;
       out.stage_timeout += s.timeouts ?? 0;
+      out.stage_error += stageApiErrors(s);
       out.served_model_mismatch += stageServedMismatches(s, pins);
     }
   }
@@ -205,7 +218,7 @@ export function classifyFailure(error: unknown): AttemptOutcome {
 export function classifyCompleteAttempt(metrics: any, pins: ServedPins = {}): { outcome: AttemptOutcome; flags: string[] } {
   const c = stageFlagCounts(metrics, pins);
   const flags = (Object.keys(c) as Array<keyof StageFlagCounts>).filter(k => c[k] > 0);
-  const order: AttemptOutcome[] = ['served_model_mismatch', 'max_tokens', 'parse_failure', 'stage_timeout'];
+  const order: AttemptOutcome[] = ['served_model_mismatch', 'stage_error', 'max_tokens', 'parse_failure', 'stage_timeout'];
   const outcome = order.find(o => flags.includes(o as keyof StageFlagCounts)) ?? 'success';
   return { outcome, flags };
 }

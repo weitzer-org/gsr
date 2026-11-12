@@ -84,6 +84,12 @@ describe('runWithRetries', () => {
     expect(d.inFlight.n).toBe(4);
   });
 
+  it('the first attempt records the planned group size as load, not the start order', async () => {
+    const d = deps([okResult()]);
+    const r = await runWithRetries({ ...args, plannedConcurrency: 5 }, d);
+    expect(r.attempts[0].concurrent_arms).toBe(5);
+  });
+
   it('a served-model mismatch on a complete attempt is flagged', async () => {
     const stage = { calls: 1, requestedModels: { 'gemini-3.5-flash': 1 }, servedModels: { 'gemini-3.6-flash': 1 } };
     const r = await runWithRetries(args, deps([okResult({ subagent: { discovery: stage } })]));

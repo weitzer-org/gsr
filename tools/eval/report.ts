@@ -101,20 +101,20 @@ export function buildReport(inp: ReportInputs): { markdown: string; json: any } 
   out.push('');
   const stageRows: Array<Array<string | number>> = [];
   for (const arm of m.arms.map(a => a.name)) for (const mode of MODES) {
-    const agg: Record<string, { calls: number; maxTokens: number; timeouts: number; parse: number; mism: number; think: number }> = {};
+    const agg: Record<string, { calls: number; maxTokens: number; timeouts: number; parse: number; err: number; mism: number; think: number }> = {};
     for (const r of rows.filter(x => x.arm === arm && x.mode === mode)) for (const [st, s] of Object.entries(r.stages)) {
-      const a = (agg[st] ??= { calls: 0, maxTokens: 0, timeouts: 0, parse: 0, mism: 0, think: 0 });
-      a.calls += s.calls; a.maxTokens += s.maxTokens; a.timeouts += s.timeouts; a.parse += s.parseFailures; a.mism += s.servedMismatches; a.think += s.thinkingTokens;
+      const a = (agg[st] ??= { calls: 0, maxTokens: 0, timeouts: 0, parse: 0, err: 0, mism: 0, think: 0 });
+      a.calls += s.calls; a.maxTokens += s.maxTokens; a.timeouts += s.timeouts; a.parse += s.parseFailures; a.err += s.apiErrors; a.mism += s.servedMismatches; a.think += s.thinkingTokens;
     }
-    for (const [st, a] of Object.entries(agg)) stageRows.push([arm, modeName(mode), st, a.calls, a.maxTokens, a.timeouts, a.parse, a.mism, a.think]);
+    for (const [st, a] of Object.entries(agg)) stageRows.push([arm, modeName(mode), st, a.calls, a.maxTokens, a.timeouts, a.parse, a.err, a.mism, a.think]);
   }
-  out.push(stageRows.length ? md(['arm', 'mode', 'stage', 'calls', 'MAX_TOKENS', 'timeouts', 'parse failures', 'served-model mismatches', 'thinking tokens'], stageRows) : '_no accepted runs_');
+  out.push(stageRows.length ? md(['arm', 'mode', 'stage', 'calls', 'MAX_TOKENS', 'timeouts', 'parse failures', 'API errors (non-timeout)', 'served-model mismatches', 'thinking tokens'], stageRows) : '_no accepted runs_');
   out.push('');
 
   // ---- 3. volume, hallucination ----------------------------------------------------------------
   out.push('## 3. Findings: volume and hallucination (per arm × mode × size class)');
   out.push('');
-  out.push('Hallucinated = does not survive `validateFindingsAgainstDiff` (file/line not in the PR diff). Basic and swarm findings are reported separately: basic findings never go through the deduplicator.');
+  out.push('Hallucinated = does not survive `validateFindingsAgainstDiff` (the file is not in the PR diff, or the line is not an ADDED line of its hunks; context lines are rejected). Basic and swarm findings are reported separately: basic findings never go through the deduplicator.');
   out.push('');
   const volRows: Array<Array<string | number>> = [];
   for (const arm of m.arms.map(a => a.name)) for (const mode of MODES) for (const size of SIZE_FILTERS) {
@@ -129,7 +129,7 @@ export function buildReport(inp: ReportInputs): { markdown: string; json: any } 
   // ---- 4. recall -----------------------------------------------------------------------------------
   out.push('## 4. Recall against BASE, both directions (secondary measure)');
   out.push('');
-  out.push('`recall of BASE` = share of BASE\'s valid findings (same PR, same repetition) that this arm also reports within ±10 lines (greedy 1:1). `BASE recall of arm` = share of this arm\'s valid findings BASE also reports. It rewards whichever model writes more; ground truth (§5) is the precision/recall measure that matters. BASE2 is the A/A noise floor.');
+  out.push('`recall of BASE` = share of BASE\'s valid findings (same PR, same repetition) that this arm also reports within ±10 lines (greedy 1:1). `BASE recall of arm` = share of this arm\'s valid findings BASE also reports. It rewards whichever model writes more; ground truth (§5) is the precision/recall measure that matters. BASE2 is the A/A noise floor, and in §8 the recall of each candidate is compared with the control\'s recall of BASE (BASE\'s own recall of itself is trivially 100%).');
   out.push('');
   const recRows: Array<Array<string | number>> = [];
   for (const arm of m.arms.map(a => a.name).filter(a => a !== base)) for (const mode of MODES) for (const size of SIZE_FILTERS) {

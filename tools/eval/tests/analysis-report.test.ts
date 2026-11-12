@@ -5,6 +5,7 @@ import {
   JudgeRecord, CandidateEvaluation, Gate,
 } from '../analysis';
 import { buildReport } from '../report';
+import { classifyCompleteAttempt, stageFlagCounts } from '../batch';
 import { loadSeededFixture } from '../groundtruth';
 
 const evalFor = (data: any, cand: string, mode: 'basic' | 'subagent' = 'basic') => {
@@ -205,5 +206,45 @@ describe('buildReport', () => {
   it('keeps latency out of cross-mode pooling: per-mode latency rows are separate', () => {
     expect(markdown).toMatch(/\| BASE \| basic \|/);
     expect(markdown).toMatch(/\| BASE \| swarm \|/);
+  });
+});
+
+describe('regressions found by the independent verifier on the smoke batch', () => {
+  it('a stage API error (e.g. the deduplicator or evaluate call dying) is a flag, an outcome and a gate — not a clean run', () => {
+    const stage = (over: any) => ({ calls: 1, successes: 0, failures: 1, requestedModels: { m: 1 }, servedModels: {}, errorKinds: { api_error: 1 }, ...over });
+    const m = { stages: { subagent: { deduplicate: stage({}) }, basic: {}, shared: { evaluate: stage({}) } } };
+    expect(classifyCompleteAttempt(m)).toEqual({ outcome: 'stage_error', flags: ['stage_error'] });
+    expect(stageFlagCounts(m).stage_error).toBe(2);
+    // a timeout is its own flag and is not double counted as an API error
+    const t = { stages: { subagent: { deduplicate: stage({ errorKinds: { timeout: 1 } }) } } };
+    expect(stageFlagCounts(t)).toMatchObject({ stage_error: 0, stage_timeout: 0 });
+  });
+
+  it('the gate fails a candidate whose stages error more than BASE, and the report shows the column', () => {
+    const data = synthBatch({ stageFor: (arm, src, st) => (arm === 'CAND' && src === 'subagent' && st === 'deduplicate' ? { failures: 1, successes: 1 } : {}) });
+    const { ev } = evalFor(data, 'CAND', 'subagent');
+    expect(ev.gates.find(g => g.name.startsWith('stage API errors'))!.status).toBe('FAIL');
+    expect(buildReport({ data, judge: [] }).markdown).toContain('API errors (non-timeout)');
+  });
+
+  it('recall is judged against the A/A control\'s recall of BASE, not against BASE\'s trivial 100%', () => {
+    // BASE2 recovers only 60% of BASE (noise). A candidate at 60% is therefore no worse than the control.
+    const data = synthBatch({ findingCount: (arm, pr, rep, mode) => (arm === 'BASE2' || arm === 'CAND' ? 3 : 5) });
+    const rows = computeRunMetrics(data);
+    const gt = computeGroundTruth(data, undefined, undefined);
+    const ev = evaluateCandidate(data, rows, gt, computeReliability(data), 'CAND', 'basic');
+    const r = ev.comparisons.find(c => c.label === 'recall of BASE findings' && c.size === 'large')!;
+    expect(r.cmp.meanBase).toBeCloseTo(0.6, 8);
+    expect(r.cmp.verdict).toBe('PASS');
+    // and the control itself does not FAIL against itself
+    const evc = evaluateCandidate(data, rows, gt, computeReliability(data), 'BASE2', 'basic');
+    expect(evc.largeRecallVerdict).toBe('PASS');
+  });
+
+  it('with no control arm the recall comparison is UNMEASURED, never degenerate', () => {
+    const data = synthBatch({ arms: [{ name: 'BASE', role: 'baseline' }, { name: 'CAND', role: 'candidate' }] });
+    const rows = computeRunMetrics(data);
+    const ev = evaluateCandidate(data, rows, computeGroundTruth(data, undefined, undefined), computeReliability(data), 'CAND', 'basic');
+    expect(ev.largeRecallVerdict).toBe('UNMEASURED');
   });
 });

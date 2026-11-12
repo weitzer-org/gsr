@@ -1,7 +1,7 @@
 // Pure analysis over a loaded batch: per-run metrics, per-PR series, gates and decision rule.
 // No I/O and no model calls, so every number in the report can be recomputed from the batch
 // directory alone (docs/eval/model-upgrade-test-plan.md defines the gates this implements).
-import { BatchData, RunRecord, ManifestPr, ServedPins, stageServedMismatches, costOfMetrics } from './batch';
+import { BatchData, RunRecord, ManifestPr, ServedPins, stageServedMismatches, stageApiErrors, costOfMetrics } from './batch';
 import { ReviewFinding } from './api-client';
 import { validateFindingsAgainstDiff, computeRecall } from './validation';
 import { scoreSeeded, loadSeededFixture, SeededFixture } from './groundtruth';
@@ -14,7 +14,7 @@ export type SizeFilter = 'all' | 'small' | 'large';
 export const SIZE_FILTERS: readonly SizeFilter[] = ['all', 'small', 'large'];
 
 export interface StageAgg {
-  calls: number; maxTokens: number; timeouts: number; parseFailures: number; servedMismatches: number; thinkingTokens: number;
+  calls: number; maxTokens: number; timeouts: number; parseFailures: number; apiErrors: number; servedMismatches: number; thinkingTokens: number;
 }
 
 export interface RunMetrics {
@@ -47,7 +47,7 @@ function aggStages(metrics: any, mode: Mode, pins: ServedPins): Record<string, S
   const out: Record<string, StageAgg> = {};
   for (const [name, s] of Object.entries(inModeStages(metrics, mode))) {
     out[name] = {
-      calls: s.calls ?? 0, maxTokens: s.maxTokens ?? 0, timeouts: s.timeouts ?? 0, parseFailures: s.parseFailures ?? 0,
+      calls: s.calls ?? 0, maxTokens: s.maxTokens ?? 0, timeouts: s.timeouts ?? 0, parseFailures: s.parseFailures ?? 0, apiErrors: stageApiErrors(s),
       servedMismatches: stageServedMismatches(s, pins), thinkingTokens: s.thinkingTokens ?? 0,
     };
   }
@@ -226,8 +226,18 @@ export function compareArms(
 ): MeasureComparison {
   const prs = prsFor(data, size).map(p => p.url);
   const c = perPrMeans(runMeasureRows(measure, cand, mode, runRows, gt).map(x => ({ pr: x.pr, value: x.value })), prs);
-  const b = perPrMeans(runMeasureRows(measure, base, mode, runRows, gt).map(x => ({ pr: x.pr, value: x.value })), prs);
-  // recallOfBase for the baseline itself is trivially 1; comparing it with itself is a no-op.
+  // recallOfBase is measured AGAINST the baseline, so the baseline's own value is trivially 1 and
+  // comparing a candidate with it would FAIL even an identical copy (a bug the verifier caught: the
+  // A/A control scored 0.64 against 1.0). The reference for this measure is the A/A control's recall
+  // of BASE: "does the candidate recover BASE's findings as well as a second run of BASE does?".
+  // Without a control in the batch the measure is UNMEASURED rather than silently degenerate.
+  let refArm = base;
+  if (measure === 'recallOfBase') {
+    const control = data.manifest.control_arm;
+    if (!control) return compareMeasure([], [], 'share', { seed });
+    refArm = control;
+  }
+  const b = perPrMeans(runMeasureRows(measure, refArm, mode, runRows, gt).map(x => ({ pr: x.pr, value: x.value })), prs);
   return compareMeasure(c, b, MEASURE_KIND[measure], { seed });
 }
 
@@ -303,6 +313,9 @@ export function evaluateCandidate(
   gates.push(stageGate('MAX_TOKENS + timeouts per stage <= BASE', runRows, candidate, base, mode, s => s.maxTokens + s.timeouts, 'MAX_TOKENS+timeouts'));
   // 4. schema/parse failures <= BASE
   gates.push(stageGate('parse failures per stage <= BASE', runRows, candidate, base, mode, s => s.parseFailures, 'parse failures'));
+  // 4b. (added after the smoke pass showed the gap) stage API errors <= BASE. A failed deduplicate or
+  // evaluate call degrades silently to raw findings / a canned string, so it must be counted.
+  gates.push(stageGate('stage API errors per stage <= BASE', runRows, candidate, base, mode, s => s.apiErrors, 'API errors'));
 
   // 5. ground truth: no FAIL (seeded catch + job_tracker must_catch)
   const comparisons: CandidateEvaluation['comparisons'] = [];

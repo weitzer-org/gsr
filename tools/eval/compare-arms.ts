@@ -29,6 +29,7 @@ import {
 } from './batch';
 import { CallBudget, BudgetExceededError, requireCap } from './budget';
 import { makeRng, shuffled } from './stats';
+import { startNullS3 } from './nullS3';
 
 export function hashSeed(seed: number, ...parts: string[]): number {
   let h = 2166136261 ^ seed;
@@ -228,8 +229,11 @@ async function main() {
   console.log('Building adk/backend (tsc)...');
   execSync('npx tsc', { cwd: backendDir, stdio: 'inherit' });
 
+  // Storage sink: backends write their per-call usage records here (kept per arm on disk) instead of
+  // into whatever bucket the shell is configured for.
+  const sink = await startNullS3({ saveDir: path.join(outDir, 'usage_records') });
   const children: ChildProcess[] = [];
-  const cleanup = () => { for (const c of children) if (!c.killed) c.kill('SIGTERM'); };
+  const cleanup = () => { for (const c of children) if (!c.killed) c.kill('SIGTERM'); void sink.close(); };
   process.on('exit', cleanup);
   process.on('SIGINT', () => { cleanup(); process.exit(130); });
 
@@ -239,7 +243,7 @@ async function main() {
       const a = arms[i];
       const port = basePort + i;
       const logFd = fs.openSync(path.join(outDir, 'logs', `${a.name}.log`), 'a');
-      const child = spawn('node', ['dist/src/index.js'], { cwd: backendDir, env: buildBackendEnv(process.env, a, port), stdio: ['ignore', logFd, logFd] });
+      const child = spawn('node', ['dist/src/index.js'], { cwd: backendDir, env: buildBackendEnv(process.env, a, port, sink.endpoint), stdio: ['ignore', logFd, logFd] });
       children.push(child);
       const baseUrl = `http://localhost:${port}`;
       const status = await waitForStatus(baseUrl);

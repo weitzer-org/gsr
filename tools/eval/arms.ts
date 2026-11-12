@@ -7,6 +7,7 @@
 // are passed to the child process, and are never recorded.
 import * as fs from 'fs';
 import { describeModelRouting, MODEL_STAGES } from '../../adk/backend/src/models';
+import { scrubStorageEnv, sinkEnv } from './nullS3';
 
 export interface ArmConfig {
   name: string;
@@ -53,11 +54,16 @@ export function loadArms(file: string): ArmConfig[] {
 }
 
 // The environment a backend process is started with: the parent's, minus every tunable, plus the
-// arm's overlay, plus the port.
-export function buildBackendEnv(parent: NodeJS.ProcessEnv, arm: ArmConfig, port: number): NodeJS.ProcessEnv {
+// arm's overlay, plus the port. Storage is ALWAYS redirected: every inherited S3_* / AWS_* /
+// ingest / feedback variable is removed and the backend is pointed at a local null sink (or, when
+// none is given, at a closed local port), so an eval backend can never write review history or
+// usage records into the operator's real bucket.
+export function buildBackendEnv(parent: NodeJS.ProcessEnv, arm: ArmConfig, port: number, sinkEndpoint = 'http://127.0.0.1:9'): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...parent };
   for (const k of SCRUBBED_KEYS) delete env[k];
   for (const k of Object.keys(env)) if (k.startsWith('ABLATE_')) delete env[k];
+  scrubStorageEnv(env);
+  Object.assign(env, sinkEnv(sinkEndpoint, arm.name));
   Object.assign(env, arm.env);
   env.PORT = String(port);
   return env;

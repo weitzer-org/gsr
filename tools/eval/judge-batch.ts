@@ -20,6 +20,7 @@ import { validateFindingsAgainstDiff } from './validation';
 import { compareResultsWithLLMV2, DEFAULT_JUDGE_MODEL } from './llm-comparator-v2';
 import { makeRng } from './stats';
 import { hashSeed } from './compare-arms';
+import { startNullS3, scrubStorageEnv, sinkEnv } from './nullS3';
 
 export interface JudgeTask {
   pr: string; slug: string; rep: number; candidate: string; baseline: string; mode: Mode;
@@ -127,6 +128,12 @@ async function main() {
   console.log(`Batch ${data.manifest.batch_id}: ${tasks.length} judge calls planned, ${todo.length} not yet done. By judge: ${[...byJudge].map(([k, v]) => `${k}=${v}`).join(', ')}`);
   if (!process.argv.includes('--live')) { console.log('DRY RUN: nothing was called. Add --live with EVAL_MAX_JUDGE_CALLS=N.'); return; }
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is required.');
+  // The judge calls are usage-tracked through tools/eval/usage.ts, which writes to S3_BUCKET and
+  // reports to USAGE_INGEST_URL. Redirect both away from any real store before the first call
+  // (the storage client reads its environment lazily, on first use).
+  scrubStorageEnv(process.env);
+  const sink = await startNullS3({ saveDir: path.join(dir, 'judge_usage_records') });
+  Object.assign(process.env, sinkEnv(sink.endpoint, 'judge'));
   const budget = new CallBudget('judge calls', requireCap('EVAL_MAX_JUDGE_CALLS', process.env.EVAL_MAX_JUDGE_CALLS));
   const concurrency = Number(process.env.EVAL_JUDGE_CONCURRENCY || '4');
   let next = 0;
@@ -140,7 +147,8 @@ async function main() {
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
-  console.log(`Done. ${budget.callsUsed} judge call(s).`);
+  await sink.close();
+  console.log(`Done. ${budget.callsUsed} judge call(s). Judge usage records: ${path.join(dir, 'judge_usage_records')}`);
 }
 
 if (require.main === module) {

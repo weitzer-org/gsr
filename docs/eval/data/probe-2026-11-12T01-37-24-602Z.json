@@ -1,0 +1,365 @@
+{
+  "ran_at": "2026-11-12T01:37:24.602Z",
+  "calls": 19,
+  "results": [
+    {
+      "id": "gemini-3.1-pro-preview:schema",
+      "model": "gemini-3.1-pro-preview",
+      "kind": "schema",
+      "ok": true,
+      "latencyMs": 23272,
+      "servedModel": "gemini-3.1-pro-preview",
+      "servedMatches": true,
+      "finishReason": "STOP",
+      "usage": {
+        "prompt": 167,
+        "candidates": 56,
+        "thoughts": 2141,
+        "total": 2364
+      },
+      "usageResidual": 0,
+      "textPreview": "{\"filesAnalyzed\":[\"src/cache.ts\"],\"issues\":[{\"file\":\"src/cache.ts\",\"line\":15,\"severity\":\"MEDIUM\",\"summary\":\"No eviction policy implemented, which causes the cache and history to grow without bound and may lead to a memory leak.\"}]}",
+      "jsonParsed": true,
+      "jsonMatchesSchemaShape": true
+    },
+    {
+      "id": "gemini-3.1-pro-preview:thinking_budget_4096",
+      "model": "gemini-3.1-pro-preview",
+      "kind": "thinking_budget_4096",
+      "ok": true,
+      "latencyMs": 3104,
+      "servedModel": "gemini-3.1-pro-preview",
+      "servedMatches": true,
+      "finishReason": "STOP",
+      "usage": {
+        "prompt": 102,
+        "candidates": 38,
+        "thoughts": 218,
+        "total": 358
+      },
+      "usageResidual": 0,
+      "textPreview": "[{\"file\":\"src/cache.ts\",\"line\":15,\"severity\":\"HIGH\",\"summary\":\"unbounded growth\",\"description\":\"map grows without eviction and history array never trimmed\"}]",
+      "jsonParsed": true,
+      "jsonMatchesSchemaShape": true
+    },
+    {
+      "id": "gemini-3.1-pro-preview:thinking_low",
+      "model": "gemini-3.1-pro-preview",
+      "kind": "thinking_low",
+      "ok": true,
+      "latencyMs": 9491,
+      "servedModel": "gemini-3.1-pro-preview",
+      "servedMatches": true,
+      "finishReason": "STOP",
+      "usage": {
+        "prompt": 167,
+        "candidates": 84,
+        "thoughts": 192,
+        "total": 443
+      },
+      "usageResidual": 0,
+      "textPreview": "{\n  \"filesAnalyzed\": [\n    \"src/cache.ts\"\n  ],\n  \"issues\": [\n    {\n      \"file\": \"src/cache.ts\",\n      \"line\": 14,\n      \"severity\": \"MEDIUM\",\n      \"summary\": \"Unbounded cache growth due to lack of eviction strategy\"\n    }\n  ]\n}",
+      "jsonParsed": true,
+      "jsonMatchesSchemaShape": true
+    },
+    {
+      "id": "gemini-3.1-pro-preview:thinking_minimal",
+      "model": "gemini-3.1-pro-preview",
+      "kind": "thinking_minimal",
+      "ok": false,
+      "latencyMs": 212,
+      "error": {
+        "status": 400,
+        "message": "{\"error\":{\"code\":400,\"message\":\"Thinking level MINIMAL is not supported for this model. Please retry with other thinking level.\",\"status\":\"INVALID_ARGUMENT\"}}"
+      }
+    },
+    {
+      "id": "gemini-3.1-pro-preview:caches_create",
+      "model": "gemini-3.1-pro-preview",
+      "kind": "caches_create",
+      "ok": true,
+      "latencyMs": 1353,
+      "cacheName": "cachedContents/he1w4g1wc8s7ij5etz5qxcc263xfalz5w5hkj72u"
+    },
+    {
+      "id": "gemini-3.1-pro-preview:max_output_small",
+      "model": "gemini-3.1-pro-preview",
+      "kind": "max_output_small",
+      "ok": true,
+      "latencyMs": 2769,
+      "servedModel": "gemini-3.1-pro-preview",
+      "servedMatches": true,
+      "finishReason": "MAX_TOKENS",
+      "usage": {
+        "prompt": 14,
+        "candidates": 3,
+        "thoughts": 57,
+        "total": 74
+      },
+      "usageResidual": 0,
+      "textPreview": " Identify Key Concepts"
+    },
+    {
+      "id": "gemini-4-argon:schema",
+      "model": "gemini-4-argon",
+      "kind": "schema",
+      "ok": true,
+      "latencyMs": 7635,
+      "servedModel": "gemini-4-argon",
+      "servedMatches": true,
+      "finishReason": "STOP",
+      "usage": {
+        "prompt": 571,
+        "candidates": 104,
+        "thoughts": 155,
+        "total": 830
+      },
+      "usageResidual": 0,
+      "textPreview": "{\"filesAnalyzed\":[\"src/cache.ts\"],\"issues\":[{\"file\":\"src/cache.ts\",\"line\":15,\"severity\":\"HIGH\",\"summary\":\"Unbounded cache growth in this.map without an eviction policy leads to memory leaks.\"},{\"file\":\"src/cache.ts\",\"line\":16,\"severity\":\"HIGH\",\"summary\":\"Unbounded history array growth retains references to all cached values indefinitely, causing a memory leak.\"}]}",
+      "jsonParsed": true,
+      "jsonMatchesSchemaShape": true
+    },
+    {
+      "id": "gemini-4-argon:thinking_budget_4096",
+      "model": "gemini-4-argon",
+      "kind": "thinking_budget_4096",
+      "ok": true,
+      "latencyMs": 7359,
+      "servedModel": "gemini-4-argon",
+      "servedMatches": true,
+      "finishReason": "STOP",
+      "usage": {
+        "prompt": 398,
+        "candidates": 54,
+        "total": 452
+      },
+      "usageResidual": 0,
+      "textPreview": "[{\"file\":\"src/cache.ts\",\"line\":15,\"severity\":\"HIGH\",\"summary\":\"unbounded growth and history\",\"description\":\"map grows without eviction and history array never trimmed\"}]",
+      "jsonParsed": true,
+      "jsonMatchesSchemaShape": true
+    },
+    {
+      "id": "gemini-4-argon:thinking_low",
+      "model": "gemini-4-argon",
+      "kind": "thinking_low",
+      "ok": true,
+      "latencyMs": 5940,
+      "servedModel": "gemini-4-argon",
+      "servedMatches": true,
+      "finishReason": "STOP",
+      "usage": {
+        "prompt": 571,
+        "candidates": 161,
+        "total": 732
+      },
+      "usageResidual": 0,
+      "textPreview": "{\n  \"filesAnalyzed\": [\n    \"src/cache.ts\"\n  ],\n  \"issues\": [\n    {\n      \"file\": \"src/cache.ts\",\n      \"line\": 15,\n      \"severity\": \"HIGH\",\n      \"summary\": \"Cache map grows without bound due to missing eviction policy, leading to potential memory leaks.\"\n    },\n    {\n      \"file\": \"src/cache.ts\",\n      \"line\": 16,\n      \"severity\": \"HIGH\",\n      \"summary\": \"History array grows unbounded on every",
+      "jsonParsed": true,
+      "jsonMatchesSchemaShape": true
+    },
+    {
+      "id": "gemini-4-argon:thinking_minimal",
+      "model": "gemini-4-argon",
+      "kind": "thinking_minimal",
+      "ok": false,
+      "latencyMs": 232,
+      "error": {
+        "status": 400,
+        "message": "{\"error\":{\"code\":400,\"message\":\"Thinking level MINIMAL is not supported for this model. Please retry with other thinking level.\",\"status\":\"INVALID_ARGUMENT\"}}"
+      }
+    },
+    {
+      "id": "gemini-4-argon:caches_create",
+      "model": "gemini-4-argon",
+      "kind": "caches_create",
+      "ok": false,
+      "latencyMs": 180,
+      "error": {
+        "status": 400,
+        "message": "{\"error\":{\"code\":400,\"message\":\"Explicit caching is not supported for models/gemini-4-argon.\",\"status\":\"INVALID_ARGUMENT\"}}"
+      }
+    },
+    {
+      "id": "gemini-4-argon:max_output_small",
+      "model": "gemini-4-argon",
+      "kind": "max_output_small",
+      "ok": true,
+      "latencyMs": 5987,
+      "servedModel": "gemini-4-argon",
+      "servedMatches": true,
+      "finishReason": "MAX_TOKENS",
+      "usage": {
+        "prompt": 44,
+        "candidates": 64,
+        "total": 108
+      },
+      "usageResidual": 0,
+      "textPreview": "An actionable code review comment is specific, clear, and provides a direct path toward resolution. Instead of leaving vague feedback like \"this is confusing\" or \"fix this,\" an actionable comment pinpoints the exact issue and offers a concrete solution, such as \"Consider renaming this variable to `userCount`"
+    },
+    {
+      "id": "gemini-3.8-flash:schema",
+      "model": "gemini-3.8-flash",
+      "kind": "schema",
+      "ok": true,
+      "latencyMs": 7223,
+      "servedModel": "gemini-3.8-flash",
+      "servedMatches": true,
+      "finishReason": "STOP",
+      "usage": {
+        "prompt": 167,
+        "candidates": 99,
+        "thoughts": 435,
+        "total": 701
+      },
+      "usageResidual": 0,
+      "textPreview": "{\n  \"filesAnalyzed\": [\n    \"src/cache.ts\"\n  ],\n  \"issues\": [\n    {\n      \"file\": \"src/cache.ts\",\n      \"line\": 16,\n      \"severity\": \"MEDIUM\",\n      \"summary\": \"Every call to `set` appends to `this.history` without any bounds or eviction policy, causing unbounded memory growth.\"\n    }\n  ]\n}",
+      "jsonParsed": true,
+      "jsonMatchesSchemaShape": true
+    },
+    {
+      "id": "gemini-3.8-flash:thinking_budget_4096",
+      "model": "gemini-3.8-flash",
+      "kind": "thinking_budget_4096",
+      "ok": true,
+      "latencyMs": 6746,
+      "servedModel": "gemini-3.8-flash",
+      "servedMatches": true,
+      "finishReason": "STOP",
+      "usage": {
+        "prompt": 102,
+        "candidates": 39,
+        "thoughts": 481,
+        "total": 622
+      },
+      "usageResidual": 0,
+      "textPreview": "[{\"file\":\"src/cache.ts\",\"line\":15,\"severity\":\"HIGH\",\"summary\":\"unbounded growth\",\"description\":\"map grows without eviction and history array is never trimmed\"}]",
+      "jsonParsed": true,
+      "jsonMatchesSchemaShape": true
+    },
+    {
+      "id": "gemini-3.8-flash:thinking_low",
+      "model": "gemini-3.8-flash",
+      "kind": "thinking_low",
+      "ok": true,
+      "latencyMs": 3313,
+      "servedModel": "gemini-3.8-flash",
+      "servedMatches": true,
+      "finishReason": "STOP",
+      "usage": {
+        "prompt": 167,
+        "candidates": 92,
+        "total": 259
+      },
+      "usageResidual": 0,
+      "textPreview": "{\n  \"filesAnalyzed\": [\n    \"src/cache.ts\"\n  ],\n  \"issues\": [\n    {\n      \"file\": \"src/cache.ts\",\n      \"line\": 15,\n      \"severity\": \"HIGH\",\n      \"summary\": \"Cache entries and history are stored without any eviction policy or size limit, causing unbounded memory growth.\"\n    }\n  ]\n}",
+      "jsonParsed": true,
+      "jsonMatchesSchemaShape": true
+    },
+    {
+      "id": "gemini-3.8-flash:thinking_minimal",
+      "model": "gemini-3.8-flash",
+      "kind": "thinking_minimal",
+      "ok": false,
+      "latencyMs": 213,
+      "error": {
+        "status": 400,
+        "message": "{\"error\":{\"code\":400,\"message\":\"Thinking level MINIMAL is not supported for this model. Please retry with other thinking level.\",\"status\":\"INVALID_ARGUMENT\"}}"
+      }
+    },
+    {
+      "id": "gemini-3.8-flash:caches_create",
+      "model": "gemini-3.8-flash",
+      "kind": "caches_create",
+      "ok": true,
+      "latencyMs": 1362,
+      "cacheName": "cachedContents/6jttqzk20z8ic2sb5ozq6bj2cehocjhtr9lpkttp"
+    },
+    {
+      "id": "gemini-3.8-flash:max_output_small",
+      "model": "gemini-3.8-flash",
+      "kind": "max_output_small",
+      "ok": true,
+      "latencyMs": 3636,
+      "servedModel": "gemini-3.8-flash",
+      "servedMatches": true,
+      "finishReason": "MAX_TOKENS",
+      "usage": {
+        "prompt": 14,
+        "candidates": 1,
+        "thoughts": 59,
+        "total": 74
+      },
+      "usageResidual": 0,
+      "textPreview": "An"
+    },
+    {
+      "id": "gemini-2.5-pro:judge_plain",
+      "model": "gemini-2.5-pro",
+      "kind": "judge_plain",
+      "ok": true,
+      "latencyMs": 3419,
+      "servedModel": "gemini-2.5-pro",
+      "servedMatches": true,
+      "finishReason": "STOP",
+      "usage": {
+        "prompt": 8,
+        "candidates": 1,
+        "thoughts": 180,
+        "total": 189
+      },
+      "usageResidual": 0,
+      "textPreview": "ready"
+    }
+  ],
+  "assessments": [
+    {
+      "model": "gemini-3.1-pro-preview",
+      "dropped": false,
+      "reasons": [],
+      "notes": [
+        "thinking MINIMAL rejected ({\"error\":{\"code\":400,\"message\":\"Thinking level MINIMAL is not supported for this model. Please retry with other thinking level.\",\"status\":\"INVALID_ARGUMENT\"}})"
+      ],
+      "supports": {
+        "schema": true,
+        "thinkingBudget4096": true,
+        "thinkingLow": true,
+        "thinkingMinimal": false,
+        "cachesCreate": true,
+        "smallCap": true
+      }
+    },
+    {
+      "model": "gemini-4-argon",
+      "dropped": false,
+      "reasons": [],
+      "notes": [
+        "thinking MINIMAL rejected ({\"error\":{\"code\":400,\"message\":\"Thinking level MINIMAL is not supported for this model. Please retry with other thinking level.\",\"status\":\"INVALID_ARGUMENT\"}})",
+        "caches.create rejected ({\"error\":{\"code\":400,\"message\":\"Explicit caching is not supported for models/gemini-4-argon.\",\"status\":\"INVALID_ARGUMENT\"}}) — keep USE_CONTEXT_CACHING=false"
+      ],
+      "supports": {
+        "schema": true,
+        "thinkingBudget4096": true,
+        "thinkingLow": true,
+        "thinkingMinimal": false,
+        "cachesCreate": false,
+        "smallCap": true
+      }
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "dropped": false,
+      "reasons": [],
+      "notes": [
+        "thinking MINIMAL rejected ({\"error\":{\"code\":400,\"message\":\"Thinking level MINIMAL is not supported for this model. Please retry with other thinking level.\",\"status\":\"INVALID_ARGUMENT\"}})"
+      ],
+      "supports": {
+        "schema": true,
+        "thinkingBudget4096": true,
+        "thinkingLow": true,
+        "thinkingMinimal": false,
+        "cachesCreate": true,
+        "smallCap": true
+      }
+    }
+  ]
+}
